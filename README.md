@@ -15,10 +15,14 @@
 
 ## 里程碑（规划中）
 
-- **房间联机**：WebSocket 信令服务器按房间自动牵线，免去手动互发连接码（需部署服务端，
-  当前版本未启用；代码保留在 `server.js`，部署方法见下文）
-- **TURN 中继**：对称型 NAT / 严格防火墙下的兜底中转
-- **域名 + HTTPS**：生产部署与更稳定的浏览器兼容
+详细路线图见 **[ROADMAP.md](ROADMAP.md)**，四个里程碑：
+
+| 里程碑 | 内容 |
+|--------|------|
+| **M1 · v1.2** | 扫码配对（双向）/ 文件传输 / 语音 / 视频，全部寄生现有 P2P 连接，零服务器 |
+| **M2 · v1.3** | 弃用裸 JS，全量 TypeScript + pnpm workspace monorepo |
+| **M3 · v2.0** | 信令服务器 Rust 重写（tokio + axum，10 万+ 长连接）；**三层配置：默认值 < config.toml < 环境变量**，`GET /config` 把 STUN/TURN 配置下发客户端（去掉硬编码） |
+| **M4 · v3.0** | App 打包（PWA → Tauri/Capacitor）、微信小程序/小游戏、广告变现（激励视频场景） |
 
 > 公网 IPv4 NAT 穿透（双方在不同家庭宽带后）：代码已内置腾讯/阿里公共 STUN 尽力尝试，
 > 成功率取决于 NAT 类型，**不在当前版本的支持承诺范围内**。
@@ -179,6 +183,7 @@ webrtc-gomoku/
 │   ├── standalone-check.js  # 单文件版验证（node test/standalone-check.js）
 │   └── e2e.js          # 双端联机 E2E（node test/e2e.js）
 ├── dist/               # 构建产物（单文件版，随 Release 分发）
+├── ROADMAP.md          # 路线图 / 里程碑（M1 扫码·文件·音视频 / M2 TS+pnpm / M3 Rust 服务器 / M4 App+小程序+广告）
 ├── Dockerfile
 └── package.json
 ```
