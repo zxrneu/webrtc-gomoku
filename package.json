@@ -1,0 +1,29 @@
+{
+  "name": "webrtc-gomoku",
+  "version": "1.0.0",
+  "description": "WebRTC P2P 联机五子棋：浏览器 DataChannel 直连对战，服务器仅做信令中转",
+  "main": "server.js",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zxrneu/webrtc-gomoku.git"
+  },
+  "keywords": [
+    "webrtc",
+    "p2p",
+    "gomoku",
+    "五子棋",
+    "datachannel",
+    "game"
+  ],
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/core.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
