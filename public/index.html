@@ -14,7 +14,7 @@
     <span class="logo"><i class="b"></i><i class="w"></i></span>
     <div>
       <h1>五子棋 · P2P 联机</h1>
-      <p class="subtitle">WebRTC DataChannel 直连对战 · 服务器只负责牵线，不过招棋</p>
+      <p class="subtitle">WebRTC 浏览器直连对战 · 邀请对局无需服务器，微信互发连接码即玩</p>
     </div>
   </div>
   <div id="conn-badge" class="badge offline"><span class="dot"></span><span id="conn-text">未连接</span></div>
@@ -28,7 +28,7 @@
       <div id="board-overlay" class="board-overlay">
         <div class="overlay-inner">
           <div class="overlay-dots"><i></i><i></i><i></i></div>
-          <p id="overlay-text">在右侧创建或加入房间，开始 P2P 对局</p>
+          <p id="overlay-text">输入昵称，创建或加入房间，开始 P2P 对局</p>
         </div>
       </div>
       <div id="result-banner" class="result-banner hidden">
@@ -49,6 +49,10 @@
   <aside class="side">
 
     <div class="card" id="connect-card">
+      <label class="field name-field">
+        <span>昵称（对方可见）</span>
+        <input id="name-input" type="text" maxlength="12" placeholder="输入昵称后才能创建 / 加入房间" autocomplete="off">
+      </label>
       <div class="tabs">
         <button class="tab active" data-tab="room">房间联机<em class="tab-note">需服务器 · 规划中</em></button>
         <button class="tab" data-tab="manual">邀请对局</button>
@@ -56,10 +60,6 @@
 
       <div class="tab-panel" id="tab-room">
         <p class="manual-tip">房间联机需要部署信令服务器（交换 SDP / ICE 候选自动牵线），属于规划中的里程碑功能。当前版本请使用「邀请对局」：单文件 + 微信互发连接码，支持局域网与可达 IPv6 直连。</p>
-        <label class="field">
-          <span>昵称</span>
-          <input id="name-input" type="text" maxlength="12" placeholder="输入昵称" autocomplete="off">
-        </label>
         <div class="row">
           <button class="btn primary grow" id="create-room-btn">创建房间</button>
         </div>
@@ -74,7 +74,7 @@
           </div>
           <div class="status-line" id="room-status">等待对手加入…</div>
         </div>
-        <p class="manual-tip" id="file-tip" style="display:none">当前是 file:// 本地打开，房间联机不可用；请通过服务器访问，或切换到「手动信令」标签页。</p>
+        <p class="manual-tip" id="file-tip" style="display:none">当前是 file:// 本地打开，房间联机不可用；请通过服务器访问，或切换到「邀请对局」标签页。</p>
       </div>
 
       <div class="tab-panel hidden" id="tab-manual">

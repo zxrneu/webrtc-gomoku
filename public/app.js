@@ -27,6 +27,9 @@
 
   const $ = (id) => document.getElementById(id);
 
+  // 房间联机依赖信令服务器；file:// 单文件版（无服务器）不可用，入口整组置灰
+  const roomModeAvailable = location.protocol === 'http:' || location.protocol === 'https:';
+
   const dom = {
     canvas: $('board'),
     badge: $('conn-badge'),
@@ -187,9 +190,15 @@
     const dpr = Math.max(1, window.devicePixelRatio || 1);
     dom.canvas.width = CANVAS * dpr;
     dom.canvas.height = CANVAS * dpr;
-    dom.canvas.style.width = CANVAS + 'px';
-    dom.canvas.style.height = CANVAS + 'px';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // 显示尺寸完全交给 CSS（width:min(560px,100%) + aspect-ratio:1），
+    // 保证桌面 560px、手机上按容器宽度收缩且始终为正方形；
+    // 仅在不支持 aspect-ratio 的老浏览器里用 JS 兜底保持正方形
+    if (!(window.CSS && CSS.supports && CSS.supports('aspect-ratio', '1'))) {
+      const w = Math.min(CANVAS, (dom.canvas.parentElement && dom.canvas.parentElement.clientWidth) || CANVAS);
+      dom.canvas.style.width = w + 'px';
+      dom.canvas.style.height = w + 'px';
+    }
   }
 
   function drawStone(gx, gy, color, alpha) {
@@ -493,6 +502,14 @@
     return S.myName;
   }
 
+  // 昵称门禁：未填昵称时「创建房间」入口置灰（加入房间可点，昵称留空用默认名）
+  function updateNameGate() {
+    const has = dom.nameInput.value.trim().length > 0;
+    dom.flowHostBtn.disabled = !has;
+    if (roomModeAvailable) dom.createBtn.disabled = !has;
+  }
+  dom.nameInput.addEventListener('input', updateNameGate);
+
   function genRoomCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let code = '';
@@ -507,11 +524,11 @@
   };
 
   dom.joinBtn.onclick = () => {
-    if (!readName()) return toast('先输入昵称');
+    readName();
     const code = dom.roomInput.value.trim().toUpperCase();
     if (!/^[A-Z0-9]{4}$/.test(code)) return toast('房间号为 4 位字母或数字');
     ensureSignaling();
-    signalSend({ t: 'join', room: code, name: S.myName });
+    signalSend({ t: 'join', room: code, name: S.myName || '玩家' });
   };
 
   dom.copyLinkBtn.onclick = async () => {
@@ -869,7 +886,7 @@
   };
 
   dom.flowGuestBtn.onclick = () => {
-    if (!readName()) return toast('先输入昵称');
+    readName();
     S.manual = true;
     S.role = 'guest';
     S.myColor = WHITE;
@@ -921,6 +938,15 @@
   };
 
   /* ---------------- 连接类型检测 ---------------- */
+  // 候选地址格式化：IPv6 加方括号；mDNS 隐私名（.local）如实展示并标注
+  function fmtAddr(c, side) {
+    if (!c || !c.address) return side === 'local' ? '本机地址未知' : '对端地址未知';
+    const a = String(c.address);
+    const port = c.port != null && c.port !== 0 ? ':' + c.port : '';
+    if (/\.local$/i.test(a)) return a + port + '（mDNS 隐私名）';
+    return a.includes(':') ? '[' + a + ']' + port : a + port;
+  }
+
   async function detectTransport() {
     if (!S.pc || typeof S.pc.getStats !== 'function') return null;
     let stats;
@@ -937,23 +963,30 @@
     if (!picked) picked = succeeded[0];
     if (!picked) return null;
     let local = null;
-    stats.forEach((r) => { if (r.id === picked.localCandidateId) local = r; });
+    let remote = null;
+    stats.forEach((r) => {
+      if (r.id === picked.localCandidateId) local = r;
+      if (r.id === picked.remoteCandidateId) remote = r;
+    });
     if (!local) return null;
+    // 实际打通的两端地址：本机 ↔ 对端
+    const ipPair = fmtAddr(local, 'local') + ' ↔ ' + fmtAddr(remote, 'remote');
     const v6 = String(local.address || '').includes(':');
     const proto = String(local.protocol || '').toUpperCase() || 'UDP';
+    const mk = (kind, cls, label, detail) => ({ kind, cls, label, detail, ipPair });
     if (local.candidateType === 'relay') {
-      return { kind: 'relay', cls: 'relay', label: 'TURN 中继', detail: 'P2P 直连未成功，数据经 TURN 服务器转发（' + proto + '）' };
+      return mk('relay', 'relay', 'TURN 中继', 'P2P 直连未成功，数据经 TURN 服务器转发（' + proto + '）');
     }
     if (local.candidateType === 'srflx') {
       return v6
-        ? { kind: 'v6', cls: 'v6', label: 'IPv6 NAT 穿透（STUN）', detail: '经 STUN 获取 IPv6 公网地址后打通（' + proto + '）' }
-        : { kind: 'v4', cls: 'v4', label: 'IPv4 NAT 穿透（STUN）', detail: '经腾讯/阿里 STUN 协助穿透 NAT（' + proto + '）' };
+        ? mk('v6', 'v6', 'IPv6 NAT 穿透（STUN）', '经 STUN 获取 IPv6 公网地址后打通（' + proto + '）')
+        : mk('v4', 'v4', 'IPv4 NAT 穿透（STUN）', '经腾讯/阿里 STUN 协助穿透 NAT（' + proto + '）');
     }
     // host（或 prflx 视作近似直连）
     if (v6) {
-      return { kind: 'v6', cls: 'v6', label: 'IPv6 直连', detail: '全球单播 IPv6 端到端可达，无需 NAT 穿透（' + proto + '）' };
+      return mk('v6', 'v6', 'IPv6 直连', '全球单播 IPv6 端到端可达，无需 NAT 穿透（' + proto + '）');
     }
-    return { kind: 'v4', cls: 'v4', label: 'IPv4 直连', detail: '同一局域网/同网段直连（' + proto + '）' };
+    return mk('v4', 'v4', 'IPv4 直连', '同一局域网/同网段直连（' + proto + '）');
   }
 
   function showTransport(t) {
@@ -962,7 +995,7 @@
     dom.transportLine.classList.remove('hidden', 'v4', 'v6', 'relay');
     dom.transportLine.classList.add(t.cls);
     dom.transportLabel.textContent = t.label;
-    dom.transportDetail.textContent = t.detail;
+    dom.transportDetail.textContent = t.ipPair ? t.detail + ' · ' + t.ipPair : t.detail;
   }
 
   function showFlowConnected(t) {
@@ -971,7 +1004,8 @@
     renderFlow();
     dom.flowResult.className = 'flow-result ok';
     const line = t
-      ? '<b>✅ 连接成功 · ' + t.label + '</b><br>' + t.detail
+      ? '<b>✅ 连接成功 · ' + t.label + '</b><br>' + t.detail +
+        (t.ipPair ? '<br><span class="ip-pair">🔗 ' + t.ipPair + '</span>' : '')
       : '<b>✅ 连接成功</b><br>对局数据通过浏览器 P2P DataChannel 直传';
     dom.flowResult.innerHTML = line;
     setBadge('online', 'P2P 已连接');
@@ -1011,16 +1045,21 @@
   /* ---------------- 初始化 ---------------- */
   S.myName = localStorage.getItem('gomoku-name') || '';
   dom.nameInput.value = S.myName;
+  updateNameGate();
 
   // ?room=XXXX 预填加入房间
   const params = new URLSearchParams(location.search);
   const urlRoom = (params.get('room') || '').toUpperCase();
   if (urlRoom) dom.roomInput.value = urlRoom;
 
-  if (location.protocol === 'http:' || location.protocol === 'https:') {
+  if (roomModeAvailable) {
     ensureSignaling();
   } else {
     dom.fileTip.style.display = 'block';
+    // 无信令服务器：房间联机入口整组置灰（创建房间 / 加入房间 / 房间号输入）
+    dom.createBtn.disabled = true;
+    dom.joinBtn.disabled = true;
+    dom.roomInput.disabled = true;
     // file:// 本地打开（单文件版）：房间联机不可用，自动切到「邀请对局」
     const manualTab = document.querySelector('.tab[data-tab="manual"]');
     if (manualTab) manualTab.click();
@@ -1031,7 +1070,7 @@
   refreshSoundBtn();
   render();
   updateHUD();
-  sysMsg('创建或加入房间，开始 P2P 对局');
+  sysMsg('输入昵称后，创建或加入房间即可开始 P2P 对局');
 
   // 测试/调试钩子（e2e.js 使用；deliver 用于在没有真实 P2P 连接时仿真对局消息）
   window.__gomoku = {

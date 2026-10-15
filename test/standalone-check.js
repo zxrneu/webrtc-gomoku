@@ -39,11 +39,23 @@ const FILE = 'file://' + path.join(__dirname, '..', 'dist', 'gomoku-standalone.h
   const tabOk = await host.evaluate(() =>
     !document.getElementById('tab-manual').classList.contains('hidden') &&
     !document.getElementById('flow-entry').classList.contains('hidden'));
+  // 昵称门禁：未填昵称时「创建房间」置灰；「加入房间」可点；昵称框在 tab 外层始终可见
+  const gate = await host.evaluate(() => ({
+    roomCreateDisabled: document.getElementById('create-room-btn').disabled,
+    roomJoinDisabled: document.getElementById('join-room-btn').disabled,
+    roomInputDisabled: document.getElementById('room-input').disabled,
+    hostBtnDisabled: document.getElementById('flow-host-btn').disabled,
+    guestBtnDisabled: document.getElementById('flow-guest-btn').disabled,
+    nameOutsideTabs: !document.getElementById('name-input').closest('.tab-panel'),
+  }));
+  console.log('   入口门禁:', JSON.stringify(gate));
   console.log('   file:// 自动切到邀请对局 tab + 入口可见:', tabOk);
 
   // 1. 邀请方：创建房间 → 生成邀请码
   await host.evaluate(() => {
-    document.getElementById('name-input').value = '邀请人';
+    const input = document.getElementById('name-input');
+    input.value = '邀请人';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
     document.getElementById('flow-host-btn').click();
   });
   await host.waitForFunction(() => window.__gomoku.flow === 'host-wait', null, { timeout: 3000 });
@@ -53,12 +65,15 @@ const FILE = 'file://' + path.join(__dirname, '..', 'dist', 'gomoku-standalone.h
     step1Active: document.getElementById('fstep-1').classList.contains('active'),
     wechatTip: !!document.querySelector('#flow-host .wechat-tip'),
     waitVisible: document.getElementById('flow-host-wait').offsetParent !== null,
+    hostBtnEnabled: !document.getElementById('flow-host-btn').disabled,
   }));
   console.log('1. 邀请码长度:', invite.length, '| UI:', JSON.stringify(hostUi));
 
   // 2. 被邀请方：加入房间 → 粘贴邀请码 → 生成应答码
   await guest.evaluate(() => {
-    document.getElementById('name-input').value = '被邀请人';
+    const input = document.getElementById('name-input');
+    input.value = '被邀请人';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
     document.getElementById('flow-guest-btn').click();
   });
   await guest.evaluate((code) => {
@@ -105,11 +120,27 @@ const FILE = 'file://' + path.join(__dirname, '..', 'dist', 'gomoku-standalone.h
 
   await host.screenshot({ path: path.join(__dirname, 'flow-host.png') });
   await guest.screenshot({ path: path.join(__dirname, 'flow-guest.png') });
+
+  // 4. 移动端视口（375px）：棋盘必须保持正方形且不溢出屏幕
+  const mobileCtx = await browser.newContext({ viewport: { width: 375, height: 667 } });
+  const mobilePage = await mobileCtx.newPage();
+  mobilePage.on('pageerror', (e) => { errors.push('[mobile] ' + e.message); });
+  await mobilePage.goto(FILE);
+  const board = await mobilePage.evaluate(() => {
+    const r = document.getElementById('board').getBoundingClientRect();
+    return { w: Math.round(r.width), h: Math.round(r.height), vw: window.innerWidth };
+  });
+  const squareOk = Math.abs(board.w - board.h) <= 1 && board.w <= board.vw && board.w > 200;
+  console.log('4. 移动端 375px 视口棋盘:', JSON.stringify(board), '| 正方形且不溢出:', squareOk);
+  await mobilePage.screenshot({ path: path.join(__dirname, 'flow-mobile.png') });
+  await mobileCtx.close();
+
   await browser.close();
 
-  const ok = tabOk && hostUi.step1Active && hostUi.wechatTip && hostUi.waitVisible &&
+  const ok = tabOk && hostUi.step1Active && hostUi.wechatTip && hostUi.waitVisible && hostUi.hostBtnEnabled &&
     guestUi.step2Active && guestUi.wechatTip && invite.length > 50 && answer.length > 50 &&
-    errors.length === 0;
+    gate.roomCreateDisabled && gate.roomJoinDisabled && gate.roomInputDisabled &&
+    gate.hostBtnDisabled && !gate.guestBtnDisabled && gate.nameOutsideTabs && squareOk && errors.length === 0;
   console.log('JS 错误:', errors.length ? errors : '无');
   console.log(ok ? 'FLOW CHECK PASS' : 'FLOW CHECK FAIL');
   process.exit(ok ? 0 : 1);

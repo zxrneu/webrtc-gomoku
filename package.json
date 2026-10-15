@@ -1,7 +1,7 @@
 {
   "name": "webrtc-gomoku",
-  "version": "1.0.0",
-  "description": "WebRTC P2P 联机五子棋：浏览器 DataChannel 直连对战，服务器仅做信令中转",
+  "version": "1.1.1",
+  "description": "WebRTC P2P 联机五子棋：邀请对局无需服务器，微信互发连接码即玩，支持局域网与可达 IPv6",
   "main": "server.js",
   "license": "MIT",
   "repository": {
