@@ -49,14 +49,32 @@
     copyLinkBtn: $('copy-link-btn'),
     roomStatus: $('room-status'),
     fileTip: $('file-tip'),
-    manualHostBtn: $('manual-host-btn'),
-    manualGuestBtn: $('manual-guest-btn'),
-    manualHostFinishBtn: $('manual-host-finish-btn'),
-    manualInGuest: $('manual-in-guest'),
-    manualInHost: $('manual-in-host'),
-    manualOut: $('manual-out'),
-    manualOutWrap: $('manual-out-wrap'),
-    manualCopyBtn: $('manual-copy-btn'),
+    flowSteps: $('flow-steps'),
+    fstep1: $('fstep-1'),
+    fstep2: $('fstep-2'),
+    fstep3: $('fstep-3'),
+    flowEntry: $('flow-entry'),
+    flowHostBtn: $('flow-host-btn'),
+    flowGuestBtn: $('flow-guest-btn'),
+    flowHostPanel: $('flow-host'),
+    flowHostOut: $('flow-host-out'),
+    flowHostCopy: $('flow-host-copy'),
+    flowHostWait: $('flow-host-wait'),
+    flowHostTimer: $('flow-host-timer'),
+    flowHostIn: $('flow-host-in'),
+    flowHostFinish: $('flow-host-finish'),
+    flowGuestPanel: $('flow-guest'),
+    flowGuestIn: $('flow-guest-in'),
+    flowGuestAnswer: $('flow-guest-answer'),
+    flowGuestOutWrap: $('flow-guest-out-wrap'),
+    flowGuestOut: $('flow-guest-out'),
+    flowGuestCopy: $('flow-guest-copy'),
+    flowGuestWait: $('flow-guest-wait'),
+    flowResult: $('flow-result'),
+    transportLine: $('transport-line'),
+    transportDot: $('transport-dot'),
+    transportLabel: $('transport-label'),
+    transportDetail: $('transport-detail'),
     blackName: $('black-name'),
     whiteName: $('white-name'),
     blackTag: $('black-tag'),
@@ -96,6 +114,12 @@
     hover: null,
     modalOk: null,
     modalNo: null,
+    // 邀请对局流程：'idle' | 'host-wait' | 'guest-invite' | 'guest-wait' | 'connected'
+    flow: 'idle',
+    flowStartedAt: 0,
+    waitTimer: null,
+    diagTimer: null,
+    transport: null, // { kind, label, detail, cls }
   };
 
   const other = (c) => (c === BLACK ? WHITE : BLACK);
@@ -553,7 +577,8 @@
     };
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'failed') {
-        toast('P2P 连接失败：网络环境可能限制直连（对称型 NAT 需要 TURN 中转）');
+        if (S.manual) diagnoseFailure();
+        else toast('P2P 连接失败：网络环境可能限制直连（对称型 NAT 需要 TURN 中转）');
         onPeerLeft();
       }
     };
@@ -608,7 +633,8 @@
 
   function bindDataChannel(dc) {
     S.dc = dc;
-    dc.onopen = () => {
+    dc.onopen = async () => {
+      clearTimeout(S.diagTimer);
       S.connected = true;
       resetGame();
       setBadge('online', 'P2P 已连接');
@@ -616,6 +642,9 @@
       dcSend({ t: 'hello', name: S.myName || '玩家' });
       sysMsg('P2P 连接已建立，对局开始！黑方先行');
       updateHUD();
+      const t = await detectTransport();
+      showTransport(t);
+      if (S.manual) showFlowConnected(t);
     };
     dc.onclose = () => onPeerLeft();
     dc.onmessage = (ev) => {
@@ -635,6 +664,8 @@
     dom.banner.classList.add('hidden');
     dom.overlay.classList.remove('hidden');
     dom.overlayText.textContent = '对手已离开。在右侧重新创建或加入房间，即可开始新对局。';
+    dom.transportLine.classList.add('hidden');
+    S.transport = null;
     updateHUD();
   }
 
@@ -727,11 +758,6 @@
     return JSON.parse(str);
   }
 
-  function showManualOut(code) {
-    dom.manualOutWrap.classList.remove('hidden');
-    dom.manualOut.value = code;
-  }
-
   function waitIce(pc, timeout) {
     if (pc.iceGatheringState === 'complete') return Promise.resolve();
     return new Promise((resolve) => {
@@ -746,72 +772,231 @@
     });
   }
 
-  dom.manualHostBtn.onclick = async () => {
+  /* ---------------- 邀请对局流程（手动信令 · 微信互发） ---------------- */
+  function setFstep(n) {
+    [[1, dom.fstep1], [2, dom.fstep2], [3, dom.fstep3]].forEach(([i, el]) => {
+      el.classList.toggle('done', i < n);
+      el.classList.toggle('active', i === n);
+    });
+  }
+
+  function renderFlow() {
+    const f = S.flow;
+    dom.flowSteps.classList.toggle('hidden', f === 'idle');
+    dom.flowEntry.classList.toggle('hidden', f !== 'idle');
+    dom.flowHostPanel.classList.toggle('hidden', f !== 'host-wait');
+    dom.flowGuestPanel.classList.toggle('hidden', f !== 'guest-invite' && f !== 'guest-wait');
+    dom.flowGuestOutWrap.classList.toggle('hidden', f !== 'guest-wait');
+    dom.flowResult.classList.toggle('hidden', f !== 'connected');
+
+    if (f === 'host-wait') {
+      dom.fstep1.textContent = '① 生成邀请码';
+      dom.fstep2.textContent = '② 粘贴应答码';
+      setFstep(1);
+    } else if (f === 'guest-invite' || f === 'guest-wait') {
+      dom.fstep1.textContent = '① 粘贴邀请码';
+      dom.fstep2.textContent = '② 回复应答码';
+      setFstep(f === 'guest-wait' ? 2 : 1);
+    } else if (f === 'connected') {
+      setFstep(3);
+    }
+  }
+
+  async function copyCode(ta) {
+    const text = ta.value;
+    if (!text) return toast('连接码还没生成');
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('已复制，去微信粘贴发送吧');
+    } catch (e) {
+      ta.select();
+      document.execCommand('copy');
+      toast('已复制，去微信粘贴发送吧');
+    }
+  }
+
+  function startWaitTick() {
+    stopWaitTick();
+    S.flowStartedAt = Date.now();
+    const label = S.role === 'host' ? dom.flowHostTimer : null;
+    S.waitTimer = setInterval(() => {
+      const sec = Math.floor((Date.now() - S.flowStartedAt) / 1000);
+      const mm = Math.floor(sec / 60);
+      const ss = String(sec % 60).padStart(2, '0');
+      const text = mm + ':' + ss;
+      if (label) label.textContent = text;
+      if (S.role === 'guest' && dom.flowGuestWait.firstChild) {
+        dom.flowGuestWait.firstChild.textContent = '等待对方完成连接… ' + text + ' ';
+      }
+    }, 1000);
+  }
+  function stopWaitTick() {
+    if (S.waitTimer) { clearInterval(S.waitTimer); S.waitTimer = null; }
+  }
+
+  // 连接观察兜底：导入对端 SDP 后 15 秒仍未连通，则展示失败诊断
+  // （覆盖 connectionState 不触发 failed 的中间态，如候选被网络策略冻结）
+  function scheduleDiag() {
+    clearTimeout(S.diagTimer);
+    S.diagTimer = setTimeout(() => { if (!S.connected) diagnoseFailure(); }, 15000);
+  }
+
+  dom.flowHostBtn.onclick = async () => {
+    if (!readName()) return toast('先输入昵称');
     S.manual = true;
     S.role = 'host';
     S.myColor = BLACK;
-    readName();
+    S.flow = 'host-wait';
+    renderFlow();
+    dom.flowHostOut.value = '';
+    dom.flowHostOut.placeholder = '正在生成…';
+    dom.overlayText.textContent = '正在收集网络候选地址，请稍候…';
     try {
       const pc = createPeer();
       const dc = pc.createDataChannel('gomoku', { ordered: true });
       bindDataChannel(dc);
       await pc.setLocalDescription(await pc.createOffer());
-      dom.overlayText.textContent = '正在收集网络候选地址，请稍候…';
       await waitIce(pc);
-      showManualOut(await pack({ type: 'offer', sdp: pc.localDescription }));
-      toast('邀请码已生成，复制发给对方');
+      dom.flowHostOut.value = await pack({ type: 'offer', sdp: pc.localDescription });
+      dom.flowHostOut.placeholder = '';
+      toast('邀请码已生成');
+      startWaitTick();
     } catch (e) {
       toast('生成邀请码失败：' + e.message);
+      S.flow = 'idle';
+      renderFlow();
     }
   };
 
-  dom.manualGuestBtn.onclick = async () => {
-    const raw = dom.manualInGuest.value.trim();
-    if (!raw) return toast('先粘贴收到的邀请码');
+  dom.flowGuestBtn.onclick = () => {
+    if (!readName()) return toast('先输入昵称');
     S.manual = true;
     S.role = 'guest';
     S.myColor = WHITE;
-    readName();
+    S.flow = 'guest-invite';
+    renderFlow();
+    dom.flowGuestIn.focus();
+  };
+
+  dom.flowHostCopy.onclick = () => copyCode(dom.flowHostOut);
+  dom.flowGuestCopy.onclick = () => copyCode(dom.flowGuestOut);
+
+  dom.flowGuestAnswer.onclick = async () => {
+    const raw = dom.flowGuestIn.value.trim();
+    if (!raw) return toast('先粘贴收到的邀请码');
     try {
       const data = await unpack(raw);
-      if (!data || data.type !== 'offer') return toast('邀请码无效');
+      if (!data || data.type !== 'offer') return toast('邀请码无效，请检查是否复制完整');
       const pc = createPeer();
       await pc.setRemoteDescription(data.sdp);
       await flushIce(pc);
       await pc.setLocalDescription(await pc.createAnswer());
       await waitIce(pc);
-      showManualOut(await pack({ type: 'answer', sdp: pc.localDescription }));
-      toast('应答码已生成，复制发回给邀请方');
+      dom.flowGuestOut.value = await pack({ type: 'answer', sdp: pc.localDescription });
+      S.flow = 'guest-wait';
+      renderFlow();
+      toast('应答码已生成');
+      startWaitTick();
+      scheduleDiag();
     } catch (e) {
       toast('生成应答码失败：' + e.message);
     }
   };
 
-  dom.manualHostFinishBtn.onclick = async () => {
-    const raw = dom.manualInHost.value.trim();
-    if (!raw) return toast('先粘贴收到的应答码');
+  dom.flowHostFinish.onclick = async () => {
+    const raw = dom.flowHostIn.value.trim();
+    if (!raw) return toast('先粘贴对方发回的应答码');
     try {
       const data = await unpack(raw);
-      if (!data || data.type !== 'answer') return toast('应答码无效');
-      if (!S.pc) return toast('请先完成第 ① 步生成邀请码');
+      if (!data || data.type !== 'answer') return toast('应答码无效，请检查是否复制完整');
+      if (!S.pc) return toast('请先点「创建房间」生成邀请码');
       await S.pc.setRemoteDescription(data.sdp);
       await flushIce(S.pc);
       dom.overlayText.textContent = '正在连接…';
+      toast('应答码已导入，正在建立连接');
+      scheduleDiag();
     } catch (e) {
       toast('连接失败：' + e.message);
     }
   };
 
-  dom.manualCopyBtn.onclick = async () => {
-    try {
-      await navigator.clipboard.writeText(dom.manualOut.value);
-      toast('已复制到剪贴板');
-    } catch (e) {
-      dom.manualOut.select();
-      document.execCommand('copy');
-      toast('已复制到剪贴板');
+  /* ---------------- 连接类型检测 ---------------- */
+  async function detectTransport() {
+    if (!S.pc || typeof S.pc.getStats !== 'function') return null;
+    let stats;
+    try { stats = await S.pc.getStats(); } catch (e) { return null; }
+    let picked = null;
+    const succeeded = [];
+    stats.forEach((r) => {
+      if (r.type !== 'candidate-pair' || !r.localCandidateId) return;
+      if (r.state === 'succeeded') {
+        if (r.nominated) picked = r;
+        else succeeded.push(r);
+      }
+    });
+    if (!picked) picked = succeeded[0];
+    if (!picked) return null;
+    let local = null;
+    stats.forEach((r) => { if (r.id === picked.localCandidateId) local = r; });
+    if (!local) return null;
+    const v6 = String(local.address || '').includes(':');
+    const proto = String(local.protocol || '').toUpperCase() || 'UDP';
+    if (local.candidateType === 'relay') {
+      return { kind: 'relay', cls: 'relay', label: 'TURN 中继', detail: 'P2P 直连未成功，数据经 TURN 服务器转发（' + proto + '）' };
     }
-  };
+    if (local.candidateType === 'srflx') {
+      return v6
+        ? { kind: 'v6', cls: 'v6', label: 'IPv6 NAT 穿透（STUN）', detail: '经 STUN 获取 IPv6 公网地址后打通（' + proto + '）' }
+        : { kind: 'v4', cls: 'v4', label: 'IPv4 NAT 穿透（STUN）', detail: '经腾讯/阿里 STUN 协助穿透 NAT（' + proto + '）' };
+    }
+    // host（或 prflx 视作近似直连）
+    if (v6) {
+      return { kind: 'v6', cls: 'v6', label: 'IPv6 直连', detail: '全球单播 IPv6 端到端可达，无需 NAT 穿透（' + proto + '）' };
+    }
+    return { kind: 'v4', cls: 'v4', label: 'IPv4 直连', detail: '同一局域网/同网段直连（' + proto + '）' };
+  }
+
+  function showTransport(t) {
+    S.transport = t;
+    if (!t) return;
+    dom.transportLine.classList.remove('hidden', 'v4', 'v6', 'relay');
+    dom.transportLine.classList.add(t.cls);
+    dom.transportLabel.textContent = t.label;
+    dom.transportDetail.textContent = t.detail;
+  }
+
+  function showFlowConnected(t) {
+    stopWaitTick();
+    S.flow = 'connected';
+    renderFlow();
+    dom.flowResult.className = 'flow-result ok';
+    const line = t
+      ? '<b>✅ 连接成功 · ' + t.label + '</b><br>' + t.detail
+      : '<b>✅ 连接成功</b><br>对局数据通过浏览器 P2P DataChannel 直传';
+    dom.flowResult.innerHTML = line;
+    setBadge('online', 'P2P 已连接');
+  }
+
+  function diagnoseFailure() {
+    clearTimeout(S.diagTimer);
+    stopWaitTick();
+    const items = [];
+    if (S.flow === 'host-wait') items.push('流程未走完：还在等待对方把应答码通过微信发回');
+    else if (S.flow === 'guest-wait') items.push('流程未走完：还在等待创建房间的人粘贴你的应答码');
+    const sdp = S.pc && S.pc.localDescription ? S.pc.localDescription.sdp : '';
+    const candCount = (sdp.match(/^a=candidate/gm) || []).length;
+    if (candCount === 0) {
+      items.push('本机没有收集到任何网络候选地址（当前网络可能禁用了 UDP）');
+    } else {
+      items.push('双方已交换候选但仍无法互通：可能处于对称型 NAT 或企业防火墙后');
+      items.push('可尝试：双方都切到手机热点；或自建/租用 TURN 服务器兜底');
+    }
+    dom.flowResult.className = 'flow-result bad';
+    dom.flowResult.innerHTML = '<b>⚠️ 连接失败</b><ul>' + items.map((i) => '<li>' + i + '</li>').join('') + '</ul>';
+    dom.flowResult.classList.remove('hidden');
+    setBadge('offline', '连接失败');
+    toast('P2P 连接失败，请查看右侧「邀请对局」面板中的原因说明');
+  }
 
   /* ---------------- 标签页 ---------------- */
   document.querySelectorAll('.tab').forEach((btn) => {
@@ -836,6 +1021,10 @@
     ensureSignaling();
   } else {
     dom.fileTip.style.display = 'block';
+    // file:// 本地打开（单文件版）：房间联机不可用，自动切到「邀请对局」
+    const manualTab = document.querySelector('.tab[data-tab="manual"]');
+    if (manualTab) manualTab.click();
+    renderFlow();
   }
 
   setupCanvas();
@@ -857,6 +1046,8 @@
     get signalingState() { return S.pc ? S.pc.signalingState : 'none'; },
     get dcState() { return S.dc ? S.dc.readyState : 'none'; },
     get pendingIce() { return S.pendingIce.length; },
+    get flow() { return S.flow; },
+    get transport() { return S.transport; },
     // 测试专用：在无法建立真实 P2P 的环境中模拟“已连接”状态，以便走真实点击路径
     forceConnected: (v) => {
       S.connected = !!v;

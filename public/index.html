@@ -50,11 +50,12 @@
 
     <div class="card" id="connect-card">
       <div class="tabs">
-        <button class="tab active" data-tab="room">房间联机</button>
-        <button class="tab" data-tab="manual">手动信令</button>
+        <button class="tab active" data-tab="room">房间联机<em class="tab-note">需服务器 · 规划中</em></button>
+        <button class="tab" data-tab="manual">邀请对局</button>
       </div>
 
       <div class="tab-panel" id="tab-room">
+        <p class="manual-tip">房间联机需要部署信令服务器（交换 SDP / ICE 候选自动牵线），属于规划中的里程碑功能。当前版本请使用「邀请对局」：单文件 + 微信互发连接码，支持局域网与可达 IPv6 直连。</p>
         <label class="field">
           <span>昵称</span>
           <input id="name-input" type="text" maxlength="12" placeholder="输入昵称" autocomplete="off">
@@ -77,26 +78,56 @@
       </div>
 
       <div class="tab-panel hidden" id="tab-manual">
-        <p class="manual-tip">没有服务器也能玩：双方通过任意聊天工具互相复制粘贴连接码，即可建立 P2P 直连。</p>
-        <div class="manual-step">
-          <b>① 邀请方：生成邀请码</b>
-          <button class="btn small primary" id="manual-host-btn">生成邀请码</button>
+        <p class="manual-tip">无需服务器：双方通过微信互发连接码，即可建立 P2P 直连。</p>
+
+        <div class="flow-steps hidden" id="flow-steps">
+          <span class="fstep" id="fstep-1">① 生成邀请码</span>
+          <i class="farrow">→</i>
+          <span class="fstep" id="fstep-2">② 粘贴应答码</span>
+          <i class="farrow">→</i>
+          <span class="fstep" id="fstep-3">③ 连接成功</span>
         </div>
-        <div class="manual-step">
-          <b>② 被邀请方：粘贴邀请码，生成应答码</b>
-          <textarea id="manual-in-guest" rows="3" placeholder="粘贴收到的邀请码"></textarea>
-          <button class="btn small" id="manual-guest-btn">生成应答码</button>
+
+        <div class="flow-entry" id="flow-entry">
+          <button class="btn primary grow" id="flow-host-btn">创建房间 · 我是邀请方</button>
+          <button class="btn grow" id="flow-guest-btn">加入房间 · 我是被邀请方</button>
         </div>
-        <div class="manual-step">
-          <b>③ 邀请方：粘贴应答码，完成连接</b>
-          <textarea id="manual-in-host" rows="3" placeholder="粘贴收到的应答码"></textarea>
-          <button class="btn small" id="manual-host-finish-btn">完成连接</button>
+
+        <div class="flow-panel hidden" id="flow-host">
+          <div class="manual-step">
+            <b>① 邀请码已生成</b>
+            <textarea id="flow-host-out" rows="3" readonly placeholder="正在生成…"></textarea>
+            <div class="row">
+              <button class="btn small primary" id="flow-host-copy">复制邀请码</button>
+            </div>
+            <p class="wechat-tip">📱 打开微信，把邀请码发送给被邀请人</p>
+            <div class="status-line" id="flow-host-wait">等待对方回应… <span id="flow-host-timer">0:00</span></div>
+          </div>
+          <div class="manual-step">
+            <b>② 粘贴对方发回的应答码</b>
+            <textarea id="flow-host-in" rows="3" placeholder="粘贴收到的应答码"></textarea>
+            <button class="btn small" id="flow-host-finish">完成连接</button>
+          </div>
         </div>
-        <div class="manual-step hidden" id="manual-out-wrap">
-          <b>把下面的连接码发给对方</b>
-          <textarea id="manual-out" rows="3" readonly></textarea>
-          <button class="btn small" id="manual-copy-btn">复制连接码</button>
+
+        <div class="flow-panel hidden" id="flow-guest">
+          <div class="manual-step">
+            <b>① 粘贴创建房间者发来的邀请码</b>
+            <textarea id="flow-guest-in" rows="3" placeholder="粘贴收到的邀请码"></textarea>
+            <button class="btn small primary" id="flow-guest-answer">生成应答码</button>
+          </div>
+          <div class="manual-step hidden" id="flow-guest-out-wrap">
+            <b>② 应答码已生成</b>
+            <textarea id="flow-guest-out" rows="3" readonly></textarea>
+            <div class="row">
+              <button class="btn small primary" id="flow-guest-copy">复制应答码</button>
+            </div>
+            <p class="wechat-tip">📱 把应答码发回给创建房间的人</p>
+            <div class="status-line" id="flow-guest-wait">等待对方完成连接…</div>
+          </div>
         </div>
+
+        <div class="flow-result hidden" id="flow-result"></div>
       </div>
     </div>
 
@@ -116,6 +147,10 @@
         <div><small>手数</small><b id="move-count">0</b></div>
         <div><small>最后一手</small><b id="last-move">-</b></div>
         <div><small>状态</small><b id="game-state">未开始</b></div>
+      </div>
+      <div class="transport hidden" id="transport-line">
+        <span class="transport-dot" id="transport-dot"></span>
+        <div><b id="transport-label">-</b><small id="transport-detail"></small></div>
       </div>
     </div>
 

@@ -239,26 +239,36 @@ async function launchBrowser() {
   await pageA.waitForFunction(() => window.__gomoku.moves.length === 0, null, { timeout: 5000 });
   check('悔棋流程（请求-同意-回退）', true);
 
-  console.log('== 阶段三：手动信令模式 ==');
+  console.log('== 阶段三：邀请对局（手动信令 · 微信互发） ==');
   const pageC = await newPlayerPage('C');
   const pageD = await newPlayerPage('D');
+  await pageC.fill('#name-input', '小刚');
+  await pageD.fill('#name-input', '小美');
   await pageC.click('.tab[data-tab="manual"]');
   await pageD.click('.tab[data-tab="manual"]');
 
-  await pageC.click('#manual-host-btn');
-  await pageC.waitForFunction(() => document.getElementById('manual-out').value.length > 0, null, { timeout: 20000 });
-  const offerCode = await pageC.inputValue('#manual-out');
+  // C 创建房间（邀请方）→ 生成邀请码
+  await pageC.click('#flow-host-btn');
+  await pageC.waitForFunction(() => window.__gomoku.flow === 'host-wait', null, { timeout: 5000 });
+  await pageC.waitForFunction(() => document.getElementById('flow-host-out').value.length > 0, null, { timeout: 20000 });
+  const offerCode = await pageC.inputValue('#flow-host-out');
   check(`邀请码生成（压缩后 ${offerCode.length} 字符）`, offerCode.length > 50);
+  check('邀请方步骤条 ① 激活', await pageC.evaluate(() => document.getElementById('fstep-1').classList.contains('active')));
+  check('邀请方微信发送提示可见', await pageC.evaluate(() => !!document.querySelector('#flow-host .wechat-tip')));
 
-  await pageD.fill('#manual-in-guest', offerCode);
-  await pageD.click('#manual-guest-btn');
-  await pageD.waitForFunction(() => document.getElementById('manual-out').value.length > 0, null, { timeout: 20000 });
-  const answerCode = await pageD.inputValue('#manual-out');
+  // D 加入房间（被邀请方）→ 粘贴邀请码 → 生成应答码
+  await pageD.click('#flow-guest-btn');
+  await pageD.fill('#flow-guest-in', offerCode);
+  await pageD.click('#flow-guest-answer');
+  await pageD.waitForFunction(() => window.__gomoku.flow === 'guest-wait', null, { timeout: 20000 });
+  await pageD.waitForFunction(() => document.getElementById('flow-guest-out').value.length > 0, null, { timeout: 20000 });
+  const answerCode = await pageD.inputValue('#flow-guest-out');
   check('应答码生成', answerCode.length > 50);
+  check('被邀请方步骤条 ② 激活', await pageD.evaluate(() => document.getElementById('fstep-2').classList.contains('active')));
 
   // 交叉应用对方的连接码：验证压缩编解码 + SDP 处理
-  await pageC.fill('#manual-in-host', answerCode);
-  await pageC.click('#manual-host-finish-btn');
+  await pageC.fill('#flow-host-in', answerCode);
+  await pageC.click('#flow-host-finish');
   await pageC.waitForTimeout(1500);
   const sc = await state(pageC);
   const sd = await state(pageD);
@@ -271,12 +281,26 @@ async function launchBrowser() {
     manualP2p = true;
   } catch (e) { /* 环境阻断 */ }
   if (manualP2p) {
-    check('手动信令 P2P 连通', true);
+    check('邀请对局 P2P 连通', true);
+    const transport = await pageC.evaluate(() => window.__gomoku.transport);
+    check('连接方式已识别（IPv4/IPv6/NAT）', !!transport && !!transport.label);
+    const tLine = await pageC.evaluate(() => ({
+      visible: document.getElementById('transport-line').offsetParent !== null,
+      label: document.getElementById('transport-label').textContent,
+    }));
+    console.log('  连接方式:', JSON.stringify(transport), '| UI:', JSON.stringify(tLine));
     await clickCell(pageC, 7, 7);
     await pageD.waitForFunction(() => window.__gomoku.moves.length === 1, null, { timeout: 8000 });
-    check('手动信令模式落子同步', true);
+    check('邀请对局落子同步', true);
   } else {
-    console.log('  (本环境 ICE 被阻断，手动信令的 SDP 交换已验证，仅缺 ICE 打通)');
+    // 15 秒诊断兜底应展示失败原因
+    await pageC.waitForTimeout(16000);
+    const diag = await pageC.evaluate(() => {
+      const r = document.getElementById('flow-result');
+      return { visible: r.offsetParent !== null, bad: r.classList.contains('bad'), text: r.textContent.slice(0, 60) };
+    });
+    check('连接失败时展示原因诊断', diag.visible && diag.bad && diag.text.includes('连接失败'));
+    console.log('  (本环境 ICE 被阻断，SDP 交换 + 失败诊断已验证，仅缺 ICE 打通)');
   }
 
   await browser.close();

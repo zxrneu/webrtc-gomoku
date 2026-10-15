@@ -187,6 +187,15 @@ canvas#board {
   font-family: inherit;
 }
 .tab.active { background: #fff; color: var(--text); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08); font-weight: 600; }
+.tab-note {
+  display: block;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 400;
+  color: var(--muted);
+  margin-top: 1px;
+}
+.tab.active .tab-note { color: #b39a7a; }
 
 .field { display: block; margin-bottom: 10px; }
 .field span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
@@ -238,7 +247,82 @@ input:focus, textarea:focus { border-color: var(--accent); }
 }
 .manual-step b { display: block; margin-bottom: 8px; }
 .manual-step textarea { font-size: 11px; margin-bottom: 8px; word-break: break-all; resize: vertical; }
-#manual-out { background: #fff; }
+
+/* ---------- 邀请对局流程 ---------- */
+.flow-steps {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+  font-size: 12px;
+}
+.fstep {
+  flex: 1;
+  text-align: center;
+  padding: 6px 4px;
+  border-radius: 8px;
+  background: #f6f1e5;
+  color: var(--muted);
+  border: 1px solid transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fstep.active { background: var(--accent-soft); color: var(--accent); border-color: #e0b89a; font-weight: 600; }
+.fstep.done { background: #e9f6ee; color: var(--green); border-color: #bfe3cc; }
+.farrow { color: #c9bda6; font-style: normal; flex: none; }
+
+.flow-entry { display: flex; flex-direction: column; gap: 8px; }
+.flow-entry .btn { padding: 12px; font-size: 14px; }
+
+.flow-panel .manual-step:last-child { margin-bottom: 0; }
+.wechat-tip {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  background: #e9f6ee;
+  border: 1px dashed #9fd4b5;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #1d6b3f;
+  line-height: 1.6;
+}
+
+.flow-result {
+  margin-top: 4px;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.7;
+  border: 1px solid #bfe3cc;
+  background: #e9f6ee;
+}
+.flow-result.ok b { color: var(--green); }
+.flow-result.bad { border-color: #ecc4bf; background: #fdf0ef; }
+.flow-result.bad b { color: var(--red); }
+.flow-result ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
+
+/* ---------- 连接方式（对局信息卡） ---------- */
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+  font-size: 13px;
+}
+.transport-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+  background: #c3bbae;
+}
+.transport.v6 .transport-dot { background: #3b82c4; box-shadow: 0 0 0 3px rgba(59, 130, 196, 0.18); }
+.transport.v4 .transport-dot { background: var(--green); box-shadow: 0 0 0 3px rgba(46, 158, 91, 0.15); }
+.transport.relay .transport-dot { background: #e8a33d; box-shadow: 0 0 0 3px rgba(232, 163, 61, 0.18); }
+.transport b { display: block; font-size: 13px; }
+.transport small { color: var(--muted); font-size: 11px; }
 
 /* ---------- 对局信息 ---------- */
 .players { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
