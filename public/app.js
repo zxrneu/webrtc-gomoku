@@ -20,7 +20,9 @@
   const CANVAS = (SIZE - 1) * CELL + PAD * 2; // 560
 
   const ICE_SERVERS = [
-    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+    // 国内优先：腾讯 + 阿里 STUN（延迟低、稳定），Google 仅作海外备用
+    { urls: ['stun:stun.qq.com:3478', 'stun:stun.aliyun.com:3478'] },
+    { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
   ];
 
   const $ = (id) => document.getElementById(id);

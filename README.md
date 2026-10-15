@@ -11,6 +11,24 @@
 - 对局聊天、掉线提示、音效（可关）、移动端自适应
 - 胜负/平局判定，`/healthz` 健康检查
 
+## 单文件版（微信互发 · 零服务器）
+
+不想部署服务器？构建一个约 47KB 的单文件 HTML（全部代码内联、无外部依赖），
+通过微信文件互发给对方，双方双击打开，用「手动信令」模式互发连接码即可 P2P 对战：
+
+```bash
+npm run build    # 生成 dist/gomoku-standalone.html
+```
+
+对局步骤（双方都打开单文件后，切到「手动信令」标签）：
+
+1. **邀请方**点「生成邀请码」→ 复制 → 微信发给对方
+2. **对方**粘贴邀请码 → 点「生成应答码」→ 复制 → 微信发回
+3. **邀请方**粘贴应答码 → 点「完成连接」→ 开始下棋
+
+网络说明：同局域网或双方全球单播 IPv6 时 host 候选直连最快；IPv4 NAT 环境由内置的
+腾讯/阿里 STUN 协助穿透（详见下方「网络环境说明」）。也可从 GitHub Release 直接下载现成单文件。
+
 ## 本地运行
 
 ```bash
@@ -75,13 +93,31 @@ docker run -d --name gomoku -p 3000:3000 --restart unless-stopped gomoku
 
 **生产建议**：用 Nginx 反代到 3000 端口并配置 HTTPS（腾讯云免费证书或 Let's Encrypt）。HTTPS 下 WebRTC 更稳定，也能避免浏览器对非安全上下文的限制。
 
-## 关于 NAT 与 TURN
+## 网络环境说明（IPv4 / IPv6 / NAT）
 
-代码内置了 Google 公共 STUN，同一局域网或大多数家用网络可直接 P2P 直连。若双方都在对称型 NAT 或企业防火墙后，直连可能失败，需要自建/租用 TURN 服务器：
+**STUN 配置**：`public/app.js` 中 ICE_SERVERS 采用「腾讯 + 阿里 STUN 优先，Google 备用」——
+国内延迟 30-90ms，远低于 Google 的 150-300ms。STUN 只用于获取公网反射地址（srflx 候选），
+**同一局域网或双方全球单播 IPv6 可路由时，浏览器收集的 host 候选即可直连，不依赖 STUN**。
+
+**IPv6 场景（重点）**：WebRTC 的 ICE 默认双栈工作，会同时收集 IPv4 与 IPv6 候选
+（含 IPv6 全球单播地址，如 `2408:` / `2409:` / `240e:` 开头）。因此：
+
+- **双方均为全球单播 IPv6**（家宽/校园网/移动数据常见）：无需 STUN、无需 NAT 穿透，
+  host 候选里的 IPv6 地址端到端可达，直连成功率比 IPv4 更高——这正是 IPv6 对 P2P 的红利
+- **一方 IPv4、一方 IPv6**（双栈）：ICE 自动对全部候选做矩阵探测，走通的那条路径即可
+- **纯 IPv6 + 运营商 NAT64/DNS64**：国内 STUN 域名（均无 AAAA 记录）会被 DNS64 合成为
+  `64:ff9b::x.x.x.x`，UDP 经 NAT64 映射后仍可用于获取 srflx 候选
+- **手动信令模式天然支持 IPv6**：连接码内的 SDP 已包含全部候选，微信互发后 ICE 自动尝试
+
+> 注意：目前国内公共 STUN（腾讯 `stun.qq.com`、阿里 `stun.aliyun.com`）均只有 IPv4 记录，
+> 纯 IPv6 无 DNS64 的网络下它们不可达——此时靠 IPv6 host 候选直连即可，无需担心。
+
+**TURN 兜底**：若双方在对称型 NAT、企业防火墙后，或 IPv6 防火墙严格拦截 UDP，直连可能失败，
+需要自建/租用 TURN 服务器（IPv6 场景需 TURN over IPv6）：
 
 ```js
 // public/app.js 中的 ICE_SERVERS 增加 TURN 配置
-{ urls: ['stun:stun.l.google.com:19302', 'turn:your-turn-server:3478'],
+{ urls: ['stun:stun.qq.com:3478', 'turn:your-turn-server:3478'],
   username: 'xxx', credential: 'xxx' }
 ```
 
@@ -103,6 +139,7 @@ docker run -d --name gomoku -p 3000:3000 --restart unless-stopped gomoku
 ```
 webrtc-gomoku/
 ├── server.js            # 信令 + 静态服务器（唯一依赖 ws）
+├── build-standalone.js  # 单文件构建（npm run build → dist/gomoku-standalone.html）
 ├── public/
 │   ├── index.html       # 页面结构
 │   ├── style.css        # 样式
@@ -110,7 +147,9 @@ webrtc-gomoku/
 │   └── game-core.js     # 五子棋纯逻辑（可单测）
 ├── test/
 │   ├── core.test.js    # 逻辑单元测试（node test/core.test.js）
+│   ├── standalone-check.js  # 单文件版验证（node test/standalone-check.js）
 │   └── e2e.js          # 双端联机 E2E（node test/e2e.js）
+├── dist/               # 构建产物（单文件版，随 Release 分发）
 ├── Dockerfile
 └── package.json
 ```
