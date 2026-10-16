@@ -248,16 +248,36 @@ export class WebRTCClient {
     }
   }
 
+  /**
+   * 主动断开并释放当前连接（换房 / 组件卸载）。
+   *
+   * 关键：先摘掉全部事件处理器再关闭——`close()` 自身触发的 `onclose`、
+   * `connectionstatechange` 等迟到事件绝不能再回调 `onDisconnected`，
+   * 否则「上一房间」的断线事件会把新房间刚建立的连接状态清空。
+   */
   public close() {
     this.stopStatsPoll();
-    if (this.dc) {
-      try { this.dc.close(); } catch {}
-      this.dc = null;
-    }
-    if (this.pc) {
-      try { this.pc.close(); } catch {}
-      this.pc = null;
-    }
+
+    const dc = this.dc;
+    const pc = this.pc;
+    this.dc = null;
+    this.pc = null;
     this.pendingIce = [];
+
+    if (dc) {
+      dc.onopen = null;
+      dc.onclose = null;
+      dc.onerror = null;
+      dc.onmessage = null;
+      try { dc.close(); } catch {}
+    }
+    if (pc) {
+      pc.onconnectionstatechange = null;
+      pc.oniceconnectionstatechange = null;
+      pc.onsignalingstatechange = null;
+      pc.ondatachannel = null;
+      pc.onicecandidate = null;
+      try { pc.close(); } catch {}
+    }
   }
 }

@@ -19,6 +19,7 @@ import type { ChatItem, FlowState, ModalState, ScannerTarget } from './types';
 import { sounds } from './audio';
 import { detectQrFromSource, renderQrToCanvas } from './qr';
 import { DEFAULT_ICE_SERVERS, fetchIceServers } from './iceConfig';
+import { createRoomSession } from './roomSession';
 import { WebRTCClient } from './webrtc';
 
 import { Header } from './components/Header/Header';
@@ -346,6 +347,30 @@ export const App: React.FC = () => {
   const diagTimerRef = useRef<any>(null);
   const [flowResult, setFlowResult] = useState<{ type: string; html: string } | null>(null);
 
+  /**
+   * 复位房间会话：换房（创建/加入房间）或对手离开时调用。
+   * 关闭旧 P2P 连接并清空全部房间级 state，
+   * 杜绝上一房间的棋盘、聊天、对手昵称、连接状态与弹窗残留到下一房间。
+   */
+  const resetRoomSession = useCallback(() => {
+    const fresh = createRoomSession();
+    clientRef.current?.close();
+    setGame(fresh.game);
+    setMessages(fresh.messages);
+    setPeerName(fresh.peerName);
+    setConnected(fresh.connected);
+    setTransport(fresh.transport);
+    setRoomStatus(fresh.roomStatus);
+    setFlow(fresh.flow);
+    setHostOfferCode(fresh.hostOfferCode);
+    setGuestOfferInput(fresh.guestOfferInput);
+    setHostAnswerInput(fresh.hostAnswerInput);
+    setGuestAnswerCode(fresh.guestAnswerCode);
+    setHostTimer(fresh.hostTimer);
+    setFlowResult(fresh.flowResult);
+    setModal(fresh.modal);
+  }, []);
+
   useEffect(() => {
     connectedRef.current = connected;
     if (connected) {
@@ -476,6 +501,7 @@ export const App: React.FC = () => {
       }
 
       if (msg.t === 'created') {
+        resetRoomSession();
         setRoomCode(msg.room);
         roomCodeRef.current = msg.room;
         setRoomStatus('等待对手加入…');
@@ -483,6 +509,7 @@ export const App: React.FC = () => {
         setMyColor(BLACK);
         showToast(`房间 ${msg.room} 创建成功`);
       } else if (msg.t === 'joined') {
+        resetRoomSession();
         setRoomCode(msg.room);
         roomCodeRef.current = msg.room;
         setRoomStatus('已加入房间，等待对手连接…');
@@ -513,6 +540,12 @@ export const App: React.FC = () => {
             data: { kind: 'offer', sdp: pc.localDescription },
           });
         }
+      } else if (msg.t === 'peer-left') {
+        // 对手离开：清空上一局的棋盘/聊天/连接与对手信息，但保留房间号等待新对手
+        resetRoomSession();
+        setRoomStatus('对手已离开，等待新对手加入…');
+        addSysMsg('对手已离开房间');
+        showToast('对手已离开房间');
       } else if (msg.t === 'signal' && msg.data) {
         const data = msg.data as any;
         const pc = clientRef.current?.pc;
@@ -567,7 +600,7 @@ export const App: React.FC = () => {
     };
 
     return ws;
-  }, [showToast, signalSend]);
+  }, [showToast, signalSend, resetRoomSession, addSysMsg]);
 
   useEffect(() => {
     if (

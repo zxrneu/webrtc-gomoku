@@ -239,6 +239,72 @@ async function launchBrowser() {
   await pageA.waitForFunction(() => window.__gomoku.moves.length === 0, null, { timeout: 5000 });
   check('悔棋流程（请求-同意-回退）', true);
 
+  /* ---------- 换房不残留（回归：上一房间数据不得带到下一房间） ---------- */
+  console.log('== 阶段二·补：换房不残留 ==');
+  // 造出「上一房间已有数据」的局面：A 落一子 + 发一条聊天
+  await clickCell(pageA, 7, 7, 1);
+  if (p2p) {
+    await pageB.waitForFunction(() => window.__gomoku.moves.length === 1, null, { timeout: 8000 });
+  } else {
+    await pageB.evaluate(() => window.__gomoku.deliver({ t: 'move', x: 7, y: 7 }));
+  }
+  await pageA.fill('#chat-input', '上一局的消息');
+  await pageA.click('#chat-send-btn');
+  if (!p2p) await pageB.evaluate(() => window.__gomoku.deliver({ t: 'chat', text: '上一局的消息' }));
+  await pageA.waitForFunction(() => document.querySelectorAll('#chat-list .msg.mine').length === 1, null, { timeout: 5000 })
+    .catch(() => {});
+  const beforeSwitch = await pageA.evaluate(() => ({
+    moves: window.__gomoku.moves.length,
+    mine: document.querySelectorAll('#chat-list .msg.mine').length,
+    peerName: window.__gomoku.peerName,
+  }));
+  check(
+    `换房前 A 已有一局数据（落子 ${beforeSwitch.moves} / 聊天 ${beforeSwitch.mine} / 对手 ${beforeSwitch.peerName}）`,
+    beforeSwitch.moves === 1 && beforeSwitch.mine >= 1 && beforeSwitch.peerName === '小红'
+  );
+
+  // A 在同一页面直接创建新房间（不刷新页面），旧房间号极小概率重复则重试
+  let room2 = room;
+  for (let i = 0; i < 3 && room2 === room; i++) {
+    await pageA.click('#create-room-btn');
+    await pageA.waitForTimeout(400);
+    room2 = (await pageA.textContent('#room-code-text')).trim();
+  }
+  await pageA.waitForFunction(() => window.__gomoku.connected === false, null, { timeout: 5000 })
+    .catch(() => {});
+  const afterA = await pageA.evaluate(() => ({
+    room: window.__gomoku.room,
+    moves: window.__gomoku.moves.length,
+    over: window.__gomoku.over,
+    peerName: window.__gomoku.peerName,
+    connected: window.__gomoku.connected,
+    msgs: document.querySelectorAll('#chat-list .msg').length,
+  }));
+  check(`换房后 A 房间号更新（${room} → ${afterA.room}）`, /^[A-Z0-9]{4}$/.test(afterA.room) && afterA.room !== room);
+  check('换房后 A 棋盘清空', afterA.moves === 0 && afterA.over === false);
+  check('换房后 A 聊天记录清空', afterA.msgs === 0);
+  check('换房后 A 对手昵称清空', afterA.peerName === '');
+  check('换房后 A 连接状态复位（不显示已直连）', afterA.connected === false);
+
+  // B 应收到 peer-left：保留房号，但棋局 / 聊天 / 对手信息全部复位
+  await pageB.waitForFunction(
+    () => window.__gomoku.connected === false && window.__gomoku.moves.length === 0,
+    null, { timeout: 8000 }
+  ).then(() => check('对手离开后 B 连接状态与棋局复位', true))
+   .catch(() => check('对手离开后 B 连接状态与棋局复位', false));
+  const afterB = await pageB.evaluate(() => ({
+    room: window.__gomoku.room,
+    peerName: window.__gomoku.peerName,
+    mine: document.querySelectorAll('#chat-list .msg.mine').length,
+    theirs: document.querySelectorAll('#chat-list .msg.theirs').length,
+    sys: document.querySelectorAll('#chat-list .msg.sys').length,
+    status: document.getElementById('room-status').textContent.trim(),
+  }));
+  check(`对手离开后 B 保留原房间号 ${afterB.room}`, afterB.room === room);
+  check('对手离开后 B 上一局聊天清空（仅剩系统提示）', afterB.mine === 0 && afterB.theirs === 0 && afterB.sys >= 1);
+  check('对手离开后 B 对手昵称清空', afterB.peerName === '');
+  check(`对手离开后 B 状态提示「对手已离开」（${afterB.status}）`, afterB.status.includes('对手已离开'));
+
   console.log('== 阶段三：邀请对局（手动信令 · 微信互发） ==');
   const pageC = await newPlayerPage('C');
   const pageD = await newPlayerPage('D');
