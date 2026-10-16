@@ -1,6 +1,4 @@
 import http from 'node:http';
-import fs from 'node:fs';
-import path from 'node:path';
 import os from 'node:os';
 import { WebSocketServer, WebSocket } from 'ws';
 import type {
@@ -8,6 +6,7 @@ import type {
   ServerSignalingMsg,
 } from '@webrtc-gomoku/shared';
 import { RoomRegistry, type LeaveResult, type RoomClient } from './rooms';
+import { createHttpHandler, getCandidateDirs } from './http';
 
 interface ExtendedWebSocket extends WebSocket {
   __id?: string;
@@ -16,29 +15,6 @@ interface ExtendedWebSocket extends WebSocket {
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
-
-// 静态资源搜索目录：优先 packages/web/dist，其次 dist 或 public
-const CANDIDATE_DIRS = [
-  path.resolve(__dirname, '../../web/dist'),
-  path.resolve(process.cwd(), 'packages/web/dist'),
-  path.resolve(process.cwd(), 'dist'),
-  path.resolve(process.cwd(), 'public'),
-];
-
-let PUBLIC_DIR = CANDIDATE_DIRS.find((d) => fs.existsSync(d)) || CANDIDATE_DIRS[CANDIDATE_DIRS.length - 1]!;
-
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
-  '.txt': 'text/plain; charset=utf-8',
-};
 
 const registry = new RoomRegistry();
 
@@ -67,60 +43,8 @@ function logLeave(result: LeaveResult) {
 }
 
 /* ---------------- HTTP 静态文件 + 健康检查 ---------------- */
-const server = http.createServer((req, res) => {
-  const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-  const pathname = decodeURIComponent(url.pathname);
-
-  if (pathname === '/healthz') {
-    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify({ ok: true, rooms: registry.roomCount, uptime: Math.round(process.uptime()) }));
-    return;
-  }
-
-  // 动态感知新构建的目录
-  for (const d of CANDIDATE_DIRS) {
-    if (fs.existsSync(d)) {
-      PUBLIC_DIR = d;
-      break;
-    }
-  }
-
-  const rel = pathname === '/' ? '/index.html' : pathname;
-  const filePath = path.normalize(path.join(PUBLIC_DIR, rel));
-
-  if (!filePath.startsWith(PUBLIC_DIR)) {
-    res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
-    res.end('Forbidden');
-    return;
-  }
-
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
-      // SPA fallback to index.html if file not found and doesn't have extension
-      if (!path.extname(rel)) {
-        const indexPath = path.join(PUBLIC_DIR, 'index.html');
-        fs.readFile(indexPath, (idxErr, idxData) => {
-          if (idxErr) {
-            res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-            res.end('Not Found');
-            return;
-          }
-          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-          res.end(idxData);
-        });
-        return;
-      }
-      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-      res.end('Not Found');
-      return;
-    }
-    res.writeHead(200, {
-      'content-type': MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream',
-      'cache-control': 'no-cache',
-    });
-    res.end(data);
-  });
-});
+const candidateDirs = getCandidateDirs();
+const server = http.createServer(createHttpHandler({ registry, candidateDirs }));
 
 /* ---------------- WebSocket 信令 ---------------- */
 const wss = new WebSocketServer({ server, path: '/signal' });
