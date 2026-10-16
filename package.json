@@ -18,6 +18,7 @@
     "test:e2e": "node test/e2e.js"
   },
   "devDependencies": {
+    "@vitest/ui": "3.2.7",
     "playwright": "^1.64.1",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3",
