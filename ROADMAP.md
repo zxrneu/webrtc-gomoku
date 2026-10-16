@@ -142,7 +142,7 @@ Redis pub/sub 跨节点 + Lua 房间注册、/healthz /metrics /config /admin、
 ### 兼容与迁移
 
 - WebSocket 信令协议与 v1（`create / join / signal / leave`）**完全兼容**
-- Node 版 `server.js` 保留为参考实现/fallback，直至 Rust 版稳定
+- Node 版 `apps/server` 保留为参考实现/fallback，直至 Rust 版稳定（根目录遗留单文件 `server.js` 与根 `Dockerfile` 已移除）
 - Docker 多架构镜像（amd64/arm64）
 
 ---

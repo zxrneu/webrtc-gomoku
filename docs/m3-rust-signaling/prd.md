@@ -17,9 +17,7 @@
 ### 1.1 背景
 
 - **产品第一原则**（ROADMAP）：单文件 HTML「零服务器 + 微信互发连接码」永远是可用的保底路径。信令服务器**仅在启用「房间联机」（自动牵线）时才需要**，M3 不得破坏该原则。
-- **现状**：Node（ws）信令服务器，两个功能等价实现互为参考——
-  - 根目录 `server.js`（遗留版）；
-  - `apps/server/src/server.ts`（M2 TS 版，信令消息类型来自 `@webrtc-gomoku/shared`）。
+- **现状**：Node（ws）信令服务器 `apps/server/src/server.ts`（M2 TS 版，信令消息类型来自 `@webrtc-gomoku/shared`）。根目录遗留单文件 `server.js` 与根 `Dockerfile` 已移除，Node 版不再有第二份实现。
 - **职责边界**：服务器只做两件事——① 托管静态页面；② 按房间中转 WebRTC 信令（offer/answer/ice）。**棋局数据全部走浏览器之间 DataChannel，永不经过服务器。**
 - **痛点**：Node 单机长连接规模受限；配置靠 `PORT/HOST` 环境变量硬编码；无指标、无热重载、无跨节点能力，无法水平扩展。
 - **M3 v2.0**：Rust 重写，目标单机 10 万+ WS 长连接、万人级并发房间、全配置化、可水平扩展。
@@ -32,7 +30,7 @@ M1 体验增强 → M2 TS 工程化 → M3 Rust 信令服务器 → M4 多端分
 
 - M3 是 **M4 小程序路径 B（WS 中继）的地基**（ROADMAP R6 结论：优先复用 M3 信令服务器）。
 - **R7（Rust 重写与现有 WS 协议兼容性）在本里程碑结案**。
-- M3 上线后 Node 版 `server.js` 保留为 fallback，直至 Rust 版稳定。
+- M3 上线后 Node 版 `apps/server` 保留为 fallback，直至 Rust 版稳定。
 
 ### 1.3 产品目标（3 个正交）
 

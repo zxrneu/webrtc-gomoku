@@ -1,7 +1,7 @@
 //! Cross-module integration test for the frozen WS protocol (T04).
 //!
 //! Field names / types / error strings must be byte-for-byte identical to
-//! `packages/shared/src/types.ts` and to v1 (`server.js`). The unit tests inside
+//! `packages/shared/src/types.ts` and to v1 (`apps/server/src/server.ts`). The unit tests inside
 //! `src/protocol/*` cover each helper; this file pins the *wire* contract and
 //! the silent-vs-error classification semantics end to end.
 

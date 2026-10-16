@@ -153,7 +153,7 @@
 | R4 | 分片与对局消息同通道交带 | 否（设计输入） | F2 时序 | F2 开发中 | 先用 ROADMAP 既定「分片让出事件循环」单通道方案；实测落子卡顿再升级双通道 |
 | R5 | 单文件体积 +166KB vs 预算 +25KB | **已命中（非阻塞，产品决策）** | N3/M1 验收 | S1 记录基线后立即决策 | **建议方案 a**：接受 228KB（微信发文件无感知、file:// 打开无感）并修订 N3 预算为「≤250KB」；方案 b：裁 jsQR 仅留 BarcodeDetector（损失 iOS Safari 等无 BarcodeDetector 场景）不推荐 |
 | R6 | 小程序 WebView 不支持 RTCPeerConnection | 是（M4 阻塞，非当前） | M4 路径选择 | M3 完成后 | 优先路径 B（WS 中继，复用 M3 信令服务器） |
-| R7 | Rust 与 WS 协议/连接码兼容 | 是（M3 阻塞，非当前） | M3 迁移 | M3 启动时 | 协议经 M2 shared 包先行冻结；Node 版 server.js 保留 fallback |
+| R7 | Rust 与 WS 协议/连接码兼容 | 是（M3 阻塞，非当前） | M3 迁移 | M3 启动时 | 协议经 M2 shared 包先行冻结；Node 版 apps/server 保留 fallback |
 | R8 | 广告需企业主体 | 是（M4 时间线阻塞，非当前） | M4.3 | M4 规划期 | 提前完成主体注册/过户；个人主体先做无广告分发 |
 
 **验证顺序**：**R2（S2，阻塞 F1 发布）→ R5 决策（S1 后）→ R3（与 F2 并行，阻塞 F3）→ R4（F2 内）→ R6/R7/R8（M3/M4 前）**。
@@ -184,7 +184,7 @@ R1 已实质性解除（二维码路径不再依赖微信长文本），无需�
 3. **F1 密度治理**：三条措施均未落地，建议 ROADMAP 标注「待 S2 真机实测后补做」，并补充新发现的要求「二维码展示须可放大（≥4px/模块）」。
 4. **R2** 保持开放直至 S2 结案。
 5. **版本策略**：建议 F1 独立发 **v1.1.2**（协议不变、纯增强、零破坏，快速交付扫码价值），M1 全量（F1–F4 + N1–N6）完成后发 **v1.2.0**——与 ROADMAP「M1 = v1.2」不冲突；不建议把 F1 拔到 v1.2.0（会迫使 M1 剩余内容挤占 v1.3 并与 M2 撞号）。
-6. **依赖登记**：`jsqr`/`qrcode-generator` 已加入 dependencies，但运行时（server.js）不需要、仅构建时从 `public/*.min.js` 读取；建议移 devDependencies 或注释来源用途。
+6. **依赖登记**：`jsqr`/`qrcode-generator` 已加入 dependencies，但运行时不需要、仅构建时从 `public/*.min.js` 读取；建议移 devDependencies 或注释来源用途。
 7. **N5 描述同步**：落地形式为新增 `test/qr-scan.test.js`（未注册 scripts），建议注册 `npm run test:qr` 并在 ROADMAP/README 同步描述。
 
 ---

@@ -270,14 +270,14 @@ Redis 不可用时**优雅降级**为仅本节点（`gomoku_redis_connected=0`�
 
 ## 6. Rust 版与 Node fallback 的切换
 
-仓库根目录保留 `server.js`（Node 版）作为 fallback，二者**协议完全一致**，可互为替换：
+信令服务有 Rust 版与 Node 版两份实现，二者**协议完全一致**，可互为替换：Rust 版推荐用于生产，Node 版 `apps/server` 作为 fallback / 协议参考实现。
 
 ```bash
 # Rust 版（推荐，生产）
 cd apps/signaling-rust && cargo run --release
 
-# Node 版（fallback）
-node server.js
+# Node 版（fallback；须在仓库根目录执行，前端静态资源由它托管）
+cd ../.. && pnpm build && node apps/server/dist/server.js
 ```
 
 前端无需任何改动即可连任一后端；切换后端不影响既有对局。

@@ -89,6 +89,9 @@ pnpm run build
 # 运行五子棋引擎与 Codec 单元测试 (Vitest)
 pnpm test
 
+# 运行 legacy 单文件版引擎测试 (public/game-core.js)
+pnpm test:legacy
+
 # 运行二维码生成与摄像头/图片扫描自动化测试 (Playwright)
 pnpm test:qr
 
@@ -101,7 +104,7 @@ BASE=http://127.0.0.1:3000 node test/e2e.js
 
 - 本机测试：开两个浏览器标签访问 `http://localhost:3000`，一个创建房间、一个加入
 - 手机/其他设备：访问启动日志里打印的局域网地址，如 `http://<你的局域网IP>:3000`
-- 单元测试：`pnpm test`（五子棋胜负/悔棋/平局逻辑与 Codec 编解码测试，14 项全部通过）
+- 单元测试：`pnpm test`（Vitest，33 项全部通过：五子棋规则 10 · Codec 编解码 4 · ICE 配置 19）；legacy 单文件引擎另跑 `pnpm test:legacy`（11 项）
 - E2E 测试：`pnpm test:e2e`（Playwright 双浏览器模拟对打，全流程覆盖信令链路、落子同步、胜负、聊天、悔棋、重开、手动邀请对局与断线诊断）
 
 ## 架构
@@ -112,7 +115,7 @@ BASE=http://127.0.0.1:3000 node test/e2e.js
   玩家A 浏览器  <—— DataChannel(P2P 直连) ——>  玩家B 浏览器
       连接码（邀请/应答）经微信等任意聊天工具互发
 
-房间联机（可选，需部署信令服务器——Node `server.js` fallback 或 M3 Rust 版 `apps/signaling-rust`）：
+房间联机（可选，需部署信令服务器——Node `apps/server`（协议参考实现/fallback）或 M3 Rust 版 `apps/signaling-rust`，推荐）：
 
   玩家A 浏览器  <—— DataChannel(P2P) ——>  玩家B 浏览器
       \                                      /
@@ -129,36 +132,38 @@ BASE=http://127.0.0.1:3000 node test/e2e.js
 **方式一：Node 直接运行（最快）**
 
 ```bash
-# 1. 安装 Node.js 18+（Debian/Ubuntu 镜像）
+# 1. 安装 Node.js 18+ 与 pnpm（Debian/Ubuntu 镜像）
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs
+corepack enable && corepack prepare pnpm@latest --activate
 
-# 2. 上传代码到服务器（如 /opt/webrtc-gomoku），安装依赖
-npm install --omit=dev
+# 2. 上传代码到服务器（如 /opt/webrtc-gomoku），安装依赖并构建
+cd /opt/webrtc-gomoku
+pnpm install --frozen-lockfile && pnpm build
 
-# 3. 启动（任选其一）
-PORT=3000 node server.js                      # 前台
-nohup node server.js > gomoku.log 2>&1 &      # 后台
-pm2 start server.js --name gomoku             # pm2 守护（推荐）
+# 3. 启动（任选其一；必须在仓库根目录执行，否则静态资源回退探测找不到 packages/web/dist）
+PORT=3000 node apps/server/dist/server.js                   # 前台
+nohup node apps/server/dist/server.js > gomoku.log 2>&1 &   # 后台
+pm2 start apps/server/dist/server.js --name gomoku          # pm2 守护（推荐）
 ```
 
 4. **放行端口**：轻量控制台 → 实例 → 防火墙 → 添加规则，放行 TCP `3000`（入站）
 5. 访问 `http://<服务器公网IP>:3000`
 
-**方式二：Docker**
+**方式二：Docker（Rust 镜像，一键起信令服务 + Redis，镜像内含前端静态资源）**
 
 ```bash
-docker build -t gomoku .
-docker run -d --name gomoku -p 3000:3000 --restart unless-stopped gomoku
+cd apps/signaling-rust
+docker compose up --build
 ```
 
-**方式三：Rust 信令服务器（M3 v2.0，推荐用于房间联机）**
+**方式三：Rust 信令服务器原生运行（M3 v2.0，推荐用于房间联机）**
 
 tokio + axum + Redis，单机 10 万+ 长连接设计；WS 协议与 Node 版逐字兼容，客户端零改动：
 
 ```bash
 cd apps/signaling-rust
 cp config.example.toml config.toml
-docker compose up --build      # 一键起 信令服务 + Redis（镜像内已含 web 静态资源）
+cargo run --release            # 前台运行；容器化部署见上文方式二
 ```
 
 - `GOMOKU_REDIS_ENABLED=false` 可单节点运行（不装 Redis）；跨节点牵手才需要 Redis
@@ -175,7 +180,7 @@ docker compose up --build      # 一键起 信令服务 + Redis（镜像内已�
 
 | 概念 | 作用 | 本项目对应实现 |
 |------|------|----------------|
-| **信令服务** | 交换 SDP、ICE 候选，帮助建立 WebRTC 连接；连接建立后**不参与**数据传输 | 单文件模式：微信互发连接码（零服务器）；房间联机：Rust 版 `apps/signaling-rust`（推荐）或 Node `server.js` WebSocket 中转 |
+| **信令服务** | 交换 SDP、ICE 候选，帮助建立 WebRTC 连接；连接建立后**不参与**数据传输 | 单文件模式：微信互发连接码（零服务器）；房间联机：Rust 版 `apps/signaling-rust`（推荐）或 Node `apps/server` WebSocket 中转 |
 | **中继服务** | 直连失败时**转发流量**（TURN）；数据传输阶段介入，带宽成本高 | 未内置，见下方「TURN 兜底（里程碑）」 |
 
 一句话区分：**信令只负责"牵线"，线牵成就不干了；中继是"媒婆变传声筒"，全程掺和**。
@@ -240,8 +245,7 @@ webrtc-gomoku/
 │   ├── server/       # @webrtc-gomoku/server: Node 信令服务器（fallback，协议参考实现）
 │   └── signaling-rust/  # M3 v2.0 Rust 信令服务器（tokio+axum+Redis，含 Docker/compose）
 ├── docs/m3-rust-signaling/ # M3 契约文档：prd / architecture / tasks / deploy + 类图时序图
-├── server.js         # 遗留单文件信令服务器（Node fallback；单文件模式不需要）
-├── public/           # legacy 单文件版页面（app.js / game-core.js / qrcode / jsqr）
+├── public/           # legacy 单文件版页面（app.js / game-core.js / qrcode / jsqr；test:legacy 的测试对象）
 ├── build-standalone.js   # 单文件构建 → dist/gomoku-standalone.html
 ├── test/             # e2e.js / qr-scan 等 Playwright 脚本
 ├── dist/             # 构建产物（单文件版，随 Release 分发）
@@ -255,4 +259,4 @@ webrtc-gomoku/
 - **连不上/卡在"连接建立中"**：当前版本支持同一局域网直连与可达 IPv6 直连；
   公网 IPv4 NAT 场景由 STUN 尽力穿透，失败时面板会给出原因诊断（对称型 NAT 需 TURN，见里程碑）
 - **手机玩不了**：单文件版通过微信直接发 HTML 文件即可；确保双方网络可达（同 WiFi 或都有 IPv6）
-- **想免手动互发连接码**：部署信令服务器启用「房间联机」——Node 版（`server.js` / `apps/server`）或 M3 Rust 版（`apps/signaling-rust`，推荐：更高并发 + 三层配置 + 热重载），见上文部署章节
+- **想免手动互发连接码**：部署信令服务器启用「房间联机」——Node 版（`apps/server`）或 M3 Rust 版（`apps/signaling-rust`，推荐：更高并发 + 三层配置 + 热重载），见上文部署章节
