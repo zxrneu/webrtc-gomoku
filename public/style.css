@@ -419,3 +419,181 @@ input:disabled, textarea:disabled { opacity: 0.55; cursor: not-allowed; backgrou
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
   max-width: 86vw;
 }
+
+/* ---------- 二维码展示与扫码 ---------- */
+.manual-step-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.manual-step-head b {
+  font-size: 13px;
+}
+
+.qr-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px;
+  margin: 6px 0 10px;
+  background: #fbf8f1;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.qr-canvas {
+  width: 180px;
+  height: 180px;
+  background: #ffffff;
+  padding: 8px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(120, 95, 55, 0.08);
+  image-rendering: pixelated;
+}
+.qr-tip {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.folded-code.is-folded {
+  display: none;
+}
+
+/* 扫码弹窗 */
+.scanner-modal {
+  width: min(380px, 92vw);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.scanner-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.scanner-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+.btn-close:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text);
+}
+
+.scanner-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.scanner-view-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-width: 320px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #111;
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.scanner-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.scanner-reticle {
+  position: absolute;
+  inset: 12%;
+  pointer-events: none;
+}
+.scanner-reticle .corner {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border-color: #2e9e5b;
+  border-style: solid;
+}
+.scanner-reticle .corner.tl { top: 0; left: 0; border-width: 3px 0 0 3px; border-top-left-radius: 4px; }
+.scanner-reticle .corner.tr { top: 0; right: 0; border-width: 3px 3px 0 0; border-top-right-radius: 4px; }
+.scanner-reticle .corner.bl { bottom: 0; left: 0; border-width: 0 0 3px 3px; border-bottom-left-radius: 4px; }
+.scanner-reticle .corner.br { bottom: 0; right: 0; border-width: 0 3px 3px 0; border-bottom-right-radius: 4px; }
+
+.scanner-laser {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(46, 158, 91, 0) 0%, #2e9e5b 50%, rgba(46, 158, 91, 0) 100%);
+  box-shadow: 0 0 8px 1px #2e9e5b;
+  animation: scan-laser 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes scan-laser {
+  0% { top: 6%; opacity: 0.6; }
+  50% { top: 92%; opacity: 1; }
+  100% { top: 6%; opacity: 0.6; }
+}
+
+.scanner-hint {
+  position: absolute;
+  bottom: 8px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(0, 0, 0, 0.4);
+  padding: 4px 8px;
+  backdrop-filter: blur(4px);
+}
+
+.scanner-fallback {
+  width: 100%;
+  padding: 24px 12px;
+  text-align: center;
+  background: #fbf8f1;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+}
+.scanner-fallback .fallback-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+.scanner-fallback p {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--text);
+}
+.scanner-fallback .fallback-sub {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 14px;
+}
+
+.scanner-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}

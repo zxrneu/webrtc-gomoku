@@ -96,6 +96,28 @@
     modalOk: $('modal-ok'),
     modalNo: $('modal-no'),
     toast: $('toast'),
+    flowHostQrBox: $('flow-host-qr-box'),
+    flowHostQr: $('flow-host-qr'),
+    flowHostToggleText: $('flow-host-toggle-text'),
+    flowHostScanBtn: $('flow-host-scan-btn'),
+    flowGuestQrBox: $('flow-guest-qr-box'),
+    flowGuestQr: $('flow-guest-qr'),
+    flowGuestToggleText: $('flow-guest-toggle-text'),
+    flowGuestScanBtn: $('flow-guest-scan-btn'),
+    scannerMask: $('scanner-mask'),
+    scannerTitle: $('scanner-title'),
+    scannerCloseBtn: $('scanner-close-btn'),
+    scannerCancelBtn: $('scanner-cancel-btn'),
+    scannerViewWrap: $('scanner-view-wrap'),
+    scannerVideo: $('scanner-video'),
+    scannerHint: $('scanner-hint'),
+    scannerFallback: $('scanner-fallback'),
+    scannerErrorText: $('scanner-error-text'),
+    scannerSelectFileBtn: $('scanner-select-file-btn'),
+    scannerFileInput: $('scanner-file-input'),
+    scannerCanvas: $('scanner-canvas'),
+    scannerSwitchCamBtn: $('scanner-switch-cam-btn'),
+    scannerAlbumBtn: $('scanner-album-btn'),
   };
 
   /* ---------------- 状态 ---------------- */
@@ -797,6 +819,9 @@
     });
   }
 
+  let hostTextFolded = true;
+  let guestTextFolded = true;
+
   function renderFlow() {
     const f = S.flow;
     dom.flowSteps.classList.toggle('hidden', f === 'idle');
@@ -805,6 +830,13 @@
     dom.flowGuestPanel.classList.toggle('hidden', f !== 'guest-invite' && f !== 'guest-wait');
     dom.flowGuestOutWrap.classList.toggle('hidden', f !== 'guest-wait');
     dom.flowResult.classList.toggle('hidden', f !== 'connected');
+
+    if (f !== 'host-wait') {
+      dom.flowHostQrBox.classList.add('hidden');
+    }
+    if (f !== 'guest-wait') {
+      dom.flowGuestQrBox.classList.add('hidden');
+    }
 
     if (f === 'host-wait') {
       dom.fstep1.textContent = '① 生成邀请码';
@@ -818,6 +850,58 @@
       setFstep(3);
     }
   }
+
+  function renderQrToCanvas(canvas, text) {
+    if (!window.qrcode || !canvas) return false;
+    try {
+      const qr = window.qrcode(0, 'L');
+      qr.addData(text);
+      qr.make();
+      const count = qr.getModuleCount();
+      const margin = 2;
+      const total = count + margin * 2;
+      const displaySize = 180;
+      const dpr = Math.max(window.devicePixelRatio || 1, 2);
+      canvas.width = displaySize * dpr;
+      canvas.height = displaySize * dpr;
+      canvas.style.width = displaySize + 'px';
+      canvas.style.height = displaySize + 'px';
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const cell = canvas.width / total;
+      ctx.fillStyle = '#1a1816';
+      for (let r = 0; r < count; r++) {
+        for (let c = 0; c < count; c++) {
+          if (qr.isDark(r, c)) {
+            const x = Math.floor((c + margin) * cell);
+            const y = Math.floor((r + margin) * cell);
+            const w = Math.ceil((c + margin + 1) * cell) - x;
+            const h = Math.ceil((r + margin + 1) * cell) - y;
+            ctx.fillRect(x, y, w, h);
+          }
+        }
+      }
+      return true;
+    } catch (e) {
+      console.warn('QR code generation failed:', e);
+      return false;
+    }
+  }
+
+  dom.flowHostToggleText.onclick = () => {
+    hostTextFolded = !hostTextFolded;
+    dom.flowHostOut.classList.toggle('is-folded', hostTextFolded);
+    dom.flowHostToggleText.textContent = hostTextFolded ? '查看文本码' : '收起文本码';
+  };
+
+  dom.flowGuestToggleText.onclick = () => {
+    guestTextFolded = !guestTextFolded;
+    dom.flowGuestOut.classList.toggle('is-folded', guestTextFolded);
+    dom.flowGuestToggleText.textContent = guestTextFolded ? '查看文本码' : '收起文本码';
+  };
 
   async function copyCode(ta) {
     const text = ta.value;
@@ -867,6 +951,7 @@
     renderFlow();
     dom.flowHostOut.value = '';
     dom.flowHostOut.placeholder = '正在生成…';
+    dom.flowHostQrBox.classList.add('hidden');
     dom.overlayText.textContent = '正在收集网络候选地址，请稍候…';
     try {
       const pc = createPeer();
@@ -874,8 +959,17 @@
       bindDataChannel(dc);
       await pc.setLocalDescription(await pc.createOffer());
       await waitIce(pc);
-      dom.flowHostOut.value = await pack({ type: 'offer', sdp: pc.localDescription });
+      const code = await pack({ type: 'offer', sdp: pc.localDescription });
+      dom.flowHostOut.value = code;
       dom.flowHostOut.placeholder = '';
+      if (renderQrToCanvas(dom.flowHostQr, code)) {
+        dom.flowHostQrBox.classList.remove('hidden');
+        dom.flowHostOut.classList.add('is-folded');
+        hostTextFolded = true;
+        dom.flowHostToggleText.textContent = '查看文本码';
+      } else {
+        dom.flowHostOut.classList.remove('is-folded');
+      }
       toast('邀请码已生成');
       startWaitTick();
     } catch (e) {
@@ -909,7 +1003,16 @@
       await flushIce(pc);
       await pc.setLocalDescription(await pc.createAnswer());
       await waitIce(pc);
-      dom.flowGuestOut.value = await pack({ type: 'answer', sdp: pc.localDescription });
+      const code = await pack({ type: 'answer', sdp: pc.localDescription });
+      dom.flowGuestOut.value = code;
+      if (renderQrToCanvas(dom.flowGuestQr, code)) {
+        dom.flowGuestQrBox.classList.remove('hidden');
+        dom.flowGuestOut.classList.add('is-folded');
+        guestTextFolded = true;
+        dom.flowGuestToggleText.textContent = '查看文本码';
+      } else {
+        dom.flowGuestOut.classList.remove('is-folded');
+      }
       S.flow = 'guest-wait';
       renderFlow();
       toast('应答码已生成');
@@ -934,6 +1037,254 @@
       scheduleDiag();
     } catch (e) {
       toast('连接失败：' + e.message);
+    }
+  };
+
+  /* ---------------- 二维码扫描（摄像头与图片解析） ---------------- */
+  const scannerState = {
+    stream: null,
+    rafId: null,
+    targetType: null, // 'guest-offer' | 'host-answer'
+    facingMode: 'environment',
+    busy: false,
+    lastScanTime: 0,
+  };
+
+  async function detectQrFromSource(source) {
+    if ('BarcodeDetector' in window) {
+      try {
+        const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+        const barcodes = await detector.detect(source);
+        if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+          return barcodes[0].rawValue;
+        }
+      } catch (e) {
+        // 降级到 jsQR
+      }
+    }
+
+    if (typeof window.jsQR === 'function') {
+      const cvs = dom.scannerCanvas;
+      const w = source.videoWidth || source.naturalWidth || source.width;
+      const h = source.videoHeight || source.naturalHeight || source.height;
+      if (!w || !h) return null;
+
+      const maxDim = 640;
+      let sw = w;
+      let sh = h;
+      if (Math.max(w, h) > maxDim) {
+        const scale = maxDim / Math.max(w, h);
+        sw = Math.floor(w * scale);
+        sh = Math.floor(h * scale);
+      }
+      cvs.width = sw;
+      cvs.height = sh;
+      const ctx = cvs.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(source, 0, 0, sw, sh);
+      const imgData = ctx.getImageData(0, 0, sw, sh);
+      const res = window.jsQR(imgData.data, sw, sh, {
+        inversionAttempts: 'dontInvert',
+      });
+      if (res && res.data) return res.data;
+    }
+    return null;
+  }
+
+  function stopScanner() {
+    if (scannerState.rafId) {
+      cancelAnimationFrame(scannerState.rafId);
+      scannerState.rafId = null;
+    }
+    if (scannerState.stream) {
+      try {
+        scannerState.stream.getTracks().forEach((t) => t.stop());
+      } catch (e) {}
+      scannerState.stream = null;
+    }
+    if (dom.scannerVideo) {
+      dom.scannerVideo.srcObject = null;
+    }
+    dom.scannerMask.classList.add('hidden');
+    scannerState.busy = false;
+  }
+
+  async function checkCameras() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter((d) => d.kind === 'videoinput');
+      dom.scannerSwitchCamBtn.style.display = videoDevices.length > 1 ? 'inline-block' : 'none';
+    } catch (e) {
+      dom.scannerSwitchCamBtn.style.display = 'none';
+    }
+  }
+
+  async function openScanner(targetType) {
+    scannerState.targetType = targetType;
+    scannerState.busy = false;
+    scannerState.lastScanTime = 0;
+    dom.scannerTitle.textContent = targetType === 'guest-offer' ? '扫描邀请码' : '扫描应答码';
+    dom.scannerHint.textContent = '将对方屏幕上的二维码置于框内';
+    dom.scannerMask.classList.remove('hidden');
+    dom.scannerViewWrap.classList.remove('hidden');
+    dom.scannerFallback.classList.add('hidden');
+
+    await checkCameras();
+    await startCamera();
+  }
+
+  async function startCamera() {
+    if (scannerState.stream) {
+      try {
+        scannerState.stream.getTracks().forEach((t) => t.stop());
+      } catch (e) {}
+      scannerState.stream = null;
+    }
+    if (scannerState.rafId) {
+      cancelAnimationFrame(scannerState.rafId);
+      scannerState.rafId = null;
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showCameraFallback('当前环境（如部分内置浏览器或非安全上下文）不支持摄像头取景');
+      return;
+    }
+
+    try {
+      const constraints = {
+        video: {
+          facingMode: { ideal: scannerState.facingMode },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      scannerState.stream = stream;
+      dom.scannerVideo.srcObject = stream;
+      await dom.scannerVideo.play();
+      dom.scannerViewWrap.classList.remove('hidden');
+      dom.scannerFallback.classList.add('hidden');
+      scanFrame();
+    } catch (err) {
+      console.warn('getUserMedia error:', err);
+      const isDenied = err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError';
+      showCameraFallback(
+        isDenied
+          ? '摄像头权限已被拒绝。你可以在浏览器设置中开启，或从相册选择二维码图片识别。'
+          : '未能开启摄像头。你可以直接粘贴连接码，或从相册选择图片识别。'
+      );
+    }
+  }
+
+  function showCameraFallback(msg) {
+    dom.scannerViewWrap.classList.add('hidden');
+    dom.scannerFallback.classList.remove('hidden');
+    dom.scannerErrorText.textContent = msg;
+  }
+
+  async function scanFrame() {
+    if (dom.scannerMask.classList.contains('hidden') || !scannerState.stream) return;
+    const now = Date.now();
+    if (now - scannerState.lastScanTime >= 120 && dom.scannerVideo.readyState >= 2 && !scannerState.busy) {
+      scannerState.busy = true;
+      scannerState.lastScanTime = now;
+      try {
+        const text = await detectQrFromSource(dom.scannerVideo);
+        if (text) {
+          const handled = await handleScannedText(text);
+          if (handled) return;
+        }
+      } catch (e) {
+        console.warn('Scan frame error:', e);
+      } finally {
+        scannerState.busy = false;
+      }
+    }
+    scannerState.rafId = requestAnimationFrame(scanFrame);
+  }
+
+  async function handleScannedText(raw) {
+    const text = (raw || '').trim();
+    if (!text) return false;
+
+    let data;
+    try {
+      data = await unpack(text);
+    } catch (e) {
+      toast('识别到的二维码不是有效的对局连接码');
+      return false;
+    }
+
+    if (!data || !data.type) {
+      toast('识别到的二维码格式不正确');
+      return false;
+    }
+
+    if (scannerState.targetType === 'guest-offer') {
+      if (data.type !== 'offer') {
+        toast('此二维码不是邀请码，请扫描创建方的邀请码');
+        return false;
+      }
+      stopScanner();
+      dom.flowGuestIn.value = text;
+      toast('已成功识别邀请码！');
+      dom.flowGuestAnswer.click();
+      return true;
+    } else if (scannerState.targetType === 'host-answer') {
+      if (data.type !== 'answer') {
+        toast('此二维码不是应答码，请扫描被邀请方的应答码');
+        return false;
+      }
+      stopScanner();
+      dom.flowHostIn.value = text;
+      toast('已成功识别应答码！');
+      dom.flowHostFinish.click();
+      return true;
+    }
+    return false;
+  }
+
+  dom.flowHostScanBtn.onclick = () => openScanner('host-answer');
+  dom.flowGuestScanBtn.onclick = () => openScanner('guest-offer');
+  dom.scannerCloseBtn.onclick = stopScanner;
+  dom.scannerCancelBtn.onclick = stopScanner;
+
+  dom.scannerSwitchCamBtn.onclick = () => {
+    scannerState.facingMode = scannerState.facingMode === 'environment' ? 'user' : 'environment';
+    startCamera();
+  };
+
+  dom.scannerAlbumBtn.onclick = () => dom.scannerFileInput.click();
+  dom.scannerSelectFileBtn.onclick = () => dom.scannerFileInput.click();
+
+  dom.scannerFileInput.onchange = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = async () => {
+        URL.revokeObjectURL(url);
+        const text = await detectQrFromSource(img);
+        if (text) {
+          const handled = await handleScannedText(text);
+          if (!handled) {
+            toast('未匹配到对应连接码类型');
+          }
+        } else {
+          toast('未能在此图片中识别到二维码，请重试');
+        }
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        toast('图片加载失败');
+      };
+      img.src = url;
+    } catch (err) {
+      toast('解析图片出错：' + err.message);
+    } finally {
+      e.target.value = '';
     }
   };
 
@@ -1094,5 +1445,10 @@
       updateHUD();
     },
     deliver: (msg) => onGameMessage(msg),
+    detectQrFromSource,
+    handleScannedText,
+    renderQrToCanvas,
+    openScanner,
+    stopScanner,
   };
 })();

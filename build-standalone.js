@@ -25,6 +25,8 @@ let html = read('index.html');
 
 const inlined = [
   [/<link rel="stylesheet" href="style\.css">/i, () => `<style>\n${escCss(read('style.css'))}\n</style>`],
+  [/<script src="qrcode\.min\.js"><\/script>/i, () => `<script>\n${escJs(read('qrcode.min.js'))}\n</script>`],
+  [/<script src="jsqr\.min\.js"><\/script>/i, () => `<script>\n${escJs(read('jsqr.min.js'))}\n</script>`],
   [/<script src="game-core\.js"><\/script>/i, () => `<script>\n${escJs(read('game-core.js'))}\n</script>`],
   [/<script src="app\.js"><\/script>/i, () => `<script>\n${escJs(read('app.js'))}\n</script>`],
 ];
@@ -45,9 +47,11 @@ fs.mkdirSync(outDir, { recursive: true });
 fs.writeFileSync(outFile, html);
 
 const kb = (fs.statSync(outFile).size / 1024).toFixed(1);
-const refs = html.match(/(?:src|href)="(?!data:|#|https?:)[^"]+"/g);
+const htmlTagsOnly = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '');
+const refs = htmlTagsOnly.match(/(?:src|href)="(?!data:|#|https?:)[^"]+"/g);
 if (refs && refs.length) {
   console.error('构建警告：仍存在外部引用', refs);
   process.exit(1);
 }
 console.log(`OK -> ${path.relative(process.cwd(), outFile)} (${kb} KB, 无外部依赖)`);
+

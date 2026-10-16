@@ -19,12 +19,18 @@
   "scripts": {
     "start": "node server.js",
     "build": "node build-standalone.js",
-    "test": "node test/core.test.js"
+    "test": "node test/core.test.js",
+    "test:qr": "node test/qr-scan.test.js"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
+    "jsqr": "^1.4.0",
+    "qrcode-generator": "^2.0.4",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.1"
   }
 }

@@ -95,34 +95,54 @@
 
         <div class="flow-panel hidden" id="flow-host">
           <div class="manual-step">
-            <b>① 邀请码已生成</b>
-            <textarea id="flow-host-out" rows="3" readonly placeholder="正在生成…"></textarea>
+            <div class="manual-step-head">
+              <b>① 邀请码已生成</b>
+            </div>
+            <div class="qr-box hidden" id="flow-host-qr-box">
+              <canvas id="flow-host-qr" class="qr-canvas"></canvas>
+              <div class="qr-tip">对方可使用手机「扫一扫」快速对局</div>
+            </div>
+            <textarea id="flow-host-out" rows="3" readonly placeholder="正在生成…" class="folded-code"></textarea>
             <div class="row">
               <button class="btn small primary" id="flow-host-copy">复制邀请码</button>
+              <button class="btn small ghost" id="flow-host-toggle-text">查看文本码</button>
             </div>
-            <p class="wechat-tip">📱 打开微信，把邀请码发送给被邀请人</p>
+            <p class="wechat-tip">📱 面对面直接扫码，或复制邀请码发微信</p>
             <div class="status-line" id="flow-host-wait">等待对方回应… <span id="flow-host-timer">0:00</span></div>
           </div>
           <div class="manual-step">
-            <b>② 粘贴对方发回的应答码</b>
-            <textarea id="flow-host-in" rows="3" placeholder="粘贴收到的应答码"></textarea>
+            <div class="manual-step-head">
+              <b>② 粘贴对方发回的应答码</b>
+              <button class="btn tiny primary" id="flow-host-scan-btn">📷 扫一扫</button>
+            </div>
+            <textarea id="flow-host-in" rows="3" placeholder="扫描二维码或在此粘贴应答码"></textarea>
             <button class="btn small" id="flow-host-finish">完成连接</button>
           </div>
         </div>
 
         <div class="flow-panel hidden" id="flow-guest">
           <div class="manual-step">
-            <b>① 粘贴创建房间者发来的邀请码</b>
-            <textarea id="flow-guest-in" rows="3" placeholder="粘贴收到的邀请码"></textarea>
+            <div class="manual-step-head">
+              <b>① 粘贴创建房间者发来的邀请码</b>
+              <button class="btn tiny primary" id="flow-guest-scan-btn">📷 扫一扫</button>
+            </div>
+            <textarea id="flow-guest-in" rows="3" placeholder="扫描二维码或在此粘贴邀请码"></textarea>
             <button class="btn small primary" id="flow-guest-answer">生成应答码</button>
           </div>
           <div class="manual-step hidden" id="flow-guest-out-wrap">
-            <b>② 应答码已生成</b>
-            <textarea id="flow-guest-out" rows="3" readonly></textarea>
+            <div class="manual-step-head">
+              <b>② 应答码已生成</b>
+            </div>
+            <div class="qr-box hidden" id="flow-guest-qr-box">
+              <canvas id="flow-guest-qr" class="qr-canvas"></canvas>
+              <div class="qr-tip">创建者可使用手机「扫一扫」完成连接</div>
+            </div>
+            <textarea id="flow-guest-out" rows="3" readonly class="folded-code"></textarea>
             <div class="row">
               <button class="btn small primary" id="flow-guest-copy">复制应答码</button>
+              <button class="btn small ghost" id="flow-guest-toggle-text">查看文本码</button>
             </div>
-            <p class="wechat-tip">📱 把应答码发回给创建房间的人</p>
+            <p class="wechat-tip">📱 面对面展示给创建者扫码，或发回微信</p>
             <div class="status-line" id="flow-guest-wait">等待对方完成连接…</div>
           </div>
         </div>
@@ -177,8 +197,45 @@
   </div>
 </div>
 
+<div class="modal-mask hidden" id="scanner-mask">
+  <div class="modal scanner-modal">
+    <div class="scanner-head">
+      <h3 id="scanner-title">扫描对局二维码</h3>
+      <button class="btn-close" id="scanner-close-btn" aria-label="关闭">×</button>
+    </div>
+    <div class="scanner-body">
+      <div class="scanner-view-wrap" id="scanner-view-wrap">
+        <video id="scanner-video" class="scanner-video" autoplay playsinline muted></video>
+        <div class="scanner-reticle">
+          <span class="corner tl"></span>
+          <span class="corner tr"></span>
+          <span class="corner bl"></span>
+          <span class="corner br"></span>
+          <div class="scanner-laser"></div>
+        </div>
+        <div class="scanner-hint" id="scanner-hint">将对方屏幕上的二维码置于框内</div>
+      </div>
+      <div class="scanner-fallback hidden" id="scanner-fallback">
+        <div class="fallback-icon">📷</div>
+        <p id="scanner-error-text">未能打开摄像头（权限受限或当前环境不支持）</p>
+        <p class="fallback-sub">你可以选择保存好的二维码截图或照片直接识别：</p>
+        <button class="btn primary" id="scanner-select-file-btn">选择二维码图片识别</button>
+      </div>
+      <canvas id="scanner-canvas" class="hidden"></canvas>
+      <input type="file" id="scanner-file-input" accept="image/*" class="hidden">
+    </div>
+    <div class="scanner-foot">
+      <button class="btn small ghost" id="scanner-switch-cam-btn" style="display:none">切换镜头</button>
+      <button class="btn small ghost" id="scanner-album-btn">相册选图</button>
+      <button class="btn small" id="scanner-cancel-btn">取消</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast hidden" id="toast"></div>
 
+<script src="qrcode.min.js"></script>
+<script src="jsqr.min.js"></script>
 <script src="game-core.js"></script>
 <script src="app.js"></script>
 </body>
