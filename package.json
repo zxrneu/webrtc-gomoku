@@ -13,6 +13,7 @@
     "build": "pnpm run build:core && pnpm run build:shared && pnpm run build:web && pnpm run build:server",
     "start": "node apps/server/dist/server.js",
     "test": "vitest run",
+    "test:legacy": "node test/core.test.js",
     "test:qr": "node test/qr-scan.test.js",
     "test:e2e": "node test/e2e.js"
   },
