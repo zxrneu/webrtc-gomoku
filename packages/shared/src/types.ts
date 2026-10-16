@@ -231,7 +231,13 @@ export type ManualPayload = ManualOfferPayload | ManualAnswerPayload;
  * WebRTC 底层传输链路质量监控数据（用于界面网络状态小面板）
  */
 export interface TransportInfo {
-  /** 最终选中的 ICE 候选类型：host(局域网) | srflx(NAT穿透公网) | relay(中继服务器) */
+  /**
+   * 最终选中的 ICE 候选类型：
+   * - host: 局域网/本机直连
+   * - srflx (Server Reflexive): 通过 STUN 服务器探测出的公网 NAT 映射地址
+   * - prflx (Peer Reflexive): 对等反射地址（双方在打洞互发测试包时对端直接探测到的动态端口直连）
+   * - relay: 通过 TURN 中继服务器中转流量（打洞失败时的保底方案）
+   */
   candidateType?: string;
   /** 网络协议版本：'IPv4' 或 'IPv6' */
   ipVersion?: string;
