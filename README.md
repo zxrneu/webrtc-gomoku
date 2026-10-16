@@ -246,7 +246,6 @@ webrtc-gomoku/
 │   └── signaling-rust/  # M3 v2.0 Rust 信令服务器（tokio+axum+Redis，含 Docker/compose）
 ├── docs/m3-rust-signaling/ # M3 契约文档：prd / architecture / tasks / deploy + 类图时序图
 ├── public/           # legacy 单文件版页面（app.js / game-core.js / qrcode / jsqr；test:legacy 的测试对象）
-├── build-standalone.js   # legacy 单文件构建（读 public/ 手工运行；现行 dist 产物由 web 的 vite 插件生成）
 ├── test/             # e2e.js / qr-scan 等 Playwright 脚本
 ├── dist/             # 构建产物（单文件版，随 Release 分发）
 ├── ROADMAP.md        # 路线图 / 里程碑
