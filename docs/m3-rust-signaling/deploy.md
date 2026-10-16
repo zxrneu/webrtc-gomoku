@@ -44,6 +44,13 @@ docker buildx build --platform linux/amd64,linux/arm64 -t gomoku-signaling:2.0.0
 
 `docker-compose.yml` 一键起「signaling + redis」，并把 `config.example.toml` 以只读方式挂到 `/app/config.toml`。
 
+### 1.4 免 Docker：手动构建各平台二进制
+
+不想装 Docker 时，可在目标机原生构建或本机交叉编译（Linux 可选 musl 静态链接，无 glibc 依赖），
+部署 = 单个二进制 + `public/` 静态目录（web dist 内容）+ 可选 `config.toml`。
+完整命令、平台 target 速查表与 systemd 示例见
+[`../../apps/signaling-rust/README.md` §1.4](../../apps/signaling-rust/README.md)。
+
 ---
 
 ## 2. 探针

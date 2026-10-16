@@ -46,7 +46,75 @@ docker buildx build --platform linux/amd64,linux/arm64 -t gomoku-signaling .
 
 镜像以非 root（uid `10001`）运行，`HEALTHCHECK` 走 `/healthz`。Rust 依赖按 `Cargo.lock` 锁定（`cargo build --release --locked`），前端依赖按 `pnpm-lock.yaml` 锁定（`pnpm install --frozen-lockfile`），构建可复现。
 
-### 1.4 单节点部署：**不需要 Redis**
+### 1.4 手动构建各平台二进制（免 Docker）
+
+适用于轻量服务器（如 Lighthouse）不装 Docker、或要分发单一可执行文件的场景。
+依赖全部为纯 Rust（无 OpenSSL 等 C 依赖），Linux 下可**静态链接**，拷到同架构任何发行版都能跑。
+
+**方式 A · 目标机原生构建（最稳，零交叉编译陷阱）**
+
+```bash
+# 在目标机器上（ rustup 安装 stable 即可，版本以 rust-toolchain.toml 为准）
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+# 把仓库放到目标机后：
+cd apps/signaling-rust
+cargo build --release --locked
+# 产物：target/release/gomoku-signaling
+```
+
+**方式 B · 本机交叉编译（一条命令出包）**
+
+```bash
+# 路线 1：cross（底层用 Docker 隔离目标 sysroot，最省心）
+cargo install cross
+cross build --release --target x86_64-unknown-linux-gnu
+cross build --release --target aarch64-unknown-linux-gnu
+
+# 路线 2：cargo-zigbuild（借 zig 的 cc，免 Docker）
+cargo install cargo-zigbuild
+cargo zigbuild --release --target x86_64-unknown-linux-musl
+
+# 路线 3：rustup 直装 musl target 后原生静态构建（仅 Linux 宿主可行，无第三方工具）
+rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+cargo build --release --locked --target x86_64-unknown-linux-musl
+# 产物：target/x86_64-unknown-linux-musl/release/gomoku-signaling（无 glibc 依赖）
+# ⚠️ macOS / Windows 宿主直连 musl 会在链接期失败（系统 ld 不识别 GNU 静态链接参数，
+#    实测报错 ld: unknown options: --as-needed -Bstatic ...）。此时请用上面的
+#    cargo-zigbuild 或 cross 路线——它们提供 lld + musl sysroot。
+```
+
+**平台速查表**
+
+| 目标平台 | target triple | 备注 |
+|---|---|---|
+| Linux x86_64（主流云服务器） | `x86_64-unknown-linux-gnu` | 或 musl 静态版 |
+| Linux arm64（鲲鹏 / Ampere / Apple Silicon 虚机） | `aarch64-unknown-linux-gnu` | 或 musl 静态版 |
+| Linux 静态通用（老发行版 / Alpine） | `x86_64-unknown-linux-musl` | **推荐**：无 glibc 依赖 |
+| macOS Apple Silicon | `aarch64-apple-darwin` | M 系列 Mac 原生 |
+| macOS Intel | `x86_64-apple-darwin` | |
+| Windows | `x86_64-pc-windows-msvc` | 产物为 `.exe`，功能一致 |
+
+**部署：二进制 + `public/` 两步走**（二进制**不含**前端页面，静态目录按回退链探测）
+
+```bash
+# 1. 在有 Node 的机器上构建前端产物（或在目标机装好 Node 后执行）
+pnpm --filter @webrtc-gomoku/web build        # 产物在 packages/web/dist
+
+# 2. 组装部署目录（二进制 + public/ + 可选 config.toml）
+mkdir -p /opt/gomoku
+cp target/release/gomoku-signaling /opt/gomoku/
+cp -r packages/web/dist/* /opt/gomoku/public/     # 或用 GOMOKU_PUBLIC_DIR 指向绝对路径
+
+# 3. 启动与验收
+GOMOKU_REDIS_ENABLED=false /opt/gomoku/gomoku-signaling &
+curl -s localhost:3000/healthz                # 期望 {"ok":true,...}
+```
+
+> 放行防火墙入站 TCP `3000`；HTTPS 生产环境按根 README 的 Nginx 反代方案前置。
+> `redis.enabled=false` 表示单节点有意关闭（非故障），见 §1.5。
+> systemd 守护示例：`ExecStart=/opt/gomoku/gomoku-signaling` + `Environment=GOMOKU_REDIS_ENABLED=false` + `Restart=on-failure`，`KillSignal=SIGTERM` 以走优雅关闭（§5.1）。
+
+### 1.5 单节点部署：**不需要 Redis**
 
 **Redis 是可选的。** 它只服务于**跨节点**能力——同房间两人落在不同节点时的信令中转、房间号全局唯一（`SET NX EX`）、跨节点 1v1 容量判定。单节点部署下本地 `RoomTable` 已能完成全部功能，**不要起 Redis**：
 
@@ -167,7 +235,7 @@ enabled = false
 
 Redis 不可用时**优雅降级**为仅本节点（`gomoku_redis_connected=0`），进程不崩溃；恢复后订阅任务按 1s→30s 指数退避自动重连。
 
-> **不需要跨节点时请直接关闭**：`redis.enabled = false`（详见 §1.4）。单节点部署下跨节点能力用不上，关掉可省去常驻重连任务与每 30s 一条的 `warn` 日志，同时让 `gomoku_redis_connected=0` 不再被误读为故障。
+> **不需要跨节点时请直接关闭**：`redis.enabled = false`（详见 §1.5）。单节点部署下跨节点能力用不上，关掉可省去常驻重连任务与每 30s 一条的 `warn` 日志，同时让 `gomoku_redis_connected=0` 不再被误读为故障。
 
 ---
 

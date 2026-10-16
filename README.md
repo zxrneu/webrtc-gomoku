@@ -163,6 +163,7 @@ docker compose up --build      # 一键起 信令服务 + Redis（镜像内已�
 
 - `GOMOKU_REDIS_ENABLED=false` 可单节点运行（不装 Redis）；跨节点牵手才需要 Redis
 - 三层配置（默认值 < `config.toml` < 环境变量）+ SIGHUP/`/admin/config` 热重载
+- 免 Docker：可手动构建各平台二进制（含 Linux musl 静态版，单文件即部署），见 `apps/signaling-rust/README.md` §1.4
 - `/healthz`、`/metrics`、`/config`（STUN/TURN 动态下发）
 - 完整部署/运维文档：`apps/signaling-rust/README.md`、`docs/m3-rust-signaling/deploy.md`
 
