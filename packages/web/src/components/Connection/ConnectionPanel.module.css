@@ -1,0 +1,374 @@
+.connectCard {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.nameField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nameField span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.nameInput {
+  padding: 9px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--card-border);
+  background: #ffffff;
+  font-size: 14px;
+  color: var(--text-main);
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.nameInput:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(180, 83, 9, 0.15);
+  outline: none;
+}
+
+.tabs {
+  display: flex;
+  background: #ede6d8;
+  padding: 3px;
+  border-radius: var(--radius-md);
+  gap: 2px;
+}
+
+.tab {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 13.5px;
+  font-weight: 600;
+  border-radius: calc(var(--radius-md) - 3px);
+  background: transparent;
+  color: var(--text-muted);
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.tab.active {
+  background: #ffffff;
+  color: var(--text-main);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.tabNote {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-light);
+  font-style: normal;
+}
+
+.manualTip {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  background: rgba(247, 243, 234, 0.8);
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--accent);
+  margin: 0;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.grow {
+  flex: 1;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 9px 16px;
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+  color: var(--text-main);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-sm);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) {
+  background: #faf7f2;
+  border-color: #d6caba;
+  transform: translateY(-1px);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btnPrimary {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #ffffff;
+}
+
+.btnTiny {
+  font-size: 11.5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+.btnSmall {
+  font-size: 12.5px;
+  padding: 7px 12px;
+}
+
+.btnGhost {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+}
+
+.btnGhost:hover:not(:disabled) {
+  background: rgba(230, 220, 206, 0.4);
+}
+
+.roomCode {
+  font-family: monospace;
+  font-size: 16px;
+  letter-spacing: 2px;
+  text-align: center;
+  text-transform: uppercase;
+  max-width: 120px;
+  padding: 8px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  color: var(--text-light);
+  font-size: 12px;
+  margin: 6px 0;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px dashed var(--card-border);
+}
+
+.divider span {
+  padding: 0 10px;
+}
+
+.roomInfo {
+  background: #fdfbf7;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.roomInfoLine {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+}
+
+.roomInfoLine b {
+  font-family: monospace;
+  font-size: 17px;
+  color: var(--accent);
+  letter-spacing: 1px;
+}
+
+.statusLine {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 流程指引 */
+.flowSteps {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(247, 243, 234, 0.9);
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-light);
+  border: 1px solid rgba(230, 220, 206, 0.6);
+}
+
+.fstep {
+  padding: 3px 6px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.fstep.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.fstep.done {
+  color: var(--green);
+}
+
+.farrow {
+  color: var(--text-light);
+  font-style: normal;
+}
+
+.flowEntry {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.manualStep {
+  background: #ffffff;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+  box-shadow: var(--shadow-sm);
+}
+
+.manualStepHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13.5px;
+}
+
+.manualStepHead b {
+  color: var(--text-main);
+}
+
+.qrBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: #fbf9f4;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--card-border);
+}
+
+.qrCanvas {
+  max-width: 190px;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+}
+
+.qrTip {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.textarea {
+  width: 100%;
+  font-family: monospace;
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--card-border);
+  resize: vertical;
+  background: #faf8f5;
+  color: var(--text-main);
+  box-sizing: border-box;
+}
+
+.foldedCode {
+  height: 28px !important;
+  min-height: 28px;
+  resize: none;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0.75;
+  background: #f4eee3;
+}
+
+.wechatTip {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.flowResult {
+  margin-top: 4px;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.7;
+  border: 1px solid #bfe3cc;
+  background: #e9f6ee;
+}
+
+.flowResult.ok b {
+  color: var(--green);
+}
+
+.flowResult.bad {
+  border-color: #ecc4bf;
+  background: #fdf0ef;
+}
+
+.flowResult.bad b {
+  color: var(--red);
+}
+
+.flowResult ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-size: 12px;
+}

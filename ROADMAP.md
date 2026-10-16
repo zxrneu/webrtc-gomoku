@@ -174,7 +174,7 @@ P2P 架构零服务器成本是核心优势；但小程序/小游戏形态绕不
 - [ ] **M1-F2** 文件传输（分片 + 流控 + 进度 + 取消）
 - [ ] **M1-F3** 语音（addTrack 重协商 + signaling over DataChannel）
 - [ ] **M1-F4** 视频（布局 + 控制 + 保活）
-- [ ] **M2** TypeScript 迁移 + pnpm workspace
+- [x] **M2** TypeScript 迁移 + pnpm workspace（React 19 + CSS Modules + Monorepo + Standalone 单文件打包）
 - [ ] **M3** Rust 信令服务器（高并发 + 三层配置 + 配置下发客户端）
 - [ ] **M4** App 打包 / 微信小程序小游戏 / 广告变现
 

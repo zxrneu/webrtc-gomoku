@@ -1,0 +1,111 @@
+.gameCard {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.players {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 12px;
+  background: #faf7f0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--card-border);
+}
+
+.player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stoneDot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex: none;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.stoneBlack {
+  background: radial-gradient(circle at 35% 30%, #525252 0%, #171717 80%);
+}
+
+.stoneWhite {
+  background: radial-gradient(circle at 35% 30%, #ffffff 0%, #e2ded9 80%);
+  border: 1px solid #c8c2b7;
+}
+
+.playerInfo {
+  display: flex;
+  flex-direction: column;
+}
+
+.playerInfo b {
+  font-size: 14px;
+  color: var(--text-main);
+}
+
+.playerInfo small {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.vs {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-light);
+  letter-spacing: 1px;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  text-align: center;
+}
+
+.statItem {
+  background: #ffffff;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  padding: 8px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.statItem small {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.statItem b {
+  font-size: 14px;
+  color: var(--text-main);
+}
+
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: #fdfbf7;
+  border: 1px solid var(--card-border);
+}
+
+.transportDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  flex: none;
+}

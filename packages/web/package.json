@@ -1,0 +1,30 @@
+{
+  "name": "@webrtc-gomoku/web",
+  "version": "1.3.0",
+  "private": true,
+  "description": "React + CSS Modules frontend for WebRTC Gomoku",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@webrtc-gomoku/core": "workspace:*",
+    "@webrtc-gomoku/shared": "workspace:*",
+    "jsqr": "^1.4.0",
+    "qrcode-generator": "^2.0.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "@types/qrcode-generator": "^1.0.6",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.3",
+    "vite": "^6.2.0",
+    "vite-plugin-singlefile": "^2.1.0"
+  }
+}

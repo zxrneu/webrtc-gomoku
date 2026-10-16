@@ -1,0 +1,126 @@
+.chatCard {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chatHead {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.chatList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 180px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.chatItem {
+  display: flex;
+  flex-direction: column;
+  max-width: 82%;
+  word-break: break-all;
+  font-size: 13px;
+  animation: fadeIn 0.2s ease;
+}
+
+.chatItem.self {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.chatItem.peer {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.chatItem.sys {
+  align-self: center;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: rgba(230, 220, 206, 0.4);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.bubble {
+  padding: 7px 12px;
+  border-radius: 12px;
+  line-height: 1.4;
+}
+
+.self .bubble {
+  background: var(--accent);
+  color: #ffffff;
+  border-bottom-right-radius: 2px;
+}
+
+.peer .bubble {
+  background: #ede6d8;
+  color: var(--text-main);
+  border-bottom-left-radius: 2px;
+}
+
+.chatInputRow {
+  display: flex;
+  gap: 8px;
+}
+
+.chatInput {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--card-border);
+  font-size: 13px;
+  background: #ffffff;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.chatInput:focus:not(:disabled) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(180, 83, 9, 0.15);
+}
+
+.chatInput:disabled {
+  background: #f5f2eb;
+  cursor: not-allowed;
+}
+
+.btn {
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+  color: var(--text-main);
+  border: 1px solid var(--card-border);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn:hover:not(:disabled) {
+  background: #faf7f2;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}

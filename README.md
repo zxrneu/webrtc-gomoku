@@ -13,56 +13,86 @@
 - **连接透明度**：连接成功后显示实际传输方式（IPv6 直连 / IPv4 直连 /
   NAT 穿透 / TURN 中继）；连不上时给出原因诊断
 
-## 里程碑（规划中）
+## 里程碑
 
-详细路线图见 **[ROADMAP.md](ROADMAP.md)**，四个里程碑：
+详细路线图见 **[ROADMAP.md](ROADMAP.md)**，当前进度：
 
-| 里程碑 | 内容 |
-|--------|------|
-| **M1 · v1.2** | 扫码配对（双向）/ 文件传输 / 语音 / 视频，全部寄生现有 P2P 连接，零服务器 |
-| **M2 · v1.3** | 弃用裸 JS，全量 TypeScript + pnpm workspace monorepo |
-| **M3 · v2.0** | 信令服务器 Rust 重写（tokio + axum，10 万+ 长连接）；**三层配置：默认值 < config.toml < 环境变量**，`GET /config` 把 STUN/TURN 配置下发客户端（去掉硬编码） |
-| **M4 · v3.0** | App 打包（PWA → Tauri/Capacitor）、微信小程序/小游戏、广告变现（激励视频场景） |
+| 里程碑 | 内容 | 状态 |
+|--------|------|------|
+| **M1 · v1.2** | 扫码配对（双向二维码）/ 文件传输 / 语音 / 视频，零服务器 | [x] 扫码已完成 |
+| **M2 · v1.3** | 全量 TypeScript + pnpm workspace + React 19 + CSS Modules + 单文件打包 | [x] 已完成 |
+| **M3 · v2.0** | 信令服务器 Rust 重写（tokio + axum，10 万+ 长连接）；配置下发客户端 | 规划中 |
+| **M4 · v3.0** | App 打包（PWA → Tauri/Capacitor）、微信小程序/小游戏、广告变现 | 规划中 |
 
 > 公网 IPv4 NAT 穿透（双方在不同家庭宽带后）：代码已内置腾讯/阿里公共 STUN 尽力尝试，
 > 成功率取决于 NAT 类型，**不在当前版本的支持承诺范围内**。
 
+## Monorepo 工程架构（pnpm workspace）
+
+项目已全面迁移为 TypeScript Monorepo，模块边界清晰且支持现代 React 与独立单文件打包：
+
+```
+webrtc-gomoku/
+├── packages/
+│   ├── core/         # @webrtc-gomoku/core: 纯 TypeScript 五子棋引擎（规则、状态、胜负与悔棋算法）
+│   ├── shared/       # @webrtc-gomoku/shared: 共享信令与对局协议、deflate-raw + base64url 压缩编解码
+│   └── web/          # @webrtc-gomoku/web: React 19 + CSS Modules + Canvas 15×15 棋盘 + Vite 单文件打包
+├── apps/
+│   └── server/       # @webrtc-gomoku/server: TypeScript HTTP 静态托管与 WebSocket 信令中继服务
+├── dist/
+│   └── gomoku-standalone.html # 构建产物：全内联单文件 HTML（零服务器依赖，可直接微信互发或离线运行）
+├── test/
+│   ├── qr-scan.test.js # Playwright 自动化二维码生成、折叠与扫描测试
+│   └── e2e.js          # Playwright 双端端到端对局与信令链路全流程测试
+└── package.json
+```
+
 ## 单文件版（微信互发 · 零服务器）
 
-不想部署服务器？构建一个约 47KB 的单文件 HTML（全部代码内联、无外部依赖），
-通过微信文件互发给对方，双方双击打开，用「手动信令」模式互发连接码即可 P2P 对战：
+不想部署服务器？构建单文件 HTML（全部代码内联、无外部依赖），
+通过微信文件互发给对方，双方双击打开，用「手动信令」模式扫码或互发连接码即可 P2P 对战：
 
 ```bash
-npm run build    # 生成 dist/gomoku-standalone.html
+pnpm install
+pnpm run build    # 构建所有包并生成 dist/gomoku-standalone.html
 ```
 
 对局步骤（双方都打开单文件后，切到「手动信令」标签）：
 
-1. **邀请方**点「创建房间」→ 邀请码自动生成 → 复制 → 微信发给对方
-2. **对方**点「加入房间」→ 粘贴邀请码 →「生成应答码」→ 复制 → 微信发回
-3. **邀请方**粘贴应答码 → 点「完成连接」→ 开始下棋
+1. **邀请方**点「创建房间」→ 邀请码自动生成（附带二维码）→ 微信发给对方或面对面扫码
+2. **对方**点「加入房间」→ 扫码/粘贴邀请码 →「生成应答码」→ 微信发回或展示二维码
+3. **邀请方**扫码/粘贴应答码 → 点「完成连接」→ 开始下棋
 
-网络说明：**同一局域网或双方可达 IPv6 时自动直连**（当前版本支持范围）；
+网络说明：**同一局域网或双方可达 IPv6 时自动直连**；
 连不上时面板会给出原因诊断。也可从 GitHub Release 直接下载现成单文件。
 
-## 本地运行（开发 / 里程碑：房间联机）
-
-> 以下为开发者选项：运行信令服务器后可启用「房间联机」（自动牵线，免手动互发连接码），
-> 属于里程碑功能，当前版本主路径为上面的单文件微信互发。
+## 本地开发与测试
 
 ```bash
-cd webrtc-gomoku
-npm install
-npm start          # 默认 0.0.0.0:3000，可用 PORT=8080 修改
+# 启动前端开发服务器 (Vite)
+pnpm dev
+
+# 启动信令服务器 (开发模式)
+pnpm dev:server
+
+# 构建全部包 (Core, Shared, Web, Server) 并导出独立 HTML
+pnpm run build
+
+# 运行五子棋引擎与 Codec 单元测试 (Vitest)
+pnpm test
+
+# 运行二维码生成与摄像头/图片扫描自动化测试 (Playwright)
+pnpm test:qr
+
+# 运行信令与 P2P 对局端到端测试 (Playwright)
+PORT=3000 node apps/server/dist/server.js &
+pnpm test:e2e
 ```
 
 - 本机测试：开两个浏览器标签访问 `http://localhost:3000`，一个创建房间、一个加入
 - 手机/其他设备：访问启动日志里打印的局域网地址，如 `http://<你的局域网IP>:3000`
-- 单元测试：`npm test`（五子棋胜负/悔棋/平局逻辑，11 项）
-- E2E 测试：`node test/e2e.js`（需先 `npm i playwright`；用两个浏览器上下文自动打一局，
-  覆盖信令链路、落子同步、胜负、聊天、悔棋、重开、邀请对局流程；真实 P2P 连通时自动走真实对局，
-  ICE 被环境阻断时验证失败诊断）
-- 单文件版验证：`node test/standalone-check.js`
+- 单元测试：`pnpm test`（五子棋胜负/悔棋/平局逻辑与 Codec 编解码测试，14 项全部通过）
+- E2E 测试：`pnpm test:e2e`（Playwright 双浏览器模拟对打，全流程覆盖信令链路、落子同步、胜负、聊天、悔棋、重开、手动邀请对局与断线诊断）
 
 ## 架构
 
