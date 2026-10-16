@@ -2,16 +2,21 @@
 
 浏览器之间通过 **WebRTC DataChannel 直连对战**的联机五子棋。**零服务器**：单文件 HTML 通过微信互发，双方互发连接码即建立 P2P 直连，落子、聊天等对局数据全部在两端之间传输。
 
-## 当前支持（v1.1）
+> 第一原则不变：单文件微信互发永远可用。可选的「房间联机」（自动牵线）现在由 **M3 v2.0 Rust 信令服务器**承载（`apps/signaling-rust`），不需要时一行部署都不用做。
+
+## 当前支持（v2.0）
 
 - **同一局域网直连**：同一 WiFi/内网下 IPv4 host 候选直连，无需任何服务器
 - **可达 IPv6 直连**：双方全球单播 IPv6（`2408:`/`2409:` 等）端到端可达，
   host 候选直连——**无 NAT、无需 STUN**，这是 IPv6 对 P2P 的红利
-- **微信互发邀请**：单文件 HTML（47KB 零依赖）+ 连接码互发，交互式引导流程
+- **微信互发邀请**：单文件 HTML（约 228KB 零运行时依赖）+ 连接码互发，交互式引导流程
+- **扫码配对**：双向二维码 + BarcodeDetector/jsQR 双模识别 + 相册兜底
 - **对局功能**：15×15 棋盘、回合制、悔棋（需对方同意）、重新开始、最后一手标记、
   胜利连线高亮、对局聊天、掉线提示、音效开关、移动端自适应
 - **连接透明度**：连接成功后显示实际传输方式（IPv6 直连 / IPv4 直连 /
   NAT 穿透 / TURN 中继）；连不上时给出原因诊断
+- **STUN/TURN 动态下发（v2.0 新增）**：部署信令服务器后，ICE 服务器列表改由
+  `GET /config` 下发（`packages/web/src/iceConfig.ts`），失败自动降级到内置同款列表
 
 ## 里程碑
 
@@ -21,7 +26,7 @@
 |--------|------|------|
 | **M1 · v1.2** | 扫码配对（双向二维码）/ 文件传输 / 语音 / 视频，零服务器 | [x] 扫码已完成 |
 | **M2 · v1.3** | 全量 TypeScript + pnpm workspace + React 19 + CSS Modules + 单文件打包 | [x] 已完成 |
-| **M3 · v2.0** | 信令服务器 Rust 重写（tokio + axum，10 万+ 长连接）；配置下发客户端 | 规划中 |
+| **M3 · v2.0** | 信令服务器 Rust 重写（tokio + axum + Redis，10 万+ 长连接）+ STUN/TURN 动态下发 | [x] 已交付（`4e13b98`；10 万连接压测报告与多架构 CI 为计划内后置） |
 | **M4 · v3.0** | App 打包（PWA → Tauri/Capacitor）、微信小程序/小游戏、广告变现 | 规划中 |
 
 > 公网 IPv4 NAT 穿透（双方在不同家庭宽带后）：代码已内置腾讯/阿里公共 STUN 尽力尝试，
@@ -72,8 +77,11 @@ pnpm run build    # 构建所有包并生成 dist/gomoku-standalone.html
 # 启动前端开发服务器 (Vite)
 pnpm dev
 
-# 启动信令服务器 (开发模式)
+# 启动信令服务器 (开发模式，Node 版)
 pnpm dev:server
+
+# 或启动 Rust 版信令服务器 (M3，apps/signaling-rust)
+cargo run --manifest-path apps/signaling-rust/Cargo.toml
 
 # 构建全部包 (Core, Shared, Web, Server) 并导出独立 HTML
 pnpm run build
@@ -84,9 +92,11 @@ pnpm test
 # 运行二维码生成与摄像头/图片扫描自动化测试 (Playwright)
 pnpm test:qr
 
-# 运行信令与 P2P 对局端到端测试 (Playwright)
+# 运行信令与 P2P 对局端到端测试 (Playwright，默认指向 Node 版)
 PORT=3000 node apps/server/dist/server.js &
 pnpm test:e2e
+# 也可指向 Rust 版信令服务器（协议完全兼容，客户端零改动）：
+BASE=http://127.0.0.1:3000 node test/e2e.js
 ```
 
 - 本机测试：开两个浏览器标签访问 `http://localhost:3000`，一个创建房间、一个加入
@@ -102,13 +112,13 @@ pnpm test:e2e
   玩家A 浏览器  <—— DataChannel(P2P 直连) ——>  玩家B 浏览器
       连接码（邀请/应答）经微信等任意聊天工具互发
 
-里程碑（房间联机，需部署 server.js）：
+房间联机（可选，需部署信令服务器——Node `server.js` fallback 或 M3 Rust 版 `apps/signaling-rust`）：
 
   玩家A 浏览器  <—— DataChannel(P2P) ——>  玩家B 浏览器
       \                                      /
        \  WebSocket 信令(offer/answer/ice)  /
         \                                  /
-             信令服务器 server.js (ws)
+             信令服务器 (ws /signal)
           （仅牵线；对局数据不经过它）
 ```
 
@@ -141,6 +151,21 @@ docker build -t gomoku .
 docker run -d --name gomoku -p 3000:3000 --restart unless-stopped gomoku
 ```
 
+**方式三：Rust 信令服务器（M3 v2.0，推荐用于房间联机）**
+
+tokio + axum + Redis，单机 10 万+ 长连接设计；WS 协议与 Node 版逐字兼容，客户端零改动：
+
+```bash
+cd apps/signaling-rust
+cp config.example.toml config.toml
+docker compose up --build      # 一键起 信令服务 + Redis（镜像内已含 web 静态资源）
+```
+
+- `GOMOKU_REDIS_ENABLED=false` 可单节点运行（不装 Redis）；跨节点牵手才需要 Redis
+- 三层配置（默认值 < `config.toml` < 环境变量）+ SIGHUP/`/admin/config` 热重载
+- `/healthz`、`/metrics`、`/config`（STUN/TURN 动态下发）
+- 完整部署/运维文档：`apps/signaling-rust/README.md`、`docs/m3-rust-signaling/deploy.md`
+
 **生产建议**：用 Nginx 反代到 3000 端口并配置 HTTPS（腾讯云免费证书或 Let's Encrypt）。HTTPS 下 WebRTC 更稳定，也能避免浏览器对非安全上下文的限制。
 
 ## 网络环境说明（IPv4 / IPv6 / NAT）
@@ -149,12 +174,15 @@ docker run -d --name gomoku -p 3000:3000 --restart unless-stopped gomoku
 
 | 概念 | 作用 | 本项目对应实现 |
 |------|------|----------------|
-| **信令服务** | 交换 SDP、ICE 候选，帮助建立 WebRTC 连接；连接建立后**不参与**数据传输 | 单文件模式：微信互发连接码（零服务器）；房间联机（里程碑）：`server.js` WebSocket 中转 |
+| **信令服务** | 交换 SDP、ICE 候选，帮助建立 WebRTC 连接；连接建立后**不参与**数据传输 | 单文件模式：微信互发连接码（零服务器）；房间联机：Rust 版 `apps/signaling-rust`（推荐）或 Node `server.js` WebSocket 中转 |
 | **中继服务** | 直连失败时**转发流量**（TURN）；数据传输阶段介入，带宽成本高 | 未内置，见下方「TURN 兜底（里程碑）」 |
 
 一句话区分：**信令只负责"牵线"，线牵成就不干了；中继是"媒婆变传声筒"，全程掺和**。
 
-**STUN 配置**：`public/app.js` 中 ICE_SERVERS 采用「腾讯 + 阿里 STUN 优先，Google 备用」——
+**STUN 配置**：部署信令服务器时，ICE 服务器列表由服务器经 `GET /config` 动态下发
+（默认四枚：腾讯/阿里 + Google×2；`GOMOKU_TURN_URL` 等环境变量可配 TURN），
+页面端 `packages/web/src/iceConfig.ts` 获取失败时自动降级到内置同款列表——
+**未部署服务器的单文件模式**则由 legacy `public/app.js` 内置「腾讯 + 阿里 STUN 优先，Google 备用」。
 国内延迟 30-90ms，远低于 Google 的 150-300ms。STUN 只用于获取公网反射地址（srflx 候选），
 **同一局域网或双方全球单播 IPv6 可路由时，浏览器收集的 host 候选即可直连，不依赖 STUN**。
 
@@ -195,26 +223,29 @@ ICE 会借助腾讯/阿里 STUN 尝试穿透，能否成功取决于双方的 NA
 | `restart-req / restart-ok / restart-no` | 双向 | 重开请求/同意/拒绝 |
 | `bye` | 双向 | 离开 |
 
-信令协议（WebSocket `/signal`，仅里程碑「房间联机」使用）：`create / join / signal / leave`，详见 `server.js` 注释。
+信令协议（WebSocket `/signal`，仅「房间联机」使用）：`create / join / signal / leave`；
+类型唯一定义源在 `packages/shared/src/types.ts`，Rust 版实现见
+`apps/signaling-rust/src/protocol/`（消息集合与错误文案同 Node 版逐字一致）。
 
 ## 目录结构
 
 ```
 webrtc-gomoku/
-├── server.js            # 信令 + 静态服务器（里程碑：房间联机；单文件模式不需要）
-├── build-standalone.js  # 单文件构建（npm run build → dist/gomoku-standalone.html）
-├── public/
-│   ├── index.html       # 页面结构
-│   ├── style.css        # 样式
-│   ├── app.js           # WebRTC + 对局交互
-│   └── game-core.js     # 五子棋纯逻辑（可单测）
-├── test/
-│   ├── core.test.js    # 逻辑单元测试（node test/core.test.js）
-│   ├── standalone-check.js  # 单文件版验证（node test/standalone-check.js）
-│   └── e2e.js          # 双端联机 E2E（node test/e2e.js）
-├── dist/               # 构建产物（单文件版，随 Release 分发）
-├── ROADMAP.md          # 路线图 / 里程碑（M1 扫码·文件·音视频 / M2 TS+pnpm / M3 Rust 服务器 / M4 App+小程序+广告）
-├── Dockerfile
+├── packages/
+│   ├── core/         # @webrtc-gomoku/core: 五子棋引擎（规则、状态、胜负与悔棋算法）
+│   ├── shared/       # @webrtc-gomoku/shared: 信令/对局协议 + deflate-raw base64url 编解码（唯一定义源）
+│   └── web/          # @webrtc-gomoku/web: React 19 + CSS Modules + Canvas 棋盘 + 单文件打包
+├── apps/
+│   ├── server/       # @webrtc-gomoku/server: Node 信令服务器（fallback，协议参考实现）
+│   └── signaling-rust/  # M3 v2.0 Rust 信令服务器（tokio+axum+Redis，含 Docker/compose）
+├── docs/m3-rust-signaling/ # M3 契约文档：prd / architecture / tasks / deploy + 类图时序图
+├── server.js         # 遗留单文件信令服务器（Node fallback；单文件模式不需要）
+├── public/           # legacy 单文件版页面（app.js / game-core.js / qrcode / jsqr）
+├── build-standalone.js   # 单文件构建 → dist/gomoku-standalone.html
+├── test/             # e2e.js / qr-scan 等 Playwright 脚本
+├── dist/             # 构建产物（单文件版，随 Release 分发）
+├── ROADMAP.md        # 路线图 / 里程碑
+├── MILESTONES.md     # 里程碑执行计划与优先级
 └── package.json
 ```
 
@@ -223,4 +254,4 @@ webrtc-gomoku/
 - **连不上/卡在"连接建立中"**：当前版本支持同一局域网直连与可达 IPv6 直连；
   公网 IPv4 NAT 场景由 STUN 尽力穿透，失败时面板会给出原因诊断（对称型 NAT 需 TURN，见里程碑）
 - **手机玩不了**：单文件版通过微信直接发 HTML 文件即可；确保双方网络可达（同 WiFi 或都有 IPv6）
-- **想免手动互发连接码**：部署 `server.js` 启用「房间联机」（里程碑功能，见上文部署章节）
+- **想免手动互发连接码**：部署信令服务器启用「房间联机」——Node 版（`server.js` / `apps/server`）或 M3 Rust 版（`apps/signaling-rust`，推荐：更高并发 + 三层配置 + 热重载），见上文部署章节
