@@ -1,0 +1,64 @@
+sequenceDiagram
+    participant OS as 信号(SIGTERM)
+    participant Main as main.rs
+    participant HTTP as axum serve
+    participant Shutdown as Shutdown(令牌)
+    participant Conn as 各连接 writer task
+
+    OS->>Main: SIGTERM
+    Main->>HTTP: 停止 accept（graceful_shutdown future）
+    Main->>Shutdown: cancel() 广播
+    Shutdown-->>Conn: 通知（watch/broadcast）
+    Conn->>Conn: 发送 Close(1001) 给客户端
+    Conn->>Conn: 停止接受新消息，等待对端关闭
+    Main->>Main: 等待 ≤ shutdown_drain_secs
+    alt 提前排空完成
+        Main->>Main: 正常退出 0
+    else 排空超时
+        Main->>Conn: 强制 abort 全部连接 task
+        Main->>Main: 退出 0
+    end
+
+%% ---------------------------------------------------------------------------
+%% 跨节点牵手（A 建房、B 加入、双向 signal）
+%% ---------------------------------------------------------------------------
+sequenceDiagram
+    participant A as 玩家A(节点A)
+    participant NA as 节点A
+    participant R as Redis
+    participant NB as 节点B
+    participant B as 玩家B(节点B)
+
+    A->>NA: create{room?}
+    NA->>NA: classify + 生成/校验房间号
+    NA->>R: Lua create (SET NX EX + SADD + EXPIRE)
+    R-->>NA: OK
+    NA->>NA: RoomTable.create(CODE, A)
+    NA-->>A: created{room,peerId}
+
+    B->>NB: join{room:CODE,name}
+    NB->>R: Lua join (EXISTS + SCARD<2 + SADD)
+    R-->>NB: OK
+    NB->>NB: RoomTable.join(CODE, B) → 本地无其他成员
+    NB-->>B: joined{room,peerId}
+    NB->>R: publish {prefix}:room:CODE {kind:peer-joined,from_peer:B}
+    R-->>NA: (节点A 已订阅该房间 channel)
+    NA->>NA: 按 target 查本地 RoomTable
+    NA-->>A: peer-joined{peerId:B,name}
+
+    A->>NA: signal{data:SDP-offer}
+    NA->>R: publish {prefix}:room:CODE {kind:signal,target:B,payload}
+    R-->>NB: 投递
+    NB->>NB: 查本地 RoomTable 找 target B
+    NB-->>B: signal{data}
+
+    B->>NB: signal{data:SDP-answer}
+    NB->>R: publish {kind:signal,target:A,payload}
+    R-->>NA: 投递
+    NA-->>A: signal{data}
+
+    B->>NB: leave / 断开
+    NB->>R: Lua leave (SREM; 空则 DEL)
+    NB->>R: publish {kind:peer-left}
+    R-->>NA: 投递
+    NA-->>A: peer-left

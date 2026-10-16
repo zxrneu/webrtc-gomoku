@@ -1,0 +1,41 @@
+# 一键起「信令服务 + Redis」。
+#   cp config.example.toml config.toml   # 如需自定义
+#   docker compose up --build
+#
+# Redis 仅在需要「跨节点牵手」（同房间两人落在不同节点）时才有用。
+# 单节点部署不需要它：删掉本文件的 redis 服务、去掉 depends_on，
+# 并在配置里设 redis.enabled = false（或 GOMOKU_REDIS_ENABLED=false）。
+# 详见 README §1.4。
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  signaling:
+    build:
+      # build context = 仓库根目录：镜像内含前端构建阶段（F1），
+      # 产物打进 /app/public，无需挂载 web dist。
+      context: ../..
+      dockerfile: apps/signaling-rust/Dockerfile
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      GOMOKU_HOST: "0.0.0.0"
+      GOMOKU_PORT: "3000"
+      GOMOKU_REDIS_URL: "redis://redis:6379"
+      GOMOKU_NODE_ID: "node-compose-1"
+      GOMOKU_LOG_FORMAT: "json"
+    volumes:
+      # 挂载配置文件到 /app/config.toml；替换为你自己的 config.toml 即可。
+      - ./config.example.toml:/app/config.toml:ro
+    restart: unless-stopped

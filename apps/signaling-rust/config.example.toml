@@ -1,0 +1,67 @@
+# gomoku-signaling 全量配置示例（PRD §5.2 契约 + 新增键）
+#
+# 三层合并优先级：内置默认值 < 本文件 < 环境变量（GOMOKU_*，数组逗号分隔）。
+# 本文件的取值即为内置默认值，可直接作为 config.toml 使用。
+
+[server]
+host = "0.0.0.0"
+port = 3000
+public_dir = "public"
+# 允许的 WS Origin 白名单；空数组 = 不校验 Origin（保持 v1 宽松行为）
+allowed_ws_origins = []
+# per-IP 限流的客户端 IP 来源：默认取 socket 对端地址。
+# 仅当前置 LB 场景显式打开时，才取 X-Forwarded-For 最左地址（该头可伪造）。
+trust_proxy_headers = false
+
+[timeouts]
+ws_ping_interval_secs = 30
+ws_idle_timeout_secs = 60
+ws_handshake_timeout_secs = 10
+shutdown_drain_secs = 15
+
+[limits]
+max_connections = 100000
+max_connections_per_ip = 10
+max_rooms = 50000
+max_message_bytes = 65536
+# 连接级出站队列容量（背压上限，慢客户端主动断开）
+broadcast_queue_capacity = 256
+
+[redis]
+# 跨节点中转总开关。单节点部署设为 false：不启动后台重连任务，
+# 日志干净（否则 Redis 不可达时每 30s 一条 warn），跨节点功能关闭，
+# 本地建房/加入/信令不受影响。改动需重启生效。
+enabled = true
+# 连接串（可含认证）。留空 = 等同 enabled = false。
+url = "redis://127.0.0.1:6379"
+pool_size = 16
+channel_prefix = "gomoku:signal"
+connect_timeout_ms = 5000
+room_ttl_secs = 3600
+
+[cluster]
+node_id = "node-dev-0001"
+nodes = []
+
+[cors]
+origins = []
+
+[logging]
+level = "info"
+format = "text"
+
+[ice]
+stun_servers = [
+  "stun:stun.qq.com:3478",
+  "stun:stun.aliyun.com:3478",
+  "stun:stun1.l.google.com:19302",
+  "stun:stun2.l.google.com:19302",
+]
+turn_url = ""
+turn_username = ""
+turn_credential = ""
+# 是否经 GET /config 明文下发 TURN credential（false 时仅下发 STUN 段）
+turn_credential_exposed = true
+
+[admin]
+token = ""

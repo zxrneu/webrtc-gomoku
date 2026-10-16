@@ -18,6 +18,7 @@ import { unpack } from '@webrtc-gomoku/shared';
 import type { ChatItem, FlowState, ModalState, ScannerTarget } from './types';
 import { sounds } from './audio';
 import { detectQrFromSource, renderQrToCanvas } from './qr';
+import { DEFAULT_ICE_SERVERS, fetchIceServers } from './iceConfig';
 import { WebRTCClient } from './webrtc';
 
 import { Header } from './components/Header/Header';
@@ -207,6 +208,8 @@ export const App: React.FC = () => {
   // 初始化 WebRTC 客户端（仅在组件挂载时初始化一次，避免因 state 变更重建导致连接被析构）
   useEffect(() => {
     const client = new WebRTCClient({
+      // 初始兜底：保证建连前 iceServers 永不为未初始化状态
+      iceServers: DEFAULT_ICE_SERVERS,
       onMessage: (msg) => handleGameMessageRef.current(msg),
       onConnected: () => {
         setConnected(true);
@@ -227,7 +230,19 @@ export const App: React.FC = () => {
     });
     clientRef.current = client;
 
+    // 异步拉取服务端下发的 ICE 配置；失败自动降级为内置 STUN，
+    // 绝不阻塞/破坏对局——零服务器（微信互发连接码）保底路径不受影响。
+    let cancelled = false;
+    fetchIceServers()
+      .then((servers) => {
+        if (!cancelled) client.setIceServers(servers);
+      })
+      .catch(() => {
+        // fetchIceServers 契约上永不 reject，此处仅为防御性兜底。
+      });
+
     return () => {
+      cancelled = true;
       client.close();
       if (wsRef.current) wsRef.current.close();
     };

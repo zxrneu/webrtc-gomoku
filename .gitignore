@@ -7,3 +7,4 @@ packages/*/dist/
 apps/*/dist/
 dist/
 .workbuddy/
+apps/signaling-rust/target/

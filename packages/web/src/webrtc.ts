@@ -6,10 +6,7 @@ import type {
 } from '@webrtc-gomoku/shared';
 import { pack, unpack } from '@webrtc-gomoku/shared';
 
-export const ICE_SERVERS: RTCIceServer[] = [
-  { urls: ['stun:stun.qq.com:3478', 'stun:stun.aliyun.com:3478'] },
-  { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
-];
+import { DEFAULT_ICE_SERVERS } from './iceConfig';
 
 export interface WebRTCClientOptions {
   onMessage: (msg: GameMessage) => void;
@@ -17,6 +14,11 @@ export interface WebRTCClientOptions {
   onDisconnected: () => void;
   onTransportUpdate?: (info: TransportInfo) => void;
   onStateChange?: () => void;
+  /**
+   * ICE 配置（STUN/TURN）。默认 {@link DEFAULT_ICE_SERVERS}，保证永不未初始化；
+   * 由 App 在挂载后经 `GET /config` 动态覆盖。
+   */
+  iceServers?: RTCIceServer[];
 }
 
 export class WebRTCClient {
@@ -24,13 +26,26 @@ export class WebRTCClient {
   public dc: RTCDataChannel | null = null;
   public pendingIce: RTCIceCandidateInit[] = [];
   private statsTimer: any = null;
+  private iceServers: RTCIceServer[];
 
-  constructor(private options: WebRTCClientOptions) {}
+  constructor(private options: WebRTCClientOptions) {
+    this.iceServers = options.iceServers ?? DEFAULT_ICE_SERVERS;
+  }
 
-  public initPeer(isInitiator: boolean): RTCPeerConnection {
+  /** 更新后续建连使用的 ICE 配置（供动态拉取 `/config` 后调用）。 */
+  public setIceServers(iceServers: RTCIceServer[]): void {
+    this.iceServers = iceServers;
+  }
+
+  /** 读取当前生效的 ICE 配置。 */
+  public getIceServers(): RTCIceServer[] {
+    return this.iceServers;
+  }
+
+  public initPeer(isInitiator: boolean, iceServers?: RTCIceServer[]): RTCPeerConnection {
     this.close();
 
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const pc = new RTCPeerConnection({ iceServers: iceServers ?? this.iceServers });
     this.pc = pc;
 
     if (isInitiator) {
@@ -119,7 +134,7 @@ export class WebRTCClient {
   /* ---------------- 手动信令流程 ---------------- */
 
   public async createHostOffer(name: string): Promise<string> {
-    const pc = this.initPeer(true);
+    const pc = this.initPeer(true, this.iceServers);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     await this.waitIce(pc);
@@ -138,7 +153,7 @@ export class WebRTCClient {
       throw new Error('无效的邀请码，请确认复制完整');
     }
 
-    const pc = this.initPeer(false);
+    const pc = this.initPeer(false, this.iceServers);
     await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: payload.sdp }));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);

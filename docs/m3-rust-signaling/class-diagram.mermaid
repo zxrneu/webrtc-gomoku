@@ -1,0 +1,104 @@
+classDiagram
+    class Config {
+        +ServerConfig server
+        +TimeoutsConfig timeouts
+        +LimitsConfig limits
+        +RedisConfig redis
+        +ClusterConfig cluster
+        +CorsConfig cors
+        +LoggingConfig logging
+        +IceConfig ice
+        +AdminConfig admin
+        +load() Result~ConfigSnapshot~
+        +validate() Result~()~
+        +redacted() ConfigView
+    }
+    class ConfigSnapshot {
+        +snapshot() Arc~Config~
+        +store(Config)
+        +reload() ReloadReport
+    }
+    class ReloadReport {
+        +Vec~String~ applied
+        +Vec~String~ restart_required
+    }
+    class ClientMsg
+    class ServerMsg
+    class Classification {
+        <<enum>>
+        Create
+        Join
+        Signal
+        Leave
+        UnknownType
+        Ignore
+    }
+    class RoomCode
+    class PeerId
+    class ConnHandle {
+        +PeerId peer_id
+        +Arc~str~ node_id
+        +Sender~ServerMsg~ tx
+    }
+    class Room {
+        +RoomCode code
+        +HashMap~PeerId,ConnHandle~ members
+    }
+    class RoomTable {
+        +create(RoomCode,ConnHandle) Result
+        +join(RoomCode,ConnHandle) Result
+        +signal_targets(RoomCode,PeerId) Vec~ConnHandle~
+        +leave(RoomCode,PeerId) LeaveOutcome
+        +len() u64
+    }
+    class ConnectionRegistry {
+        +admit(IpAddr) AdmitResult
+        +current() u64
+    }
+    class ConnAdmission
+    class RelayManager {
+        +publish(CrossNodeMsg) Result
+        +subscribe_room(RoomCode)
+        +unsubscribe_room(RoomCode)
+    }
+    class RedisRoomRegistry {
+        +create(code,node,member,ttl) Result~bool~
+        +join(code,member,ttl) Result~JoinStatus~
+        +leave(code,member) Result~LeaveStatus~
+    }
+    class CrossNodeMsg
+    class Metrics {
+        +ws_connections Gauge
+        +rooms Gauge
+        +messages_total CounterVec
+        +errors_total CounterVec
+        +signal_latency Histogram
+        +redis_connected Gauge
+        +render() String
+    }
+    class AppState {
+        +Arc~ConfigSnapshot~ cfg
+        +Arc~RoomTable~ rooms
+        +Arc~ConnectionRegistry~ conns
+        +Arc~RelayManager~ relay
+        +Arc~Metrics~ metrics
+        +Arc~Shutdown~ shutdown
+    }
+
+    Config --> ConfigSnapshot
+    ConfigSnapshot --> ReloadReport
+    Config --> ServerConfig
+    Config --> IceConfig
+    Config --> LimitsConfig
+    Config --> RedisConfig
+    RoomTable "1" o-- "*" Room
+    Room "1" o-- "*" ConnHandle
+    RelayManager --> RedisRoomRegistry
+    RelayManager --> CrossNodeMsg
+    AppState --> ConfigSnapshot
+    AppState --> RoomTable
+    AppState --> ConnectionRegistry
+    AppState --> RelayManager
+    AppState --> Metrics
+    ConnectionRegistry --> ConnAdmission
+    Classification ..> ClientMsg : 解析自
