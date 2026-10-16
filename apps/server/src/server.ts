@@ -7,10 +7,10 @@ import type {
   ClientSignalingMsg,
   ServerSignalingMsg,
 } from '@webrtc-gomoku/shared';
+import { RoomRegistry, type LeaveResult, type RoomClient } from './rooms';
 
 interface ExtendedWebSocket extends WebSocket {
   __id?: string;
-  __room?: string | null;
   isAlive?: boolean;
 }
 
@@ -40,7 +40,7 @@ const MIME: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
-const rooms = new Map<string, Map<string, ExtendedWebSocket>>();
+const registry = new RoomRegistry();
 
 function log(...args: unknown[]) {
   console.log(new Date().toISOString(), ...args);
@@ -52,21 +52,17 @@ function send(ws: ExtendedWebSocket, msg: ServerSignalingMsg) {
   }
 }
 
-function leaveRoom(ws: ExtendedWebSocket) {
-  const code = ws.__room;
-  if (!code) return;
-  const room = rooms.get(code);
-  ws.__room = null;
-  if (!room) return;
-  if (ws.__id) room.delete(ws.__id);
-  if (room.size === 0) {
-    rooms.delete(code);
-    log(`房间 ${code} 已销毁`);
+/** 把 ws 适配成注册表需要的最小契约（接口隔离） */
+function asClient(ws: ExtendedWebSocket): RoomClient {
+  return { id: ws.__id!, send: (msg) => send(ws, msg) };
+}
+
+function logLeave(result: LeaveResult) {
+  if (!result.code) return;
+  if (result.destroyed) {
+    log(`房间 ${result.code} 已销毁`);
   } else {
-    for (const peer of room.values()) {
-      send(peer, { t: 'peer-left' });
-    }
-    log(`房间 ${code} 剩余 ${room.size} 人`);
+    log(`房间 ${result.code} 剩余 ${result.remaining} 人`);
   }
 }
 
@@ -77,7 +73,7 @@ const server = http.createServer((req, res) => {
 
   if (pathname === '/healthz') {
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify({ ok: true, rooms: rooms.size, uptime: Math.round(process.uptime()) }));
+    res.end(JSON.stringify({ ok: true, rooms: registry.roomCount, uptime: Math.round(process.uptime()) }));
     return;
   }
 
@@ -132,7 +128,6 @@ const wss = new WebSocketServer({ server, path: '/signal' });
 wss.on('connection', (socket: WebSocket) => {
   const ws = socket as ExtendedWebSocket;
   ws.__id = Math.random().toString(36).slice(2, 10);
-  ws.__room = null;
   ws.isAlive = true;
 
   ws.on('pong', () => {
@@ -150,61 +145,42 @@ wss.on('connection', (socket: WebSocket) => {
 
     switch (msg.t) {
       case 'create': {
-        if (ws.__room) leaveRoom(ws);
-        const code = String(msg.room || '').toUpperCase();
-        if (!/^[A-Z0-9]{4}$/.test(code)) {
-          return send(ws, { t: 'error', message: '房间号需为 4 位字母或数字' });
-        }
-        if (rooms.has(code)) {
-          return send(ws, { t: 'error', message: `房间 ${code} 已存在，请更换` });
-        }
-        rooms.set(code, new Map([[ws.__id!, ws]]));
-        ws.__room = code;
-        send(ws, { t: 'created', room: code, peerId: ws.__id! });
-        log(`房间 ${code} 创建 (peer ${ws.__id})`);
+        const res = registry.create(String(msg.room || '').toUpperCase(), asClient(ws));
+        if (res.ok && res.left) logLeave(res.left);
+        if (!res.ok) return send(ws, { t: 'error', message: res.message });
+        send(ws, { t: 'created', room: res.code, peerId: ws.__id! });
+        log(`房间 ${res.code} 创建 (peer ${ws.__id})`);
         break;
       }
       case 'join': {
-        if (ws.__room) leaveRoom(ws);
-        const code = String(msg.room || '').toUpperCase();
-        const room = rooms.get(code);
-        if (!room) return send(ws, { t: 'error', message: `房间 ${code} 不存在` });
-        if (room.size >= 2) return send(ws, { t: 'error', message: '房间已满（仅支持 1v1）' });
-        room.set(ws.__id!, ws);
-        ws.__room = code;
-        send(ws, { t: 'joined', room: code, peerId: ws.__id! });
-        for (const [id, peer] of room) {
-          if (id !== ws.__id) {
-            send(peer, {
-              t: 'peer-joined',
-              peerId: ws.__id!,
-              name: String(msg.name || '').slice(0, 20),
-            });
-          }
+        const res = registry.join(String(msg.room || '').toUpperCase(), asClient(ws));
+        if (res.ok && res.left) logLeave(res.left);
+        if (!res.ok) return send(ws, { t: 'error', message: res.message });
+        send(ws, { t: 'joined', room: res.code, peerId: ws.__id! });
+        const name = String(msg.name || '').slice(0, 20);
+        for (const peer of registry.others(res.code, ws.__id!)) {
+          peer.send({ t: 'peer-joined', peerId: ws.__id!, name });
         }
-        log(`peer ${ws.__id} 加入房间 ${code}`);
+        log(`peer ${ws.__id} 加入房间 ${res.code}`);
         break;
       }
       case 'signal': {
-        if (!ws.__room) return;
-        const room = rooms.get(ws.__room);
-        if (!room || !msg.data) return;
-        for (const [id, peer] of room) {
-          if (id !== ws.__id) {
-            send(peer, { t: 'signal', data: msg.data });
-          }
+        const code = registry.roomOf(ws.__id!);
+        if (!code || !msg.data) return;
+        for (const peer of registry.others(code, ws.__id!)) {
+          peer.send({ t: 'signal', data: msg.data });
         }
         break;
       }
       case 'leave':
-        leaveRoom(ws);
+        logLeave(registry.leave(ws.__id!));
         break;
       default:
         send(ws, { t: 'error', message: '未知消息类型' });
     }
   });
 
-  const bye = () => leaveRoom(ws);
+  const bye = () => logLeave(registry.leave(ws.__id!));
   ws.on('close', bye);
   ws.on('error', bye);
 });
@@ -251,4 +227,4 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   });
 }
 
-export { server, wss, rooms };
+export { server, wss, registry };

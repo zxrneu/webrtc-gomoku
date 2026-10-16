@@ -305,6 +305,33 @@ async function launchBrowser() {
   check('对手离开后 B 对手昵称清空', afterB.peerName === '');
   check(`对手离开后 B 状态提示「对手已离开」（${afterB.status}）`, afterB.status.includes('对手已离开'));
 
+  console.log('== 阶段二·补2：输错房号不会把自己踢出当前房间 ==');
+  // A 此时独自在新房间里：若服务端「先退旧房再校验」，这个房间会被销毁 → /healthz 房间数 -1
+  const roomsBeforeBadJoin = (await (await fetch(`${BASE}/healthz`)).json()).rooms;
+  const roomBeforeBadJoin = await pageA.evaluate(() => window.__gomoku.room);
+  await pageA.fill('#room-input', 'ZZZZ');
+  await pageA.click('#join-room-btn');
+  const toastText = await pageA
+    .waitForFunction(
+      () => {
+        const el = document.getElementById('toast');
+        const text = el ? (el.textContent || '').trim() : '';
+        return text.includes('不存在') ? text : false;
+      },
+      null,
+      { timeout: 3000 }
+    )
+    .then((handle) => handle.jsonValue())
+    .catch(() => '');
+  const roomsAfterBadJoin = (await (await fetch(`${BASE}/healthz`)).json()).rooms;
+  const roomAfterBadJoin = await pageA.evaluate(() => window.__gomoku.room);
+  check(`输错房号提示「房间 ZZZZ 不存在」（${toastText}）`, toastText.includes('不存在'));
+  check(`输错房号后 A 仍在原房间 ${roomAfterBadJoin}`, roomAfterBadJoin === roomBeforeBadJoin);
+  check(
+    `输错房号不会把自己踢出房间（服务端房间数 ${roomsBeforeBadJoin} → ${roomsAfterBadJoin}）`,
+    roomsAfterBadJoin === roomsBeforeBadJoin
+  );
+
   console.log('== 阶段三：邀请对局（手动信令 · 微信互发） ==');
   const pageC = await newPlayerPage('C');
   const pageD = await newPlayerPage('D');
@@ -349,11 +376,20 @@ async function launchBrowser() {
   if (manualP2p) {
     check('邀请对局 P2P 连通', true);
     const transport = await pageC.evaluate(() => window.__gomoku.transport);
-    check('连接方式已识别（IPv4/IPv6/NAT）', !!transport && !!transport.label);
     const tLine = await pageC.evaluate(() => ({
       visible: document.getElementById('transport-line').offsetParent !== null,
       label: document.getElementById('transport-label').textContent,
     }));
+    // TransportInfo 的字段是 candidateType/ipVersion/rtt/summary（没有 label）；
+    // UI 的 #transport-label 直接渲染 summary，故同时校验「识别到类型」与「UI 展示一致」
+    check(
+      '连接方式已识别（IPv4/IPv6/NAT）',
+      !!transport &&
+        !!transport.summary &&
+        !!transport.ipVersion &&
+        tLine.visible &&
+        tLine.label === transport.summary
+    );
     console.log('  连接方式:', JSON.stringify(transport), '| UI:', JSON.stringify(tLine));
     await clickCell(pageC, 7, 7);
     await pageD.waitForFunction(() => window.__gomoku.moves.length === 1, null, { timeout: 8000 });
