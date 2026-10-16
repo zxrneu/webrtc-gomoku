@@ -5,3 +5,4 @@ test/*.png
 .idea/
 packages/*/dist/
 apps/*/dist/
+.workbuddy/
