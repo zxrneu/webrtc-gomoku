@@ -1,23 +1,46 @@
+/**
+ * ============================================================================
+ * 棋盘样式模块 (Board.module.css)
+ * ============================================================================
+ * 设计美学定位：【现代拟物暖木风 (Warm Skeuomorphic Wood)】与【全端自适应响应式】
+ * 
+ * 核心技术特色：
+ * 1. 拟物温暖木质阴影：放弃冷冰冰的灰色阴影，大量使用带木质色调的深暖褐阴影 (rgba(120, 95, 55, ...))
+ * 2. 现代毛玻璃质感 (Glassmorphism)：蒙层与结算卡片结合半透明底色与 backdrop-filter: blur()
+ * 3. 响应式宽高比锁定：利用 aspect-ratio: 1 / 1 与 width: min(560px, 100%) 实现无拉伸等比缩放
+ * 4. 触控优化：touch-action: manipulation 禁止移动端双击缩放，消除 300ms 点击延迟
+ */
+
+/* 棋盘主外层卡片容器 */
 .boardCard {
   display: flex;
   flex-direction: column;
   gap: 16px;
   align-items: center;
-  background: var(--card-bg);
+  background: var(--card-bg); /* 半透明暖白底色 (0.92 不透明度) */
   border: 1px solid var(--card-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-lg); /* 18px 柔和大圆角 */
   box-shadow: var(--shadow-md);
   padding: 20px;
 }
 
+/* 画布定位容器：为蒙层和结算横幅提供 position: absolute 的参考原点 */
 .boardWrap {
   position: relative;
-  line-height: 0;
+  line-height: 0; /* 消除内联元素底部默认的 3~4px 基线留白缝隙 */
   max-width: 100%;
 }
 
+/**
+ * HTML5 棋盘画板主体
+ * 响应式适配关键属性：
+ * - width: min(560px, 100%)：桌面端最大 560px，窄屏手机自动等比贴合屏幕宽度
+ * - aspect-ratio: 1 / 1：严格锁定 1:1 正方形网格，杜绝高宽不一致导致棋盘形变
+ * - touch-action: manipulation：禁用移动端双击缩放手势，让落子点击响应达到毫秒级
+ */
 .canvas {
   border-radius: 12px;
+  /* 暖木色环境光阴影：模拟厚重实木棋盘立于桌面的立体光影 */
   box-shadow: 0 6px 24px rgba(120, 95, 55, 0.22);
   cursor: pointer;
   touch-action: manipulation;
@@ -29,15 +52,20 @@
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
+/* 鼠标悬停时棋盘微微加深光影，增强交互反馈 */
 .canvas:hover {
   box-shadow: 0 8px 30px rgba(120, 95, 55, 0.28);
 }
 
+/**
+ * 棋盘蒙层 (等待对手进入时的遮罩层)
+ * 采用深褐色磨砂玻璃质感，既柔和弱化棋盘，又让加载文字具备高对比度可读性
+ */
 .boardOverlay {
   position: absolute;
-  inset: 0;
+  inset: 0; /* 相当于 top:0, right:0, bottom:0, left:0 占满全盘 */
   background: rgba(43, 37, 31, 0.55);
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px); /* 现代毛玻璃模糊 */
   -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -57,6 +85,7 @@
   gap: 12px;
 }
 
+/* 等待指示灯（三颗金黄色弹跳呼吸圆点） */
 .overlayDots {
   display: flex;
   gap: 6px;
@@ -66,11 +95,12 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #fcd34d;
+  background: #fcd34d; /* 亮金色琥珀圆点 */
   display: inline-block;
   animation: pulse 1.4s infinite ease-in-out both;
 }
 
+/* 交错延迟启动动画，营造行云流水的律动感 */
 .overlayDots i:nth-child(1) { animation-delay: -0.32s; }
 .overlayDots i:nth-child(2) { animation-delay: -0.16s; }
 
@@ -81,6 +111,9 @@
   letter-spacing: 0.2px;
 }
 
+/**
+ * 结算横幅（对局分出胜负时由中心微弹出来的毛玻璃浮卡）
+ */
 .resultBanner {
   position: absolute;
   top: 50%;
@@ -97,6 +130,7 @@
   align-items: center;
   gap: 14px;
   box-shadow: var(--shadow-lg);
+  /* 弹性轻微超冲动效 (cubic-bezier 模拟物理回弹) */
   animation: popIn 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   z-index: 20;
 }
@@ -115,6 +149,7 @@
   letter-spacing: -0.3px;
 }
 
+/* 棋盘下方按钮操作与提示行 */
 .boardActions {
   display: flex;
   align-items: center;
@@ -124,6 +159,9 @@
   padding: 4px 0;
 }
 
+/**
+ * 通用拟物按钮基础样式（白底微浮雕微阴影）
+ */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -144,11 +182,11 @@
 .btn:hover:not(:disabled) {
   background: #faf7f2;
   border-color: #d6caba;
-  transform: translateY(-1px);
+  transform: translateY(-1px); /* 悬浮时微抬起 1px */
 }
 
 .btn:active:not(:disabled) {
-  transform: translateY(0);
+  transform: translateY(0); /* 按下时复位 */
 }
 
 .btn:disabled {
@@ -157,6 +195,7 @@
   box-shadow: none;
 }
 
+/* 主操作按钮（琥珀金黄重点高亮） */
 .btnPrimary {
   background: var(--accent);
   color: #ffffff;
@@ -169,6 +208,7 @@
   color: #ffffff;
 }
 
+/* 幽灵按钮（透明背景，用于次要操作如音效开关） */
 .btnGhost {
   background: transparent;
   border-color: transparent;
@@ -180,10 +220,12 @@
   background: rgba(230, 220, 206, 0.4);
 }
 
+/* 弹性撑开占位符，把右侧回合提示推到最右边 */
 .spacer {
   flex: 1;
 }
 
+/* 当前回合与执子颜色提示 */
 .turnHint {
   font-size: 13.5px;
   font-weight: 600;
@@ -193,6 +235,9 @@
   gap: 6px;
 }
 
+/**
+ * 动画帧定义
+ */
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -208,17 +253,29 @@
   40% { transform: scale(1); opacity: 1; }
 }
 
+/**
+ * ============================================================================
+ * 响应式断点适配：移动端小屏幕 (<= 640px)
+ * ============================================================================
+ */
 @media (max-width: 640px) {
+  /* 减少外层卡片留白，最大化给棋盘留出屏幕空间 */
   .boardCard {
     padding: 12px;
   }
+  
+  /* 操作栏支持自动换行，居中对齐 */
   .boardActions {
     flex-wrap: wrap;
     justify-content: center;
   }
+  
+  /* 隐藏弹性撑开占位，避免把按钮挤出换行空隙 */
   .spacer {
     display: none;
   }
+  
+  /* 回合提示独占一行居中显示，醒目防误判 */
   .turnHint {
     width: 100%;
     justify-content: center;
