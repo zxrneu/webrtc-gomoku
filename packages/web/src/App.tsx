@@ -1,3 +1,21 @@
+/**
+ * ============================================================================
+ * 顶层应用协调器与状态机主控 (App.tsx)
+ * ============================================================================
+ *
+ * 【架构职责】：
+ * 1. 状态大脑（State Orchestrator）：
+ *    集中管理对局棋盘、玩家身份、聊天记录、弹窗、提示等全部 UI 状态；
+ * 2. 双模网络调度中心：
+ *    - 信令服务模式：驱动 WebSocket 与 apps/server 通信，处理 4 位房间号匹配与 SDP 转发；
+ *    - 手动邀请码模式：驱动 qr.ts 与 codec.ts，生成/识别包含完整 ICE 的短码与二维码；
+ * 3. P2P 协议中枢：
+ *    初始化 WebRTCClient，在 DataChannel 建立后监听并派发对端发来的落子、聊天、悔棋协商消息；
+ * 4. 界面组装：
+ *    将 Header, Board, ConnectionPanel, GameStatus, Chat, ScannerModal, ConfirmModal, Toast
+ *    等受控子组件有机拼装并驱动渲染。
+ */
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { GameState, Move, PlayerColor } from '@webrtc-gomoku/core';
 import {
