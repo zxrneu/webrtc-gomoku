@@ -1,6 +1,13 @@
-//! Binary entry point: load configuration, initialise tracing, wire the state
-//! graph, serve HTTP/WS, and handle signals (SIGTERM/SIGINT → graceful
-//! shutdown, SIGHUP → hot reload).
+//! 二进制程序入口 (main.rs)
+//!
+//! 职责：
+//! 1. 加载并合并配置（默认配置 -> 配置文件 -> 环境变量覆盖）
+//! 2. 初始化结构化日志系统 (tracing)，支持运行时动态修改日志级别
+//! 3. 组装核心依赖图（Rooms 分片表、连接限流器、Redis/本地中继通道、指标中心）
+//! 4. 绑定 TCP 端口启动 Axum HTTP / WebSocket 服务
+//! 5. 监听操作系统信号：
+//!    - SIGTERM / SIGINT 触发优雅关闭（优雅排空连接池）
+//!    - SIGHUP 触发配置热重载（零停机更新日志级别与限流阈值）
 
 use std::path::Path;
 use std::sync::Arc;
@@ -22,25 +29,32 @@ use gomoku_signaling::transport::shutdown::Shutdown;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 1. 加载不可变配置快照
     let snapshot = Config::load()?;
     let cfg = snapshot.snapshot();
 
+    // 2. 初始化结构化日志输出（支持热更新 filter 级别）
     let log_setter = init_tracing(&cfg.logging.level, &cfg.logging.format);
 
+    // 3. 构建核心业务依赖项
     let metrics = Arc::new(Metrics::new());
+    // 64 分片并发房间注册表，设置房间总数硬上限
     let rooms = Arc::new(RoomTable::new(u64::from(cfg.limits.max_rooms)));
+    // 全局与单 IP 连接限流器
     let conns = Arc::new(ConnectionRegistry::new(
         cfg.limits.max_connections,
         cfg.limits.max_connections_per_ip,
     ));
+    // 优雅停机广播与排空协调器
     let shutdown = Shutdown::new();
 
+    // 4. 构建中继分发器（单节点使用基于 tokio 内存通道的 InProcessRelay，集群模式使用 Redis Relay）
     let delivery: Arc<dyn LocalDelivery> = rooms.clone();
     let (relay, _subscriber) =
         relay::build(&cfg, delivery, metrics.clone(), shutdown.subscribe()).await;
 
-    // F4: 后台周期刷新房间 TTL（周期 = room_ttl/3），热路径零额外 Redis RTT。
-    // 仅当 Redis 处于启用状态时才需要（单节点 / 禁用时无键可刷新）。
+    // 5. 性能优化 F4：后台周期性异步刷新 Redis 房间 TTL（周期 = room_ttl / 3）
+    // 核心收益：将热路径下的 Redis RTT 降为 0，高频信令转发完全不需要同步等待 Redis EXPIRE 命令！
     let _ttl_refresher = if cfg.redis.is_active() {
         Some(relay::spawn_ttl_refresher(
             rooms.clone(),
@@ -52,8 +66,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
+    // 6. 探测解析静态文件目录（packages/web/dist -> dist -> public）
     let public_dir = static_files::resolve_public_dir(&cfg.server.public_dir);
 
+    // 7. 组装全局共享状态 AppState
     let state = AppState {
         cfg: snapshot.clone(),
         rooms: rooms.clone(),
@@ -73,11 +89,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "生效配置"
     );
 
+    // 8. 编译 Axum HTTP / WebSocket 路由并绑定 TCP 端口
     let app = build_router(state.clone());
     let addr = format!("{}:{}", cfg.server.host, cfg.server.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(addr = %addr, "信令服务器已启动");
 
+    // 监听停机广播的接收端
     let shutdown_wait = {
         let mut rx = shutdown.subscribe();
         async move {
@@ -85,6 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    // 启动 HTTP 服务并在后台轮询连接
     let handshake_timeout = Duration::from_secs(cfg.timeouts.ws_handshake_timeout_secs);
     let mut serve_handle = tokio::spawn(gomoku_signaling::http::serve(
         listener,
@@ -93,11 +112,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         shutdown_wait,
     ));
 
+    // 9. 启动操作系统 Unix 信号捕获任务 (SIGTERM / SIGINT / SIGHUP)
     spawn_signal_handler(state.clone(), snapshot.clone());
 
+    // 阻塞等待停机信号触发
     let mut rx = shutdown.subscribe();
     let _ = rx.wait_for(|value| *value).await;
 
+    // 10. 优雅停机排空过程 (Graceful Drain)
+    // 停止接收新握手，等待当前正在进行的短时任务完成，超时则强杀
     let drain = Duration::from_secs(cfg.timeouts.shutdown_drain_secs);
     let drained = shutdown.drain(drain).await;
     if !drained {
@@ -109,7 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Initialise structured logging and return a hot-reloadable level setter.
+/// 初始化结构化日志框架，返回一个可以在运行时修改过滤级别的闭包句柄 (Hot-reloadable)
 fn init_tracing(level: &str, format: &str) -> LogLevelSetter {
     let filter = EnvFilter::try_new(level).unwrap_or_else(|_| EnvFilter::new("info"));
     let (filter_layer, handle) = reload::Layer::new(filter);
@@ -133,6 +156,7 @@ fn init_tracing(level: &str, format: &str) -> LogLevelSetter {
     })
 }
 
+/// 注册并监听操作系统信号（后台 tokio 任务）
 fn spawn_signal_handler(state: AppState, snapshot: Arc<ConfigSnapshot>) {
     tokio::spawn(async move {
         let mut sigterm = match signal(SignalKind::terminate()) {
@@ -149,23 +173,26 @@ fn spawn_signal_handler(state: AppState, snapshot: Arc<ConfigSnapshot>) {
         };
         loop {
             tokio::select! {
+                // Kubernetes Pod 停止或 kill 命令：触发优雅排空停机
                 _ = sigterm.recv() => {
                     tracing::info!("收到 SIGTERM，开始优雅关闭");
                     state.shutdown.trigger();
                     break;
                 }
+                // 控制台 Ctrl+C：触发优雅停机
                 _ = sigint.recv() => {
                     tracing::info!("收到 SIGINT，开始优雅关闭");
                     state.shutdown.trigger();
                     break;
                 }
+                // 热重载信号 kill -HUP <pid>：重新读取配置文件并原子替换，不中断当前活跃连接
                 _ = sighup.recv() => handle_reload(&state, &snapshot),
             }
         }
     });
 }
 
-/// SIGHUP handler: re-read file + env, validate, diff, store.
+/// SIGHUP 信号处理函数：重新解析 config.toml 与环境变量，计算差异并原子注入
 fn handle_reload(state: &AppState, snapshot: &ConfigSnapshot) {
     let path = ProcessEnv
         .get(env::KEY_CONFIG_FILE)
