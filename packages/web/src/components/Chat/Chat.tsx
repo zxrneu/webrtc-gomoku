@@ -2,40 +2,68 @@ import React, { useState, useRef, useEffect } from 'react';
 import type { ChatItem } from '../../types';
 import styles from './Chat.module.css';
 
+/**
+ * 实时聊天组件入参属性接口
+ */
 interface ChatProps {
+  /** 聊天消息历史记录列表 */
   messages: ChatItem[];
+  /** P2P 数据通道是否已连接就绪（未连接时禁用输入框和发送按钮） */
   connected: boolean;
+  /** 本端玩家昵称 */
   myName?: string;
+  /** 对端玩家昵称 */
   peerName?: string;
+  /** 点击发送或按回车提交文本时的回调函数 */
   onSend: (text: string) => void;
 }
 
+/**
+ * P2P 对局内置聊天组件 (Chat)
+ * 职责：
+ * 1. 呈现基于 WebRTC RTCDataChannel 直传的双向聊天气泡（己方、对方、系统通知）
+ * 2. 具备自动触底滚动 (Auto-scroll to bottom) 机制，新消息到达自动平滑展示
+ * 3. 严格的空消息防抖与连接状态联动
+ */
 export const Chat: React.FC<ChatProps> = ({ messages, connected, myName, peerName, onSend }) => {
+  /** 输入框内用户正在编辑的草稿文本 */
   const [text, setText] = useState('');
+  /** 聊天滚动容器 DOM 引用，用于在新消息到来时控制视口滚动 */
   const listRef = useRef<HTMLDivElement | null>(null);
 
+  /**
+   * 自动触底滚动机制：
+   * 监听 messages 数组变化，当有新消息插入时，将滚动条高度重置到底部
+   */
   useEffect(() => {
     if (listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
   }, [messages]);
 
+  /**
+   * 表单提交处理函数（支持回车键或者点击发送按钮提交）
+   */
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // 防御校验：空字符串或未建立 P2P 通道时禁止发送
     if (!text.trim() || !connected) return;
     onSend(text.trim());
-    setText('');
+    setText(''); // 发送后清空输入框
   };
 
   return (
     <div className={`${styles.chatCard} card chat-card`}>
       <div className={`${styles.chatHead} chat-head`}>对局聊天</div>
+
+      {/* 消息滚动列表视口 */}
       <div id="chat-list" ref={listRef} className={`${styles.chatList} chat-list`}>
         {messages.map((item) => {
           const isMine = item.sender === 'self';
           const isTheirs = item.sender === 'peer';
           const isSys = item.sender === 'sys';
 
+          // 样式与身份判断
           const cls = isMine ? 'mine' : isTheirs ? 'theirs' : 'sys';
           const who = isMine ? myName || '我' : isTheirs ? peerName || '对手' : '';
           const displayText = isSys ? item.text : (who ? who + '：' : '') + item.text;
@@ -47,6 +75,7 @@ export const Chat: React.FC<ChatProps> = ({ messages, connected, myName, peerNam
                 isMine ? styles.self : isTheirs ? styles.peer : styles.sys
               } msg ${cls}`}
             >
+              {/* 系统消息居中浅灰展示，玩家消息以对话气泡呈现 */}
               {isSys ? (
                 displayText
               ) : (
@@ -56,6 +85,8 @@ export const Chat: React.FC<ChatProps> = ({ messages, connected, myName, peerNam
           );
         })}
       </div>
+
+      {/* 底部输入框与发送操作行 */}
       <form className={`${styles.chatInputRow} chat-input-row`} onSubmit={handleSubmit}>
         <input
           id="chat-input"

@@ -3,40 +3,83 @@ import type { FlowState, ScannerTarget } from '../../types';
 import { renderQrToCanvas } from '../../qr';
 import styles from './ConnectionPanel.module.css';
 
+/**
+ * 连接配置控制面板入参属性接口
+ */
 interface ConnectionPanelProps {
+  /** 玩家设置的个性化昵称 */
   name: string;
+  /** 更新玩家昵称状态 */
   setName: (name: string) => void;
+  /** 当前选中的连接模式标签页：'room' (房间信令服务器联机) | 'manual' (面对面/微信邀请对局) */
   activeTab: 'room' | 'manual';
+  /** 切换标签页 */
   setActiveTab: (tab: 'room' | 'manual') => void;
+  /** 邀请对局手动流程状态机 ('idle' | 'host-wait' | 'guest-invite' | 'guest-wait' | 'connected') */
   flow: FlowState;
+  /** 服务器分配的 4 位房间号 */
   roomCode: string;
+  /** 用户输入的待加入房间号 */
   inputRoomCode: string;
+  /** 设置待加入房间号 */
   setInputRoomCode: (code: string) => void;
+  /** 房间联机实时状态提示文案 */
   roomStatus: string;
+  /** 邀请方生成的完整压缩 Offer 连接码（Deflate + Base64） */
   hostOfferCode: string;
+  /** 被邀请方输入的 Offer 连接码 */
   guestOfferInput: string;
+  /** 设置被邀请方输入的 Offer 连接码 */
   setGuestOfferInput: (code: string) => void;
+  /** 邀请方输入的对方 Answer 应答码 */
   hostAnswerInput: string;
+  /** 设置邀请方输入的对方 Answer 应答码 */
   setHostAnswerInput: (code: string) => void;
+  /** 被邀请方生成的 Answer 应答连接码 */
   guestAnswerCode: string;
+  /** 邀请方等待超时倒计时文本（如 "118s"） */
   hostTimer: string;
+  /** 邀请方文本码是否折叠隐藏（以二维码为主，文本码长折叠省空间） */
   hostTextFolded: boolean;
+  /** 切换邀请方文本折叠状态 */
   setHostTextFolded: (fn: (prev: boolean) => boolean) => void;
+  /** 被邀请方文本码是否折叠隐藏 */
   guestTextFolded: boolean;
+  /** 切换被邀请方文本折叠状态 */
   setGuestTextFolded: (fn: (prev: boolean) => boolean) => void;
+  /** 点击创建房间回调（需信令服务器） */
   onCreateRoom: () => void;
+  /** 点击加入房间回调（需信令服务器） */
   onJoinRoom: () => void;
+  /** 复制房间邀请链接回调 */
   onCopyInviteLink: () => void;
+  /** 开启邀请方主导对局流程（发起端生成 Offer） */
   onStartHostFlow: () => void;
+  /** 开启被邀请方对局流程（接收端输入 Offer） */
   onStartGuestFlow: () => void;
+  /** 点击复制邀请码文本回调 */
   onCopyHostOffer: () => void;
+  /** 点击复制应答码文本回调 */
   onCopyGuestAnswer: () => void;
+  /** 被邀请方点击生成应答码回调 */
   onGuestGenerateAnswer: () => void;
+  /** 邀请方完成最后一步握手回调 */
   onHostFinish: () => void;
+  /** 打开摄像头/相册扫描二维码弹窗回调 */
   onOpenScanner: (target: ScannerTarget) => void;
+  /** 连接结果反馈横幅数据对象（含类型 'ok'|'bad' 与富文本 html） */
   flowResult: { type: string; html: string } | null;
 }
 
+/**
+ * 连接与对局准备控制面板 (ConnectionPanel)
+ * 职责：
+ * 1. 玩家身份维护：昵称录入与保存
+ * 2. 双模式切换：
+ *    - 「房间联机」：基于 WebSocket 自动信令交换的 4 位房间号配对
+ *    - 「邀请对局」：彻底无服务器的 WebRTC Vanilla ICE 离线信令交换（支持面对面二维码扫码与微信长文本互发）
+ * 3. 动态三步指引 (fstep 1 -> 2 -> 3)，平滑引导非技术用户完成复杂的 P2P 握手
+ */
 export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
   name,
   setName,
@@ -70,26 +113,30 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
   onOpenScanner,
   flowResult,
 }) => {
+  // 检测当前是否是 file:// 协议本地离线双击打开（该模式下无法连接外置 WebSocket 服务器）
   const isFileProtocol =
     typeof window !== 'undefined' && window.location.protocol === 'file:';
 
+  /** 邀请方 Offer 二维码 Canvas DOM 引用 */
   const hostQrRef = useRef<HTMLCanvasElement | null>(null);
+  /** 被邀请方 Answer 二维码 Canvas DOM 引用 */
   const guestQrRef = useRef<HTMLCanvasElement | null>(null);
 
-  // 渲染邀请方 QR 码
+  // 当邀请码 Offer 生成时，调用 qr.ts 绘制离散对齐的清晰黑白二维码
   useEffect(() => {
     if (hostOfferCode && hostQrRef.current) {
       renderQrToCanvas(hostQrRef.current, hostOfferCode);
     }
   }, [hostOfferCode, flow]);
 
-  // 渲染被邀请方 QR 码
+  // 当应答码 Answer 生成时，自动绘制对应二维码
   useEffect(() => {
     if (guestAnswerCode && guestQrRef.current) {
       renderQrToCanvas(guestQrRef.current, guestAnswerCode);
     }
   }, [guestAnswerCode, flow]);
 
+  // 将复杂流转状态映射为线性的步骤序号 (0~3)，驱动顶部进度指示器高亮
   const fstepNumber =
     flow === 'connected'
       ? 3
@@ -99,6 +146,7 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
       ? 1
       : 0;
 
+  /** 切换邀请方长文本折叠/展开 */
   const toggleHostText = () => {
     const out = document.getElementById('flow-host-out');
     const btn = document.getElementById('flow-host-toggle-text');
@@ -109,6 +157,7 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
     setHostTextFolded(() => next);
   };
 
+  /** 切换被邀请方长文本折叠/展开 */
   const toggleGuestText = () => {
     const out = document.getElementById('flow-guest-out');
     const btn = document.getElementById('flow-guest-toggle-text');
@@ -121,6 +170,7 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
 
   return (
     <div id="connect-card" className={`${styles.connectCard} card`}>
+      {/* 玩家昵称输入区 */}
       <label className={`${styles.nameField} field name-field`}>
         <span>昵称（对方可见）</span>
         <input
@@ -135,6 +185,7 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
         />
       </label>
 
+      {/* 联机方式切换标签页 */}
       <div className={`${styles.tabs} tabs`}>
         <button
           className={`${styles.tab} ${activeTab === 'room' ? `${styles.active} active` : ''} tab`}
@@ -153,7 +204,7 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
         </button>
       </div>
 
-      {/* 房间联机面板 */}
+      {/* ======================= 标签页 1：房间联机（需信令服务器） ======================= */}
       <div
         id="tab-room"
         className={`tab-panel ${activeTab === 'room' ? '' : 'hidden'}`}
@@ -163,6 +214,7 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
           房间联机需要部署信令服务器（交换 SDP / ICE 候选自动牵线），属于规划中的里程碑功能。当前版本请使用「邀请对局」：单文件 + 微信互发连接码，支持局域网与可达 IPv6 直连。
         </p>
 
+        {/* 创建房间按钮 */}
         <div className={`${styles.row} row`}>
           <button
             id="create-room-btn"
@@ -178,6 +230,7 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
           <span>或</span>
         </div>
 
+        {/* 输入房间号加入 */}
         <div className={`${styles.row} row`}>
           <input
             id="room-input"
@@ -200,6 +253,7 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
           </button>
         </div>
 
+        {/* 房间信息与链接复制 */}
         <div
           id="room-info"
           className={`${styles.roomInfo} room-info ${roomCode ? '' : 'hidden'}`}
@@ -220,6 +274,7 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
           </div>
         </div>
 
+        {/* file:// 离线协议下的警示提示 */}
         <p
           id="file-tip"
           className={`${styles.manualTip} manual-tip`}
@@ -229,7 +284,7 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
         </p>
       </div>
 
-      {/* 邀请对局面板 */}
+      {/* ======================= 标签页 2：邀请对局（无服务器 Vanilla ICE） ======================= */}
       <div
         id="tab-manual"
         className={`tab-panel ${activeTab === 'manual' ? '' : 'hidden'}`}
@@ -239,7 +294,7 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
           无需服务器：双方通过微信互发连接码，即可建立 P2P 直连。
         </p>
 
-        {/* 步骤指引 */}
+        {/* 步骤条指引：① 生成/粘贴邀请码 -> ② 回复/粘贴应答码 -> ③ 连接成功 */}
         <div
           id="flow-steps"
           className={`${styles.flowSteps} flow-steps ${flow === 'idle' ? 'hidden' : ''}`}
@@ -267,7 +322,7 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
           </span>
         </div>
 
-        {/* 入口按钮 */}
+        {/* 初始身份选择入口按钮 (创建房间者 vs 加入房间者) */}
         <div
           id="flow-entry"
           className={`${styles.flowEntry} flow-entry ${flow !== 'idle' ? 'hidden' : ''}`}
@@ -289,17 +344,19 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
           </button>
         </div>
 
-        {/* 邀请方流程 */}
+        {/* ---------------- 邀请方流程（Host Flow） ---------------- */}
         <div
           id="flow-host"
           className={`flow-panel ${flow === 'host-wait' ? '' : 'hidden'}`}
           style={{ display: flow === 'host-wait' ? 'block' : 'none' }}
         >
+          {/* 步骤 ①：展示 Offer 二维码与文本码 */}
           <div className={`${styles.manualStep} manual-step`}>
             <div className={`${styles.manualStepHead} manual-step-head`}>
               <b>① 邀请码已生成</b>
             </div>
 
+            {/* 二维码展示容器 */}
             <div
               id="flow-host-qr-box"
               className={`${styles.qrBox} qr-box ${hostOfferCode ? '' : 'hidden'}`}
@@ -309,6 +366,7 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
               <div className={`${styles.qrTip} qr-tip`}>对方可使用手机「扫一扫」快速对局</div>
             </div>
 
+            {/* 压缩 Base64 文本码，默认折叠 */}
             <textarea
               id="flow-host-out"
               rows={3}
@@ -341,6 +399,7 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
             </div>
           </div>
 
+          {/* 步骤 ②：粘贴对方发回的 Answer 应答码 */}
           <div className={`${styles.manualStep} manual-step`}>
             <div className={`${styles.manualStepHead} manual-step-head`}>
               <b>② 粘贴对方发回的应答码</b>
@@ -370,12 +429,13 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
           </div>
         </div>
 
-        {/* 被邀请方流程 */}
+        {/* ---------------- 被邀请方流程（Guest Flow） ---------------- */}
         <div
           id="flow-guest"
           className={`flow-panel ${flow === 'guest-invite' || flow === 'guest-wait' ? '' : 'hidden'}`}
           style={{ display: flow === 'guest-invite' || flow === 'guest-wait' ? 'block' : 'none' }}
         >
+          {/* 步骤 ①：被邀请方粘贴创建者的邀请码 */}
           <div className={`${styles.manualStep} manual-step`}>
             <div className={`${styles.manualStepHead} manual-step-head`}>
               <b>① 粘贴创建房间者发来的邀请码</b>
@@ -404,6 +464,7 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
             </button>
           </div>
 
+          {/* 步骤 ②：生成应答码并展示给创建者 */}
           <div
             id="flow-guest-out-wrap"
             className={`${styles.manualStep} manual-step ${flow === 'guest-wait' ? '' : 'hidden'}`}
@@ -450,6 +511,7 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
           </div>
         </div>
 
+        {/* ---------------- 握手结果横幅（连接成功或失败报警） ---------------- */}
         <div
           id="flow-result"
           className={`${styles.flowResult} flow-result ${
