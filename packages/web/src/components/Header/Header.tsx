@@ -1,12 +1,24 @@
 import React from 'react';
 import styles from './Header.module.css';
 
+/**
+ * 顶部导航栏入参属性接口
+ */
 interface HeaderProps {
+  /** 当前连接状态：online (P2P 已通), signaling (信令握手/等待中), offline (未连接) */
   status: 'online' | 'signaling' | 'offline';
+  /** 状态胶囊徽标内展示的文本（如 "未连接" / "信令就绪" / "对局直连"） */
   statusText: string;
 }
 
+/**
+ * 顶部导航栏组件 (Header)
+ * 职责：
+ * 1. 展现五子棋黑白 Logo 与产品定位副标题
+ * 2. 醒目展示全站连接状态呼吸灯胶囊徽标 (online / signaling / offline)
+ */
 export const Header: React.FC<HeaderProps> = ({ status, statusText }) => {
+  // 根据状态切换不同配色的呼吸灯样式类名
   const badgeClass =
     status === 'online'
       ? `${styles.badge} ${styles.badgeOnline} badge online`
@@ -16,6 +28,7 @@ export const Header: React.FC<HeaderProps> = ({ status, statusText }) => {
 
   return (
     <header className={`${styles.topbar} topbar`}>
+      {/* 品牌 Logo 与标题区 */}
       <div className={`${styles.titleGroup} title`}>
         <span className={`${styles.logo} logo`}>
           <i className={`${styles.stoneBlack} b`} />
@@ -28,6 +41,8 @@ export const Header: React.FC<HeaderProps> = ({ status, statusText }) => {
           </p>
         </div>
       </div>
+
+      {/* 动态连接状态胶囊徽标（含呼吸指示灯圆点） */}
       <div id="conn-badge" className={badgeClass}>
         <span className={`${styles.dot} dot`} />
         <span id="conn-text">{statusText}</span>
