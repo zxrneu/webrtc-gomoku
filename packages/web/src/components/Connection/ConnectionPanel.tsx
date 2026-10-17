@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import type { FlowState, ScannerTarget } from '../../types';
 import { renderQrToCanvas } from '../../qr';
 import styles from './ConnectionPanel.module.css';
@@ -122,6 +122,10 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
   /** 被邀请方 Answer 二维码 Canvas DOM 引用 */
   const guestQrRef = useRef<HTMLCanvasElement | null>(null);
 
+  /** 连接成功后是否展开完整的连接配置信息（默认收起为紧凑条以节省垂直空间） */
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const isCompact = flow === 'connected' && !detailsExpanded;
+
   // 当邀请码 Offer 生成时，调用 qr.ts 绘制离散对齐的清晰黑白二维码
   useEffect(() => {
     if (hostOfferCode && hostQrRef.current) {
@@ -169,7 +173,27 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
   };
 
   return (
-    <div id="connect-card" className={`${styles.connectCard} card`}>
+    <div id="connect-card" className={`${styles.connectCard} ${isCompact ? styles.compact : ''} card`}>
+      {/* 对局已连接时的紧凑状态条与展开详情按钮 */}
+      {flow === 'connected' && (
+        <div className={styles.compactHeader}>
+          <div className={styles.compactBadge}>
+            <span className={styles.compactDot} />
+            <span className={styles.compactTitle}>
+              {activeTab === 'room' && roomCode ? `房间 ${roomCode}` : 'P2P 对局已直连'}
+            </span>
+          </div>
+          <button
+            id="toggle-connect-details-btn"
+            type="button"
+            className={`${styles.btn} ${styles.btnTiny} ${styles.btnGhost} ${styles.compactToggle}`}
+            onClick={() => setDetailsExpanded((v: boolean) => !v)}
+          >
+            {detailsExpanded ? '收起 ▴' : '连接设置 ▾'}
+          </button>
+        </div>
+      )}
+
       {/* 玩家昵称输入区 */}
       <label className={`${styles.nameField} field name-field`}>
         <span>昵称（对方可见）</span>
@@ -215,14 +239,14 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
         </p>
 
         {/* 创建房间按钮 */}
-        <div className={`${styles.row} row`}>
+        <div className={`${styles.row} ${styles.createRoomRow} row`}>
           <button
             id="create-room-btn"
             className={`${styles.btn} ${styles.btnPrimary} ${styles.grow} btn primary grow`}
             disabled={isFileProtocol}
             onClick={onCreateRoom}
           >
-            创建房间
+            {flow === 'connected' ? '换房' : '创建房间'}
           </button>
         </div>
 
@@ -231,7 +255,7 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
         </div>
 
         {/* 输入房间号加入 */}
-        <div className={`${styles.row} row`}>
+        <div className={`${styles.row} ${styles.roomInputRow} row`}>
           <input
             id="room-input"
             className={`${styles.roomCode} room-code`}
