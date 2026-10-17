@@ -1,3 +1,17 @@
+/**
+ * WebRTC P2P 点对点连接核心客户端（WebRTC Client）
+ *
+ * 【WebRTC 连接核心概念 —— 小白科普】：
+ * 1. RTCPeerConnection（PC）：
+ *    浏览器原生提供的点对点连接对象。它负责两台电脑/手机之间的 NAT 打洞、网络加密握手、数据通道协商。
+ * 2. RTCDataChannel（DC）：
+ *    建立在 PC 之上的低延迟、双向数据通道。一旦建立，我们就可以像发 WebSocket 消息一样在两台设备之间
+ *    光速互发 JSON（落子、聊天、悔棋），【完全不经过任何服务器】！
+ * 3. 为什么是“发起方 (Initiator)”与“应答方 (Answerer)”？
+ *    - 发起方（通常是房主）：负责主动创建 DataChannel（`pc.createDataChannel('gomoku')`），并生成 Offer 名片；
+ *    - 应答方（通常是客人）：等待对端的通道创建事件（`pc.ondatachannel`），并生成 Answer 回执名片。
+ */
+
 import type {
   GameMessage,
   ManualOfferPayload,
@@ -8,57 +22,89 @@ import { pack, unpack } from '@webrtc-gomoku/shared';
 
 import { DEFAULT_ICE_SERVERS } from './iceConfig';
 
+/**
+ * WebRTCClient 初始化选项接口
+ */
 export interface WebRTCClientOptions {
+  /** 收到对方经由 DataChannel 发送的对局消息（落子、聊天、悔棋等） */
   onMessage: (msg: GameMessage) => void;
+  /** DataChannel 成功打开，进入连通对局状态 */
   onConnected: () => void;
+  /** 连接断开或失败时触发 */
   onDisconnected: () => void;
+  /** 网络质量（RTT 延时、连接类型）定期更新回调 */
   onTransportUpdate?: (info: TransportInfo) => void;
+  /** 任何底层网络状态变化时触发（用于刷新 UI 状态指示灯） */
   onStateChange?: () => void;
   /**
-   * ICE 配置（STUN/TURN）。默认 {@link DEFAULT_ICE_SERVERS}，保证永不未初始化；
-   * 由 App 在挂载后经 `GET /config` 动态覆盖。
+   * ICE 服务器配置（STUN / TURN）
+   * 默认使用内置的国内高可用 STUN 列表，应用启动后会异步向 /config 拉取覆盖
    */
   iceServers?: RTCIceServer[];
 }
 
 export class WebRTCClient {
+  /** 底层 WebRTC 对等连接对象 */
   public pc: RTCPeerConnection | null = null;
+  /** 底层 P2P 双向数据通道 */
   public dc: RTCDataChannel | null = null;
+  /** 尚未生效的待处理 ICE 候选队列（信令模式下防乱序） */
   public pendingIce: RTCIceCandidateInit[] = [];
+  /** 定期获取网络状态（RTT、连接类型）的定时器 */
   private statsTimer: any = null;
+  /** 当前生效的 ICE 服务器配置 */
   private iceServers: RTCIceServer[];
 
   constructor(private options: WebRTCClientOptions) {
     this.iceServers = options.iceServers ?? DEFAULT_ICE_SERVERS;
   }
 
-  /** 更新后续建连使用的 ICE 配置（供动态拉取 `/config` 后调用）。 */
+  /**
+   * 更新后续建连使用的 ICE 配置（供 App 动态拉取 `/config` 后调用）
+   * @param iceServers 新的 STUN/TURN 服务器数组
+   */
   public setIceServers(iceServers: RTCIceServer[]): void {
     this.iceServers = iceServers;
   }
 
-  /** 读取当前生效的 ICE 配置。 */
+  /**
+   * 获取当前生效的 ICE 配置
+   */
   public getIceServers(): RTCIceServer[] {
     return this.iceServers;
   }
 
+  /**
+   * 初始化并创建一个全新的 RTCPeerConnection 实例
+   *
+   * @param isInitiator true 表示发起方（房主），false 表示应答方（加入者）
+   * @param iceServers 可选的自定义服务器配置
+   * @returns 初始化的 RTCPeerConnection 对象
+   */
   public initPeer(isInitiator: boolean, iceServers?: RTCIceServer[]): RTCPeerConnection {
+    // 换房防御第一原则：先彻底销毁上一局的旧连接与残留事件监听！
     this.close();
 
+    // 1. 创建原生对等连接
     const pc = new RTCPeerConnection({ iceServers: iceServers ?? this.iceServers });
     this.pc = pc;
 
+    // 2. DataChannel 通道绑定策略
     if (isInitiator) {
+      // 发起方：主动创建名为 'gomoku' 的有序可靠数据通道（ordered: true）
       const dc = pc.createDataChannel('gomoku', { ordered: true });
       this.bindDataChannel(dc);
     } else {
+      // 应答方：静静监听对端创建的通道事件
       pc.ondatachannel = (e) => {
         this.bindDataChannel(e.channel);
       };
     }
 
+    // 3. 监听整体网络连接状态变化
     pc.onconnectionstatechange = () => {
       this.options.onStateChange?.();
+      // 成功直连：开启 3 秒一次的网络指标轮询
       if (pc.connectionState === 'connected') {
         this.startStatsPoll();
       } else if (
@@ -66,15 +112,18 @@ export class WebRTCClient {
         pc.connectionState === 'failed' ||
         pc.connectionState === 'closed'
       ) {
+        // 网络中断或失败：停止轮询，通知界面切回断开状态
         this.stopStatsPoll();
         this.options.onDisconnected();
       }
     };
 
+    // 监听 ICE 穿透通道状态变化（checking -> connected -> completed）
     pc.oniceconnectionstatechange = () => {
       this.options.onStateChange?.();
     };
 
+    // 监听信令协商状态变化（stable -> have-local-offer -> ...）
     pc.onsignalingstatechange = () => {
       this.options.onStateChange?.();
     };
@@ -82,20 +131,32 @@ export class WebRTCClient {
     return pc;
   }
 
+  /**
+   * 绑定 DataChannel 的收发事件监听
+   * @param dc 目标 RTCDataChannel
+   */
   private bindDataChannel(dc: RTCDataChannel) {
     this.dc = dc;
+
+    // 通道就绪：通知上层应用连通成功，可以开始落子下棋
     dc.onopen = () => {
       this.options.onStateChange?.();
       this.options.onConnected();
     };
+
+    // 通道关闭
     dc.onclose = () => {
       this.options.onStateChange?.();
       this.options.onDisconnected();
     };
+
+    // 异常监控
     dc.onerror = (e) => {
       console.warn('DataChannel error:', e);
       this.options.onStateChange?.();
     };
+
+    // 核心：接收对端发来的数据包
     dc.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data) as GameMessage;
@@ -106,6 +167,11 @@ export class WebRTCClient {
     };
   }
 
+  /**
+   * 通过 P2P DataChannel 向对方发送一条对局消息（落子、聊天、悔棋等）
+   * @param msg 消息对象
+   * @returns true 表示发送成功，false 表示通道未准备好
+   */
   public sendMessage(msg: GameMessage): boolean {
     if (this.dc && this.dc.readyState === 'open') {
       this.dc.send(JSON.stringify(msg));
@@ -114,6 +180,18 @@ export class WebRTCClient {
     return false;
   }
 
+  /**
+   * 等待所有 ICE 候选地址收集完毕（ICE Gathering Complete）
+   *
+   * 【手动邀请码模式的关键设计】：
+   * 在信令服务器模式下，ICE 候选是一个个实时通过 WebSocket 转发的（Trickle ICE）；
+   * 但在“无服务器微信扫码模式”下，我们不能发无数次二维码！
+   * 必须等待浏览器把所有内网和公网候选全部收集打包并写入当前 SDP 中（Vanilla ICE），
+   * 这样只需要生成【唯一一个包含完整地址的二维码】即可一次性成功连通！
+   *
+   * @param pc 当前对等连接
+   * @param timeout 超时毫秒数（默认 4 秒，防止某些网卡收集过慢卡死）
+   */
   public async waitIce(pc: RTCPeerConnection, timeout = 4000): Promise<void> {
     if (pc.iceGatheringState === 'complete') return;
     return new Promise((resolve) => {
@@ -131,13 +209,28 @@ export class WebRTCClient {
     });
   }
 
-  /* ---------------- 手动信令流程 ---------------- */
+  // ==========================================
+  // 手动信令流程（零服务器模式：生成/解析邀请码）
+  // ==========================================
 
+  /**
+   * 房主发起：创建 Offer 邀请码
+   *
+   * 步骤：
+   * 1. 初始化发起方 PeerConnection 与 DataChannel
+   * 2. 调用 pc.createOffer() 生成本地会话描述
+   * 3. pc.setLocalDescription(offer) 设置为本地描述
+   * 4. 等待 ICE 候选收集完毕，全部嵌入 SDP
+   * 5. 将完整的 SDP 结构通过 pack() 压缩成一个短字符串并返回
+   *
+   * @param name 房主昵称
+   * @returns 经过 deflate + base64url 压缩后的短邀请码（以 'Z' 开头）
+   */
   public async createHostOffer(name: string): Promise<string> {
     const pc = this.initPeer(true, this.iceServers);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    await this.waitIce(pc);
+    await this.waitIce(pc); // 等待候选全部打入本地 SDP
 
     const payload: ManualOfferPayload = {
       type: 'offer',
@@ -147,6 +240,21 @@ export class WebRTCClient {
     return pack(payload);
   }
 
+  /**
+   * 加入方应答：解析房主邀请码，并生成 Answer 应答码
+   *
+   * 步骤：
+   * 1. unpack 解压缩房主的 Offer 邀请码
+   * 2. 创建接收方 PeerConnection
+   * 3. setRemoteDescription 将房主 SDP 设为远端描述
+   * 4. createAnswer() 生成应答描述并 setLocalDescription
+   * 5. 等待自己的 ICE 候选收集完毕
+   * 6. 打包压缩生成 Answer 应答码
+   *
+   * @param offerCode 房主出示的邀请码
+   * @param name 加入方昵称
+   * @returns 压缩后的 Answer 应答码（以 'Z' 开头）
+   */
   public async handleGuestOffer(offerCode: string, name: string): Promise<string> {
     const payload = await unpack<ManualOfferPayload>(offerCode);
     if (!payload || payload.type !== 'offer' || !payload.sdp) {
@@ -167,23 +275,38 @@ export class WebRTCClient {
     return pack(ansPayload);
   }
 
+  /**
+   * 房主收尾：输入加入方的 Answer 应答码，完成 WebRTC 最终握手
+   *
+   * @param answerCode 加入方出示的应答码
+   * @returns 解析后的应答数据对象
+   */
   public async finishHostConnection(answerCode: string): Promise<ManualAnswerPayload> {
     if (!this.pc) throw new Error('PeerConnection 未创建');
     const payload = await unpack<ManualAnswerPayload>(answerCode);
     if (!payload || payload.type !== 'answer' || !payload.sdp) {
       throw new Error('无效的应答码，请确认复制完整');
     }
+    // 将对方的 Answer 设为远端描述，底层通道立刻开始连通！
     await this.pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: payload.sdp }));
     return payload;
   }
 
-  /* ---------------- 统计与链路信息 ---------------- */
+  // ==========================================
+  // 网络质量统计与链路探测 (getStats)
+  // ==========================================
 
+  /**
+   * 读取当前直连链路的真实状态指标（RTT 延迟、网络类型、IP 版本）
+   * @returns 格式化后的 TransportInfo 对象；若未连通则返回 null
+   */
   public async getTransportInfo(): Promise<TransportInfo | null> {
     if (!this.pc) return null;
     try {
       const stats = await this.pc.getStats();
       let selectedPairId: string | null = null;
+      
+      // 1. 查找当前真正承载流量的 candidate-pair（候选对）
       for (const report of stats.values()) {
         if (report.type === 'transport' && report.selectedCandidatePairId) {
           selectedPairId = report.selectedCandidatePairId;
@@ -195,6 +318,7 @@ export class WebRTCClient {
       if (selectedPairId && stats.has(selectedPairId)) {
         pairReport = stats.get(selectedPairId);
       } else {
+        // 兼容模式：部分旧浏览器通过 selected / nominated 标记
         for (const report of stats.values()) {
           if (report.type === 'candidate-pair' && (report.selected || report.nominated)) {
             pairReport = report;
@@ -205,11 +329,13 @@ export class WebRTCClient {
 
       if (!pairReport) return null;
 
+      // 2. 提取本地候选信息与往返延时 RTT
       const local = stats.get(pairReport.localCandidateId);
       const rtt = pairReport.currentRoundTripTime
         ? Math.round(pairReport.currentRoundTripTime * 1000)
         : undefined;
 
+      // 3. 判定候选类型：host / srflx / prflx / relay
       const candidateType = local?.candidateType || 'p2p';
       const ip = local?.ip || local?.address || '';
       const ipVersion = ip.includes(':') ? 'IPv6' : ip ? 'IPv4' : undefined;
@@ -229,6 +355,9 @@ export class WebRTCClient {
     }
   }
 
+  /**
+   * 启动每 3 秒一次的网络链路状态轮询
+   */
   private startStatsPoll() {
     this.stopStatsPoll();
     const poll = async () => {
@@ -241,6 +370,9 @@ export class WebRTCClient {
     this.statsTimer = setInterval(poll, 3000);
   }
 
+  /**
+   * 停止网络链路轮询
+   */
   private stopStatsPoll() {
     if (this.statsTimer) {
       clearInterval(this.statsTimer);
@@ -249,11 +381,14 @@ export class WebRTCClient {
   }
 
   /**
-   * 主动断开并释放当前连接（换房 / 组件卸载）。
+   * 主动断开并释放当前连接（换房 / 组件卸载时调用）
    *
-   * 关键：先摘掉全部事件处理器再关闭——`close()` 自身触发的 `onclose`、
-   * `connectionstatechange` 等迟到事件绝不能再回调 `onDisconnected`，
-   * 否则「上一房间」的断线事件会把新房间刚建立的连接状态清空。
+   * 【避坑高精尖设计：解绑防串台机制】：
+   * 关键细节：必须「先将所有的事件监听函数置为 null，然后再调用 close()」！
+   * 为什么？
+   * 因为调用 `pc.close()` 或 `dc.close()` 本身会触发异步的 `onclose` 和 `onconnectionstatechange` 事件。
+   * 如果用户切换了新房间，旧连接迟到的断开事件就会误伤新房间，把新房间刚连上的状态又置为断开！
+   * 先把监听器置空，彻底杜绝了事件串台可能。
    */
   public close() {
     this.stopStatsPoll();
@@ -264,6 +399,7 @@ export class WebRTCClient {
     this.pc = null;
     this.pendingIce = [];
 
+    // 1. 先解绑 DataChannel 所有处理器，再 close
     if (dc) {
       dc.onopen = null;
       dc.onclose = null;
@@ -271,6 +407,7 @@ export class WebRTCClient {
       dc.onmessage = null;
       try { dc.close(); } catch {}
     }
+    // 2. 先解绑 PeerConnection 所有处理器，再 close
     if (pc) {
       pc.onconnectionstatechange = null;
       pc.oniceconnectionstatechange = null;
@@ -281,3 +418,4 @@ export class WebRTCClient {
     }
   }
 }
+
