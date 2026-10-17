@@ -217,7 +217,6 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
           onClick={() => setActiveTab('room')}
         >
           房间联机
-          <em className={`${styles.tabNote} tab-note`}>需服务器 · 规划中</em>
         </button>
         <button
           className={`${styles.tab} ${activeTab === 'manual' ? `${styles.active} active` : ''} tab`}
@@ -235,7 +234,7 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
         style={{ display: activeTab === 'room' ? 'flex' : 'none', flexDirection: 'column', gap: '12px' }}
       >
         <p className={`${styles.manualTip} manual-tip`}>
-          房间联机需要部署信令服务器（交换 SDP / ICE 候选自动牵线），属于规划中的里程碑功能。当前版本请使用「邀请对局」：单文件 + 微信互发连接码，支持局域网与可达 IPv6 直连。
+          输入 4 位房间号或点击「创建房间」，系统将通过信令服务器自动完成 P2P 直连配对。
         </p>
 
         {/* 创建房间按钮 */}

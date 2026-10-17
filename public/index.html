@@ -54,12 +54,12 @@
         <input id="name-input" type="text" maxlength="12" placeholder="输入昵称后才能创建 / 加入房间" autocomplete="off">
       </label>
       <div class="tabs">
-        <button class="tab active" data-tab="room">房间联机<em class="tab-note">需服务器 · 规划中</em></button>
+        <button class="tab active" data-tab="room">房间联机</button>
         <button class="tab" data-tab="manual">邀请对局</button>
       </div>
 
       <div class="tab-panel" id="tab-room">
-        <p class="manual-tip">房间联机需要部署信令服务器（交换 SDP / ICE 候选自动牵线），属于规划中的里程碑功能。当前版本请使用「邀请对局」：单文件 + 微信互发连接码，支持局域网与可达 IPv6 直连。</p>
+        <p class="manual-tip">输入 4 位房间号或点击「创建房间」，系统将通过信令服务器自动完成 P2P 直连配对。</p>
         <div class="row">
           <button class="btn primary grow" id="create-room-btn">创建房间</button>
         </div>
