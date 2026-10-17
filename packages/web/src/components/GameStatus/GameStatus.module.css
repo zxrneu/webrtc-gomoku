@@ -9,6 +9,14 @@
   gap: 14px;
 }
 
+@media (min-width: 981px) {
+  .gameCard {
+    flex-shrink: 0;
+    padding: 12px 14px;
+    gap: 10px;
+  }
+}
+
 .players {
   display: flex;
   align-items: center;
@@ -17,6 +25,12 @@
   background: #faf7f0;
   border-radius: var(--radius-md);
   border: 1px solid var(--card-border);
+}
+
+@media (min-width: 981px) {
+  .players {
+    padding: 8px 12px;
+  }
 }
 
 .player {

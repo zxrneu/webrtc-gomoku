@@ -2,7 +2,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 28px;
+  padding: 10px 24px;
   background: rgba(255, 253, 248, 0.88);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);

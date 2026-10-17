@@ -372,3 +372,83 @@
   color: var(--text-muted);
   font-size: 12px;
 }
+
+/* 对局中紧凑状态条 */
+.compactHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+}
+
+.compactBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.compactDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 2px rgba(21, 128, 61, 0.2);
+}
+
+.compactToggle {
+  font-size: 11.5px;
+  padding: 3px 8px;
+  color: var(--text-muted);
+}
+
+.compactToggle:hover {
+  color: var(--text-main);
+  background: rgba(230, 220, 206, 0.4);
+}
+
+/* 紧凑折叠卡片（方案 1：对局中折叠冗余输入，节省高度） */
+.connectCard.compact {
+  padding: 8px 12px;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: var(--shadow-sm);
+}
+
+.connectCard.compact .nameField,
+.connectCard.compact .tabs,
+.connectCard.compact .manualTip,
+.connectCard.compact .divider,
+.connectCard.compact .roomInputRow,
+.connectCard.compact #file-tip,
+.connectCard.compact .flowSteps,
+.connectCard.compact .flowEntry,
+.connectCard.compact .flowResult {
+  display: none !important;
+}
+
+.connectCard.compact .roomInfo {
+  padding: 0;
+  background: transparent;
+  border: none;
+  gap: 2px;
+}
+
+.connectCard.compact .roomInfoLine {
+  font-size: 12px;
+  gap: 8px;
+}
+
+.connectCard.compact .createRoomRow {
+  margin: 0;
+}
+
+.connectCard.compact .createRoomRow button {
+  padding: 4px 10px;
+  font-size: 12px;
+  height: 28px;
+}
+

@@ -24,6 +24,15 @@
   padding: 20px;
 }
 
+@media (min-width: 981px) {
+  .boardCard {
+    height: 100%;
+    justify-content: center;
+    padding: 14px 18px;
+    gap: 12px;
+  }
+}
+
 /* 画布定位容器：为蒙层和结算横幅提供 position: absolute 的参考原点 */
 .boardWrap {
   position: relative;
@@ -34,7 +43,7 @@
 /**
  * HTML5 棋盘画板主体
  * 响应式适配关键属性：
- * - width: min(560px, 100%)：桌面端最大 560px，窄屏手机自动等比贴合屏幕宽度
+ * - width: min(560px, 100%, calc(100vh - 170px))：桌面端最大 560px，兼顾视口垂直高度不溢出，窄屏手机自动贴合宽度
  * - aspect-ratio: 1 / 1：严格锁定 1:1 正方形网格，杜绝高宽不一致导致棋盘形变
  * - touch-action: manipulation：禁用移动端双击缩放手势，让落子点击响应达到毫秒级
  */
@@ -45,7 +54,8 @@
   cursor: pointer;
   touch-action: manipulation;
   display: block;
-  width: min(560px, 100%);
+  width: min(560px, 100%, calc(100vh - 170px));
+  max-height: calc(100vh - 170px);
   aspect-ratio: 1 / 1;
   height: auto;
   margin: 0 auto;

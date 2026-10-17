@@ -38,6 +38,30 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+@media (min-width: 981px) {
+  html, body {
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+}
+
+/* 优雅精致滚动条 */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(180, 160, 140, 0.35);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(180, 160, 140, 0.65);
+}
+
 /* 兼容性全局隐藏类（保证 Playwright / querySelector 逻辑一致） */
 .hidden {
   display: none !important;
