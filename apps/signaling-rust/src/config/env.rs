@@ -352,7 +352,8 @@ mod tests {
     }
 
     #[test]
-    fn env_invalid_number_reports_error() {        let env = MapEnv::new(&[(PORT, "not-a-port")]);
+    fn env_invalid_number_reports_error() {
+        let env = MapEnv::new(&[(PORT, "not-a-port")]);
         let mut cfg = Config::default();
         let err = apply(&mut cfg, &env).unwrap_err();
         assert!(matches!(err, ConfigError::Env { ref var, .. } if var == PORT));

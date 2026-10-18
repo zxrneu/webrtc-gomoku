@@ -61,6 +61,55 @@ pub fn room_channel(prefix: &str, code: &RoomCode) -> String {
     format!("{prefix}:room:{code}")
 }
 
+/// `{prefix}:room:{CODE}:seat:{PEER}` — global seat holder key.
+pub fn seat_key(prefix: &str, code: &RoomCode, peer: &crate::rooms::PeerId) -> String {
+    format!("{prefix}:room:{code}:seat:{peer}")
+}
+
+/// `issue_seat`: HSET + EXPIRE
+pub const ISSUE_SEAT_LUA: &str = r"
+redis.call('HSET', KEYS[1], 'room', ARGV[1], 'peer_id', ARGV[2], 'token', ARGV[3], 'name', ARGV[4], 'role', ARGV[5], 'node_id', ARGV[6], 'offline_since', 0, 'expires_at', 0)
+redis.call('EXPIRE', KEYS[1], ARGV[7])
+return 1
+";
+
+/// `seat_offline`: HSET offline_since + expires_at + EXPIRE
+pub const SEAT_OFFLINE_LUA: &str = r"
+if redis.call('EXISTS', KEYS[1]) == 1 then
+  local off = tonumber(redis.call('HGET', KEYS[1], 'offline_since') or '0')
+  if off == 0 then
+    redis.call('HSET', KEYS[1], 'offline_since', ARGV[1], 'expires_at', ARGV[2])
+    redis.call('EXPIRE', KEYS[1], ARGV[3])
+    return 1
+  end
+end
+return 0
+";
+
+/// `resume_seat`: atomic verify, token rotate, node_id update, member set update
+pub const RESUME_SEAT_LUA: &str = r"
+if redis.call('EXISTS', KEYS[1]) == 0 then return {-1, '', '', ''} end
+local room = redis.call('HGET', KEYS[1], 'room')
+if room ~= ARGV[1] then return {-2, '', '', ''} end
+local cur_token = redis.call('HGET', KEYS[1], 'token')
+if cur_token ~= ARGV[2] then return {-2, '', '', ''} end
+local expires_at = tonumber(redis.call('HGET', KEYS[1], 'expires_at') or '0')
+local now_ms = tonumber(ARGV[5])
+if expires_at > 0 and now_ms >= expires_at then return {-3, '', '', ''} end
+local old_node = redis.call('HGET', KEYS[1], 'node_id') or ''
+local name = redis.call('HGET', KEYS[1], 'name') or ''
+local role = redis.call('HGET', KEYS[1], 'role') or 'guest'
+local peer_id = redis.call('HGET', KEYS[1], 'peer_id') or ''
+redis.call('HSET', KEYS[1], 'token', ARGV[3], 'node_id', ARGV[4], 'offline_since', 0, 'expires_at', 0)
+redis.call('EXPIRE', KEYS[1], ARGV[6])
+if old_node ~= '' and old_node ~= ARGV[4] and peer_id ~= '' then
+  redis.call('SREM', KEYS[2], old_node .. ':' .. peer_id)
+  redis.call('SADD', KEYS[2], ARGV[4] .. ':' .. peer_id)
+  redis.call('EXPIRE', KEYS[2], ARGV[6])
+end
+return {1, old_node, name, role}
+";
+
 /// Outcome of a registry `join`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JoinStatus {
@@ -178,6 +227,121 @@ impl RedisRoomRegistry {
             .await
             .map_err(|e| RelayError::Command(e.to_string()))?;
         Ok(result.clamp(0, 2) as u8)
+    }
+
+    /// Globally issue/update a seat in Redis.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn issue_seat(
+        &self,
+        code: &RoomCode,
+        peer: &crate::rooms::PeerId,
+        token: &str,
+        name: &str,
+        role: &str,
+        node_id: &str,
+        ttl_secs: u64,
+    ) -> Result<(), RelayError> {
+        let mut conn = self.pool.get()?;
+        let _: i64 = redis::Script::new(ISSUE_SEAT_LUA)
+            .key(seat_key(&self.prefix, code, peer))
+            .arg(code.as_str())
+            .arg(peer.as_str())
+            .arg(token)
+            .arg(name)
+            .arg(role)
+            .arg(node_id)
+            .arg(ttl_secs)
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|e| RelayError::Command(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Mark a seat as offline in Redis.
+    pub async fn seat_offline(
+        &self,
+        code: &RoomCode,
+        peer: &crate::rooms::PeerId,
+        now_ms: u64,
+        expires_at_ms: u64,
+        ttl_secs: u64,
+    ) -> Result<(), RelayError> {
+        let mut conn = self.pool.get()?;
+        let _: i64 = redis::Script::new(SEAT_OFFLINE_LUA)
+            .key(seat_key(&self.prefix, code, peer))
+            .arg(now_ms)
+            .arg(expires_at_ms)
+            .arg(ttl_secs)
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|e| RelayError::Command(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Delete a seat from Redis.
+    pub async fn leave_seat(
+        &self,
+        code: &RoomCode,
+        peer: &crate::rooms::PeerId,
+    ) -> Result<(), RelayError> {
+        let mut conn = self.pool.get()?;
+        let _: i64 = redis::cmd("DEL")
+            .arg(seat_key(&self.prefix, code, peer))
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| RelayError::Command(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Atomically resume a seat in Redis across nodes (Issue 3).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn resume_seat(
+        &self,
+        code: &RoomCode,
+        peer: &crate::rooms::PeerId,
+        token: &str,
+        new_token: &str,
+        node_id: &str,
+        now_ms: u64,
+        ttl_secs: u64,
+    ) -> Result<crate::relay::ResumeGrant, crate::transport::seat::ResumeError> {
+        let mut conn = match self.pool.get() {
+            Ok(c) => c,
+            Err(_) => return Err(crate::transport::seat::ResumeError::Unknown),
+        };
+        let result: Result<(i64, String, String, String), redis::RedisError> =
+            redis::Script::new(RESUME_SEAT_LUA)
+                .key(seat_key(&self.prefix, code, peer))
+                .key(members_key(&self.prefix, code))
+                .arg(code.as_str())
+                .arg(token)
+                .arg(new_token)
+                .arg(node_id)
+                .arg(now_ms)
+                .arg(ttl_secs)
+                .invoke_async(&mut conn)
+                .await;
+        match result {
+            Ok((1, old_node, name, role)) => Ok(crate::relay::ResumeGrant {
+                old_node,
+                name,
+                role,
+            }),
+            Ok((-2, _, _, _)) => Err(crate::transport::seat::ResumeError::Invalid),
+            Ok((-3, _, _, _)) => Err(crate::transport::seat::ResumeError::Expired),
+            _ => Err(crate::transport::seat::ResumeError::Unknown),
+        }
+    }
+
+    /// Query global member set for a room (Issue 2).
+    pub async fn room_members(&self, code: &RoomCode) -> Result<Vec<String>, RelayError> {
+        let mut conn = self.pool.get()?;
+        let members: Vec<String> = redis::cmd("SMEMBERS")
+            .arg(members_key(&self.prefix, code))
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| RelayError::Command(e.to_string()))?;
+        Ok(members)
     }
 }
 

@@ -222,6 +222,10 @@ fn dispatch(payload: &str, delivery: &dyn LocalDelivery, node_id: &str, metrics:
         }
     };
 
+    if msg.kind == CrossKind::PeerOnline {
+        delivery.evict_peer(&code, &from_peer);
+    }
+
     match target {
         Some(target) => delivery.deliver(&code, &target, server_msg),
         None => delivery.deliver_others(&code, Some(&from_peer), server_msg),

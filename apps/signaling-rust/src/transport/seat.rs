@@ -87,6 +87,30 @@ pub enum VerifyResult {
     Unknown,
 }
 
+/// Success payload of atomic [`SeatRegistry::resume`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResumeSuccess {
+    /// Rotated fresh token.
+    pub new_token: String,
+    /// Player display name.
+    pub name: String,
+    /// Player seat role (host / guest).
+    pub role: SeatRole,
+    /// The previous connection ID that owned this seat.
+    pub prev_owner_conn: u64,
+}
+
+/// Error result of [`SeatRegistry::resume`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResumeError {
+    /// Seat does not exist.
+    Unknown,
+    /// Room mismatch or token mismatch.
+    Invalid,
+    /// Grace window has expired.
+    Expired,
+}
+
 /// Thread-safe seat table.
 ///
 /// One `Mutex<HashMap>` (not sharded): a 1v1 room holds at most two seats, and
@@ -115,10 +139,7 @@ impl SeatRegistry {
     }
 
     /// Build a registry with an injected token source (deterministic tests).
-    pub fn with_token_source(
-        grace_ms: u64,
-        source: Arc<dyn Fn() -> String + Send + Sync>,
-    ) -> Self {
+    pub fn with_token_source(grace_ms: u64, source: Arc<dyn Fn() -> String + Send + Sync>) -> Self {
         Self {
             seats: Mutex::new(HashMap::new()),
             grace_ms: AtomicU64::new(grace_ms),
@@ -215,6 +236,67 @@ impl SeatRegistry {
             }
         }
         VerifyResult::Ok
+    }
+
+    /// Check whether a seat is registered locally.
+    pub fn contains(&self, peer_id: &PeerId) -> bool {
+        self.lock().contains_key(peer_id)
+    }
+
+    /// Generate a fresh token using this registry's token generator.
+    pub fn generate_token(&self) -> String {
+        (self.new_token)()
+    }
+
+    /// Install a seat directly (used during cross-node takeover).
+    pub fn install_seat(&self, seat: Seat) {
+        let mut seats = self.lock();
+        seats.insert(seat.peer_id.clone(), seat);
+    }
+
+    /// Atomically verify and resume a seat (Issue 1).
+    ///
+    /// Performs token verification, expiry check, token rotation, clearing the
+    /// offline grace window, and updating the owner connection id under a single
+    /// mutex lock.
+    ///
+    /// This eliminates the race condition where multiple concurrent requests
+    /// present the same token and both pass verification before rotation.
+    pub fn resume(
+        &self,
+        peer_id: &PeerId,
+        room: &RoomCode,
+        token: &str,
+        new_owner_conn: u64,
+        now_ms: u64,
+    ) -> Result<ResumeSuccess, ResumeError> {
+        let mut seats = self.lock();
+        let Some(seat) = seats.get_mut(peer_id) else {
+            return Err(ResumeError::Unknown);
+        };
+        if &seat.room != room {
+            return Err(ResumeError::Invalid);
+        }
+        if !token_equals(&seat.token, token) {
+            return Err(ResumeError::Invalid);
+        }
+        if let Some(expires_at) = seat.expires_at_ms {
+            if now_ms >= expires_at {
+                return Err(ResumeError::Expired);
+            }
+        }
+        let prev_owner = seat.owner_conn;
+        let new_token = (self.new_token)();
+        seat.token = new_token.clone();
+        seat.offline_since_ms = None;
+        seat.expires_at_ms = None;
+        seat.owner_conn = new_owner_conn;
+        Ok(ResumeSuccess {
+            new_token,
+            name: seat.name.clone(),
+            role: seat.role,
+            prev_owner_conn: prev_owner,
+        })
     }
 
     /// Rotate the credential and put the seat back online (after a successful
@@ -350,8 +432,7 @@ pub fn token_equals(a: &str, b: &str) -> bool {
 
 /// base64url (RFC 4648 §5) without padding.
 fn base64url(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let b0 = u32::from(chunk[0]);
@@ -389,9 +470,18 @@ mod tests {
     #[test]
     fn issue_stores_the_seat_and_returns_a_token() {
         let seats = SeatRegistry::new(60_000);
-        let token = seats.issue(&peer("aaaaaaaa"), &room("ABCD"), "小明", SeatRole::Host, 1, 0);
+        let token = seats.issue(
+            &peer("aaaaaaaa"),
+            &room("ABCD"),
+            "小明",
+            SeatRole::Host,
+            1,
+            0,
+        );
         assert_eq!(token.len(), 32);
-        assert!(token.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+        assert!(token
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
         let seat = seats.peek(&peer("aaaaaaaa")).expect("seat");
         assert_eq!(seat.room, room("ABCD"));
         assert_eq!(seat.name, "小明");
@@ -568,5 +658,48 @@ mod tests {
         assert!(!token_equals("abc", "abd"));
         assert!(!token_equals("abc", "abcd"));
         assert!(!token_equals("", ""));
+    }
+
+    #[test]
+    fn concurrent_resumes_only_one_succeeds() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::thread;
+
+        let seats = Arc::new(SeatRegistry::default());
+        let p = peer("aaaaaaaa");
+        let r = room("ABCD");
+        let token = seats.issue(&p, &r, "Player1", SeatRole::Host, 1, 0);
+        seats.mark_offline(&p, 0);
+
+        let successes = Arc::new(AtomicUsize::new(0));
+        let invalids = Arc::new(AtomicUsize::new(0));
+        let mut handles = Vec::new();
+
+        for i in 0..50 {
+            let seats = seats.clone();
+            let p = p.clone();
+            let r = r.clone();
+            let token = token.clone();
+            let successes = successes.clone();
+            let invalids = invalids.clone();
+            handles.push(thread::spawn(move || {
+                match seats.resume(&p, &r, &token, 100 + i, 10) {
+                    Ok(_) => {
+                        successes.fetch_add(1, Ordering::SeqCst);
+                    }
+                    Err(ResumeError::Invalid) => {
+                        invalids.fetch_add(1, Ordering::SeqCst);
+                    }
+                    Err(other) => panic!("unexpected error: {other:?}"),
+                }
+            }));
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        assert_eq!(successes.load(Ordering::SeqCst), 1);
+        assert_eq!(invalids.load(Ordering::SeqCst), 49);
     }
 }

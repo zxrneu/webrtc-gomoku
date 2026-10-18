@@ -381,7 +381,10 @@ mod tests {
             classify(r#"{"t":"ping","ts":123.5}"#),
             Classification::Ping { ts: Some(123.5) }
         );
-        assert_eq!(classify(r#"{"t":"ping"}"#), Classification::Ping { ts: None });
+        assert_eq!(
+            classify(r#"{"t":"ping"}"#),
+            Classification::Ping { ts: None }
+        );
         // A non-numeric ts is simply dropped, never an error.
         assert_eq!(
             classify(r#"{"t":"ping","ts":"x"}"#),

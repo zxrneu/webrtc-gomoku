@@ -81,7 +81,8 @@ pub struct PartialSession {
 /// `[limits]` partial.
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default)]
-pub struct PartialLimits {    /// See [`LimitsConfig::max_connections`].
+pub struct PartialLimits {
+    /// See [`LimitsConfig::max_connections`].
     pub max_connections: Option<u64>,
     /// See [`LimitsConfig::max_connections_per_ip`].
     pub max_connections_per_ip: Option<u32>,
@@ -223,7 +224,8 @@ impl PartialSession {
 }
 
 impl PartialLimits {
-    fn apply_to(&self, d: &mut LimitsConfig) {        overlay_field!(
+    fn apply_to(&self, d: &mut LimitsConfig) {
+        overlay_field!(
             self,
             d,
             max_connections,
@@ -356,7 +358,8 @@ turn_credential_exposed = false
     }
 
     #[test]
-    fn redis_enabled_false_disables_relay() {        let partial = parse_partial("[redis]\nenabled = false\n").expect("parse");
+    fn redis_enabled_false_disables_relay() {
+        let partial = parse_partial("[redis]\nenabled = false\n").expect("parse");
         let mut cfg = Config::default();
         assert!(cfg.redis.enabled, "前置条件：默认启用");
         partial.apply_to(&mut cfg);

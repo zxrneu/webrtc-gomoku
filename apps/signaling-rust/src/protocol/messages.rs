@@ -152,12 +152,17 @@ pub fn peer_online() -> ServerMsg {
 }
 
 /// `{t:'resumed', room, peerId, token, peerPresent?}`
-pub fn resumed(room: &str, peer_id: &str, token: &str, peer_present: bool) -> ServerMsg {
+pub fn resumed(
+    room: &str,
+    peer_id: &str,
+    token: &str,
+    peer_present: impl Into<Option<bool>>,
+) -> ServerMsg {
     ServerMsg::Resumed {
         room: room.to_string(),
         peer_id: peer_id.to_string(),
         token: token.to_string(),
-        peer_present: Some(peer_present),
+        peer_present: peer_present.into(),
     }
 }
 

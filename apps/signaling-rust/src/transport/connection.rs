@@ -73,7 +73,12 @@ pub async fn run_connection(
     let (tx, rx) = outbound_channel(capacity);
     let slow = Arc::new(Notify::new());
     let handle = ConnHandle::new(peer_id.clone(), deps.node_id.clone(), tx, slow.clone());
-    let ctx = ConnCtx::new(conn_id, peer_id.clone(), deps.node_id.clone(), handle.clone());
+    let ctx = ConnCtx::new(
+        conn_id,
+        peer_id.clone(),
+        deps.node_id.clone(),
+        handle.clone(),
+    );
     let guard = ConnectionGuard::new(deps.clone(), ctx.clone());
 
     deps.metrics.set_ws_connections(deps.conns.current());
@@ -167,9 +172,15 @@ pub async fn on_disconnect(deps: &ConnDeps, ctx: &ConnCtx) {
         return;
     };
     let now = heartbeat::now_ms();
-    let Some(_seat) = deps.seats.mark_offline(&peer, now) else {
+    let Some(seat) = deps.seats.mark_offline(&peer, now) else {
         return;
     };
+    let expires_at = seat.expires_at_ms.unwrap_or(0);
+    let ttl = deps.cfg.snapshot().redis.room_ttl_secs;
+    let _ = deps
+        .relay
+        .registry_seat_offline(&code, &peer, now, expires_at, ttl)
+        .await;
 
     let grace_secs = deps.seats.grace_secs();
     let targets = deps.rooms.signal_targets(&code, &peer);

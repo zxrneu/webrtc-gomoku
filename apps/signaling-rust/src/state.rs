@@ -76,7 +76,8 @@ impl AppState {
             cfg.limits.max_connections_per_ip,
         );
         self.rooms.set_max_rooms(u64::from(cfg.limits.max_rooms));
-        self.seats.set_grace_ms(cfg.session.grace_secs.saturating_mul(1000));
+        self.seats
+            .set_grace_ms(cfg.session.grace_secs.saturating_mul(1000));
         if let Some(setter) = &self.log_level {
             let _ = setter(&cfg.logging.level);
         }

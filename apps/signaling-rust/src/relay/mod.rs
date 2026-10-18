@@ -29,7 +29,8 @@ use tokio::sync::{mpsc, watch};
 
 use crate::config::{Config, ConfigSnapshot, RedisConfig};
 use crate::metrics::Metrics;
-use crate::rooms::{LocalDelivery, RoomCode, RoomTable};
+use crate::rooms::{LocalDelivery, PeerId, RoomCode, RoomTable};
+use crate::transport::seat::ResumeError;
 
 pub use message::{CrossKind, CrossNodeMsg, PROTOCOL_VERSION};
 pub use registry::{
@@ -37,6 +38,17 @@ pub use registry::{
     JOIN_LUA, LEAVE_LUA, REFRESH_LUA,
 };
 pub use subscriber::{SubCommand, SubscriberDeps};
+
+/// Grant payload when resuming a seat across nodes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResumeGrant {
+    /// Node ID that previously hosted the seat.
+    pub old_node: String,
+    /// Player display name.
+    pub name: String,
+    /// Player role ("host" or "guest").
+    pub role: String,
+}
 
 /// Control-channel capacity for subscription commands.
 pub const CONTROL_CAPACITY: usize = 4096;
@@ -107,6 +119,62 @@ pub trait Relay: Send + Sync {
     /// keep-alive). Called **only** by the periodic refresher — never on the
     /// per-message hot path (which must stay RTT-free). Default: no-op.
     async fn refresh_rooms(&self, _codes: &[RoomCode], _ttl_secs: u64) {}
+
+    /// Issue or update a seat in the global registry (Issue 3).
+    #[allow(clippy::too_many_arguments)]
+    async fn registry_issue_seat(
+        &self,
+        _code: &RoomCode,
+        _peer: &PeerId,
+        _token: &str,
+        _name: &str,
+        _role: &str,
+        _node_id: &str,
+        _ttl_secs: u64,
+    ) -> Result<(), RelayError> {
+        Ok(())
+    }
+
+    /// Mark a seat as offline in the global registry (Issue 3).
+    async fn registry_seat_offline(
+        &self,
+        _code: &RoomCode,
+        _peer: &PeerId,
+        _now_ms: u64,
+        _expires_at_ms: u64,
+        _ttl_secs: u64,
+    ) -> Result<(), RelayError> {
+        Ok(())
+    }
+
+    /// Delete a seat from the global registry.
+    async fn registry_leave_seat(
+        &self,
+        _code: &RoomCode,
+        _peer: &PeerId,
+    ) -> Result<(), RelayError> {
+        Ok(())
+    }
+
+    /// Atomically resume a seat across nodes (Issue 3).
+    #[allow(clippy::too_many_arguments)]
+    async fn registry_resume_seat(
+        &self,
+        _code: &RoomCode,
+        _peer: &PeerId,
+        _token: &str,
+        _new_token: &str,
+        _node_id: &str,
+        _now_ms: u64,
+        _ttl_secs: u64,
+    ) -> Result<ResumeGrant, ResumeError> {
+        Err(ResumeError::Unknown)
+    }
+
+    /// Query current room members from global registry (Issue 2).
+    async fn registry_room_members(&self, _code: &RoomCode) -> Result<Vec<String>, RelayError> {
+        Err(RelayError::Unavailable("未配置 Redis".into()))
+    }
 
     /// Whether Redis is configured/available.
     fn is_connected(&self) -> bool;
@@ -293,6 +361,74 @@ impl Relay for RelayManager {
             // earlier than planned — the next tick (≤ ttl/3 later) retries.
             let _ = registry.refresh(code, ttl_secs).await;
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn registry_issue_seat(
+        &self,
+        code: &RoomCode,
+        peer: &PeerId,
+        token: &str,
+        name: &str,
+        role: &str,
+        node_id: &str,
+        ttl_secs: u64,
+    ) -> Result<(), RelayError> {
+        let Some(registry) = self.registry.load_full() else {
+            return Err(RelayError::Unavailable("未配置 Redis".into()));
+        };
+        registry
+            .issue_seat(code, peer, token, name, role, node_id, ttl_secs)
+            .await
+    }
+
+    async fn registry_seat_offline(
+        &self,
+        code: &RoomCode,
+        peer: &PeerId,
+        now_ms: u64,
+        expires_at_ms: u64,
+        ttl_secs: u64,
+    ) -> Result<(), RelayError> {
+        let Some(registry) = self.registry.load_full() else {
+            return Err(RelayError::Unavailable("未配置 Redis".into()));
+        };
+        registry
+            .seat_offline(code, peer, now_ms, expires_at_ms, ttl_secs)
+            .await
+    }
+
+    async fn registry_leave_seat(&self, code: &RoomCode, peer: &PeerId) -> Result<(), RelayError> {
+        let Some(registry) = self.registry.load_full() else {
+            return Err(RelayError::Unavailable("未配置 Redis".into()));
+        };
+        registry.leave_seat(code, peer).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn registry_resume_seat(
+        &self,
+        code: &RoomCode,
+        peer: &PeerId,
+        token: &str,
+        new_token: &str,
+        node_id: &str,
+        now_ms: u64,
+        ttl_secs: u64,
+    ) -> Result<ResumeGrant, ResumeError> {
+        let Some(registry) = self.registry.load_full() else {
+            return Err(ResumeError::Unknown);
+        };
+        registry
+            .resume_seat(code, peer, token, new_token, node_id, now_ms, ttl_secs)
+            .await
+    }
+
+    async fn registry_room_members(&self, code: &RoomCode) -> Result<Vec<String>, RelayError> {
+        let Some(registry) = self.registry.load_full() else {
+            return Err(RelayError::Unavailable("未配置 Redis".into()));
+        };
+        registry.room_members(code).await
     }
 
     fn is_connected(&self) -> bool {

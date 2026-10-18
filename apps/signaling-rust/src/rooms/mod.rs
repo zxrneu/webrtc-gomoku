@@ -253,23 +253,19 @@ impl RoomTable {
     /// outbound queue is swapped, so the opponent relationship and the member
     /// count stay untouched.
     ///
-    /// Returns `false` when the room or the seat no longer exists (the grace
-    /// window was swept concurrently), in which case the caller must reject the
-    /// resume.
-    pub fn rebind(&self, code: &RoomCode, peer: &PeerId, handle: ConnHandle) -> bool {
+    /// Returns `Some(prev_handle)` on success (so the caller can close the
+    /// superseded connection), or `None` when the room or the seat no longer exists.
+    pub fn rebind(&self, code: &RoomCode, peer: &PeerId, handle: ConnHandle) -> Option<ConnHandle> {
         let shard = self.shard_ref(code);
         let mut map = match shard.write() {
             Ok(g) => g,
             Err(p) => p.into_inner(),
         };
-        let Some(room) = map.get_mut(code) else {
-            return false;
-        };
+        let room = map.get_mut(code)?;
         if !room.members.contains_key(peer) {
-            return false;
+            return None;
         }
-        room.members.insert(peer.clone(), handle);
-        true
+        room.members.insert(peer.clone(), handle)
     }
 
     /// Whether `peer` currently holds a seat in `code`.
@@ -407,6 +403,9 @@ pub trait LocalDelivery: Send + Sync {
     /// `except` (used for cross-node broadcast events: `peer-joined`,
     /// `peer-left`, `signal`).
     fn deliver_others(&self, room: &RoomCode, except: Option<&PeerId>, msg: ServerMsg);
+
+    /// Evict `peer` from `room` locally when another node has taken over the seat.
+    fn evict_peer(&self, room: &RoomCode, peer: &PeerId);
 }
 
 impl LocalDelivery for RoomTable {
@@ -434,6 +433,19 @@ impl LocalDelivery for RoomTable {
                 if except != Some(id) {
                     handle.send(msg.clone());
                 }
+            }
+        }
+    }
+
+    fn evict_peer(&self, room: &RoomCode, peer: &PeerId) {
+        let shard = self.shard_ref(room);
+        let mut map = match shard.write() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        if let Some(r) = map.get_mut(room) {
+            if let Some(handle) = r.members.remove(peer) {
+                handle.slow.notify_one();
             }
         }
     }
@@ -591,7 +603,8 @@ mod tests {
     /// F4: the TTL refresher walks the local table, so it must be able to
     /// enumerate every live room code across all shards.
     #[test]
-    fn room_codes_returns_all_live_rooms() {        let table = RoomTable::default();
+    fn room_codes_returns_all_live_rooms() {
+        let table = RoomTable::default();
         assert!(table.room_codes().is_empty());
         table
             .create(code("AAAA"), handle("aaaaaaaa"))
@@ -620,7 +633,9 @@ mod tests {
             old_tx,
             Arc::new(Notify::new()),
         );
-        assert!(table.rebind(&code("AAAA"), &PeerId::new("aaaaaaaa").expect("id"), old));
+        assert!(table
+            .rebind(&code("AAAA"), &PeerId::new("aaaaaaaa").expect("id"), old)
+            .is_some());
 
         // A resume swaps in a fresh channel (new connection, same peer id).
         let (new_tx, mut new_rx) = outbound_channel(4);
@@ -630,7 +645,8 @@ mod tests {
             new_tx,
             Arc::new(Notify::new()),
         );
-        assert!(table.rebind(&code("AAAA"), &PeerId::new("aaaaaaaa").expect("id"), new));
+        let prev = table.rebind(&code("AAAA"), &PeerId::new("aaaaaaaa").expect("id"), new);
+        assert!(prev.is_some());
 
         table.deliver(
             &code("AAAA"),
@@ -644,19 +660,23 @@ mod tests {
     #[test]
     fn rebind_rejects_unknown_room_or_seat() {
         let table = RoomTable::default();
-        assert!(!table.rebind(
-            &code("AAAA"),
-            &PeerId::new("aaaaaaaa").expect("id"),
-            handle("aaaaaaaa")
-        ));
+        assert!(table
+            .rebind(
+                &code("AAAA"),
+                &PeerId::new("aaaaaaaa").expect("id"),
+                handle("aaaaaaaa")
+            )
+            .is_none());
         table
             .create(code("AAAA"), handle("aaaaaaaa"))
             .expect("create");
-        assert!(!table.rebind(
-            &code("AAAA"),
-            &PeerId::new("bbbbbbbb").expect("id"),
-            handle("bbbbbbbb")
-        ));
+        assert!(table
+            .rebind(
+                &code("AAAA"),
+                &PeerId::new("bbbbbbbb").expect("id"),
+                handle("bbbbbbbb")
+            )
+            .is_none());
         assert!(table.contains_peer(&code("AAAA"), &PeerId::new("aaaaaaaa").expect("id")));
         assert!(!table.contains_peer(&code("AAAA"), &PeerId::new("bbbbbbbb").expect("id")));
     }

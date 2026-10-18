@@ -17,9 +17,23 @@ use async_trait::async_trait;
 
 use gomoku_signaling::protocol::{self, messages};
 use gomoku_signaling::relay::{
-    CrossKind, CrossNodeMsg, JoinStatus, LeaveStatus, Relay, RelayError,
+    CrossKind, CrossNodeMsg, JoinStatus, LeaveStatus, Relay, RelayError, ResumeGrant,
 };
 use gomoku_signaling::rooms::{LocalDelivery, PeerId, RoomCode};
+use gomoku_signaling::transport::seat::ResumeError;
+
+/// Simulates a Redis-stored seat.
+#[derive(Clone)]
+pub struct FakeSeat {
+    pub room: String,
+    pub peer_id: String,
+    pub token: String,
+    pub name: String,
+    pub role: String,
+    pub node_id: String,
+    pub offline_since: u64,
+    pub expires_at: u64,
+}
 
 /// The shared "Redis": a room→members map plus the set of participating nodes.
 #[derive(Default)]
@@ -28,6 +42,8 @@ pub struct FakeCluster {
     rooms: Mutex<HashMap<String, HashSet<String>>>,
     /// node id → that node's local delivery sink.
     nodes: Mutex<Vec<(String, Arc<dyn LocalDelivery>)>>,
+    /// room:peer -> FakeSeat
+    pub seats: Mutex<HashMap<String, FakeSeat>>,
 }
 
 impl FakeCluster {
@@ -200,6 +216,114 @@ impl Relay for FakeRelay {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    async fn registry_issue_seat(
+        &self,
+        code: &RoomCode,
+        peer: &PeerId,
+        token: &str,
+        name: &str,
+        role: &str,
+        node_id: &str,
+        _ttl_secs: u64,
+    ) -> Result<(), RelayError> {
+        self.record(&format!("issue_seat:{code}:{peer}"));
+        let key = format!("{}:{}", code, peer);
+        let mut seats = self.cluster.seats.lock().expect("seats lock");
+        seats.insert(
+            key,
+            FakeSeat {
+                room: code.as_str().to_string(),
+                peer_id: peer.as_str().to_string(),
+                token: token.to_string(),
+                name: name.to_string(),
+                role: role.to_string(),
+                node_id: node_id.to_string(),
+                offline_since: 0,
+                expires_at: 0,
+            },
+        );
+        Ok(())
+    }
+
+    async fn registry_seat_offline(
+        &self,
+        code: &RoomCode,
+        peer: &PeerId,
+        now_ms: u64,
+        expires_at_ms: u64,
+        _ttl_secs: u64,
+    ) -> Result<(), RelayError> {
+        self.record(&format!("seat_offline:{code}:{peer}"));
+        let key = format!("{}:{}", code, peer);
+        let mut seats = self.cluster.seats.lock().expect("seats lock");
+        if let Some(seat) = seats.get_mut(&key) {
+            if seat.offline_since == 0 {
+                seat.offline_since = now_ms;
+                seat.expires_at = expires_at_ms;
+            }
+        }
+        Ok(())
+    }
+
+    async fn registry_leave_seat(&self, code: &RoomCode, peer: &PeerId) -> Result<(), RelayError> {
+        self.record(&format!("leave_seat:{code}:{peer}"));
+        let key = format!("{}:{}", code, peer);
+        self.cluster.seats.lock().expect("seats lock").remove(&key);
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn registry_resume_seat(
+        &self,
+        code: &RoomCode,
+        peer: &PeerId,
+        token: &str,
+        new_token: &str,
+        node_id: &str,
+        now_ms: u64,
+        _ttl_secs: u64,
+    ) -> Result<ResumeGrant, ResumeError> {
+        self.record(&format!("resume_seat:{code}:{peer}"));
+        let key = format!("{}:{}", code, peer);
+        let mut seats = self.cluster.seats.lock().expect("seats lock");
+        let Some(seat) = seats.get_mut(&key) else {
+            return Err(ResumeError::Unknown);
+        };
+        if seat.room != code.as_str() || seat.token != token {
+            return Err(ResumeError::Invalid);
+        }
+        if seat.expires_at > 0 && now_ms >= seat.expires_at {
+            return Err(ResumeError::Expired);
+        }
+        let old_node = seat.node_id.clone();
+        seat.token = new_token.to_string();
+        seat.node_id = node_id.to_string();
+        seat.offline_since = 0;
+        seat.expires_at = 0;
+
+        if old_node != node_id {
+            let mut rooms = self.cluster.rooms.lock().expect("rooms lock");
+            if let Some(members) = rooms.get_mut(code.as_str()) {
+                members.remove(&format!("{old_node}:{peer}"));
+                members.insert(format!("{node_id}:{peer}"));
+            }
+        }
+        Ok(ResumeGrant {
+            old_node,
+            name: seat.name.clone(),
+            role: seat.role.clone(),
+        })
+    }
+
+    async fn registry_room_members(&self, code: &RoomCode) -> Result<Vec<String>, RelayError> {
+        let rooms = self.cluster.rooms.lock().expect("rooms lock");
+        Ok(rooms
+            .get(code.as_str())
+            .map(|m| m.iter().cloned().collect())
+            .unwrap_or_default())
+    }
+
     fn is_connected(&self) -> bool {
         true
     }
@@ -233,6 +357,10 @@ fn dispatch(delivery: &dyn LocalDelivery, msg: &CrossNodeMsg) {
             messages::signal(data)
         }
     };
+
+    if msg.kind == CrossKind::PeerOnline {
+        delivery.evict_peer(&code, &from_peer);
+    }
 
     match target {
         Some(target) => delivery.deliver(&code, &target, server_msg),
