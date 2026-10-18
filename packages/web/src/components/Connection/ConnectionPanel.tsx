@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
+import { BLACK, type PlayerColor } from '@webrtc-gomoku/core';
 import type { FlowState, ScannerTarget } from '../../types';
 import { renderQrToCanvas } from '../../qr';
 import styles from './ConnectionPanel.module.css';
@@ -7,6 +8,14 @@ import styles from './ConnectionPanel.module.css';
  * 连接配置控制面板入参属性接口
  */
 interface ConnectionPanelProps {
+  /** 本端玩家执子颜色 */
+  myColor: PlayerColor;
+  /** 是否为房主/发起方 */
+  isHost: boolean;
+  /** 是否已建立 P2P 连接 */
+  connected: boolean;
+  /** 点击切换执黑/执白（或发起换边申请）回调 */
+  onToggleColor: () => void;
   /** 玩家设置的个性化昵称 */
   name: string;
   /** 更新玩家昵称状态 */
@@ -81,8 +90,13 @@ interface ConnectionPanelProps {
  * 3. 动态三步指引 (fstep 1 -> 2 -> 3)，平滑引导非技术用户完成复杂的 P2P 握手
  */
 export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
+  myColor,
+  isHost,
+  connected,
+  onToggleColor,
   name,
   setName,
+
   activeTab,
   setActiveTab,
   flow,
@@ -209,8 +223,28 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
         />
       </label>
 
+      {/* 执子身份与切换按钮（显式提供按钮切换执黑/执白，可随时发起协商确认） */}
+      <div id="role-select-box" className={`${styles.colorSection} color-section`}>
+        <div className={styles.colorHeader}>
+          <span className={styles.colorLabel}>当前执子</span>
+          <span className={`${styles.colorBadge} ${myColor === BLACK ? styles.badgeBlack : styles.badgeWhite}`}>
+            <span className={`${styles.stoneDotSmall} ${myColor === BLACK ? styles.stoneDotBlack : styles.stoneDotWhite}`} />
+            {myColor === BLACK ? '执黑（先行）' : '执白（后手）'}
+          </span>
+        </div>
+        <button
+          id="toggle-color-btn"
+          type="button"
+          className={`${styles.btn} ${styles.btnSmall} ${styles.grow} btn small`}
+          onClick={onToggleColor}
+        >
+          {connected ? '申请换边（切换执黑/执白）' : myColor === BLACK ? '切换为执白' : '切换为执黑'}
+        </button>
+      </div>
+
       {/* 联机方式切换标签页 */}
       <div className={`${styles.tabs} tabs`}>
+
         <button
           className={`${styles.tab} ${activeTab === 'room' ? `${styles.active} active` : ''} tab`}
           data-tab="room"

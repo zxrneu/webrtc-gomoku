@@ -12,6 +12,7 @@
  *    - 应答方（通常是客人）：等待对端的通道创建事件（`pc.ondatachannel`），并生成 Answer 回执名片。
  */
 
+import type { PlayerColor } from '@webrtc-gomoku/core';
 import type {
   GameMessage,
   ManualOfferPayload,
@@ -19,7 +20,8 @@ import type {
   P2pEvent,
   TransportInfo,
 } from '@webrtc-gomoku/shared';
-import { pack, unpack } from '@webrtc-gomoku/shared';
+import { pack, unpack, encodeGameMessage, decodeGameMessage } from '@webrtc-gomoku/shared';
+
 
 import { DEFAULT_ICE_SERVERS } from './iceConfig';
 
@@ -250,15 +252,7 @@ export class WebRTCClient {
       const raw: unknown = e.data;
       let msg: GameMessage;
       try {
-        const parsed: unknown = JSON.parse(typeof raw === 'string' ? raw : '');
-        if (
-          typeof parsed !== 'object' ||
-          parsed === null ||
-          typeof (parsed as { t?: unknown }).t !== 'string'
-        ) {
-          throw new Error('局内消息缺少字符串类型字段 t');
-        }
-        msg = parsed as GameMessage;
+        msg = decodeGameMessage(typeof raw === 'string' ? raw : '');
       } catch {
         this.options.onDiagnostic?.({ kind: 'dc-parse-failed' });
         return;
@@ -275,11 +269,12 @@ export class WebRTCClient {
    */
   public sendMessage(msg: GameMessage): boolean {
     if (this.dc && this.dc.readyState === 'open') {
-      this.dc.send(JSON.stringify(msg));
+      this.dc.send(encodeGameMessage(msg));
       return true;
     }
     return false;
   }
+
 
   /**
    * 等待所有 ICE 候选地址收集完毕（ICE Gathering Complete）
@@ -327,7 +322,7 @@ export class WebRTCClient {
    * @param name 房主昵称
    * @returns 经过 deflate + base64url 压缩后的短邀请码（以 'Z' 开头）
    */
-  public async createHostOffer(name: string): Promise<string> {
+  public async createHostOffer(name: string, hostColor?: PlayerColor): Promise<string> {
     const pc = this.initPeer(true, this.iceServers);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -337,9 +332,11 @@ export class WebRTCClient {
       type: 'offer',
       sdp: pc.localDescription?.sdp || offer.sdp || '',
       name,
+      hostColor,
     };
     return pack(payload);
   }
+
 
   /**
    * 加入方应答：解析房主邀请码，并生成 Answer 应答码

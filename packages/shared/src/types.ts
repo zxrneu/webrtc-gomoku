@@ -15,7 +15,10 @@ export interface HelloMsg {
   t: 'hello';
   /** 发送者的玩家昵称 */
   name: string;
+  /** 发送者（若为房主）指定的房主执子颜色 */
+  hostColor?: PlayerColor;
 }
+
 
 /** 2. 落子同步消息：将自己在棋盘上的落子坐标同步给对手 */
 export interface MoveMsg {
@@ -108,6 +111,28 @@ export interface SyncMsg {
   ack?: boolean;
 }
 
+/** 14. 执色指定/同步消息：房主选边时通知对端（1: 黑, 2: 白） */
+export interface ColorMsg {
+  t: 'color';
+  /** 房主选择的颜色 */
+  color: PlayerColor;
+}
+
+/** 15. 请求换边：对局中向对方发起切换执黑/执白的申请 */
+export interface SwapReqMsg {
+  t: 'swap-req';
+}
+
+/** 16. 同意换边：对方点击同意，双方执子颜色互换 */
+export interface SwapOkMsg {
+  t: 'swap-ok';
+}
+
+/** 17. 拒绝换边：对方点击拒绝 */
+export interface SwapNoMsg {
+  t: 'swap-no';
+}
+
 /**
  * P2P 局内消息类型的联合集合（可区分联合 Discriminated Union）
  * 无论接收到什么消息，只需根据 msg.t 即可安全地做 switch-case 分发
@@ -125,7 +150,12 @@ export type GameMessage =
   | ByeMsg
   | PingMsg
   | PongMsg
-  | SyncMsg;
+  | SyncMsg
+  | ColorMsg
+  | SwapReqMsg
+  | SwapOkMsg
+  | SwapNoMsg;
+
 
 /**
  * ============================================================================
@@ -328,7 +358,10 @@ export interface ManualOfferPayload {
   sdp: string;
   /** 房主昵称 */
   name?: string;
+  /** 房主选择的颜色 */
+  hostColor?: PlayerColor;
 }
+
 
 /** 接收方生成的 Answer 应答名片 */
 export interface ManualAnswerPayload {

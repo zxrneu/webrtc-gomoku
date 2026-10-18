@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import type { Color, Move, PlayerColor, Point } from '@webrtc-gomoku/core';
-import { SIZE, BLACK, WHITE, inBounds } from '@webrtc-gomoku/core';
+import { SIZE, BLACK, WHITE } from '@webrtc-gomoku/core';
 import styles from './Board.module.css';
 
 /**
@@ -42,9 +42,14 @@ interface BoardProps {
   onRestart: () => void;
   /** 点击音效切换按钮回调 */
   onToggleSound: () => void;
+  /** 是否在棋子上展示落子序号 */
+  showMoveNumbers: boolean;
+  /** 点击切换落子序号展示开关回调 */
+  onToggleMoveNumbers: () => void;
   /** 对局结束后点击再来一局回调 */
   onRematch: () => void;
 }
+
 
 /**
  * ============================================================================
@@ -93,8 +98,11 @@ export const Board: React.FC<BoardProps> = ({
   onUndo,
   onRestart,
   onToggleSound,
+  showMoveNumbers,
+  onToggleMoveNumbers,
   onRematch,
 }) => {
+
   /** Canvas DOM 节点的引用，用于获取 2D 渲染上下文 (CanvasRenderingContext2D) */
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   /** 鼠标在棋盘上悬停时，磁吸计算出的最近交叉点坐标 {x, y}；离开棋盘或越界时为 null */
@@ -210,22 +218,40 @@ export const Board: React.FC<BoardProps> = ({
       }
     }
 
-    // 9. 最后一手落子醒目标记（在最新一枚棋子中心绘制小红点，便于对局者追踪战况）
+    // 9. 获胜五子金色辉光连线（游戏决出胜负时高亮标出制胜五子）
+    if (winLine && winLine.length >= 5) {
+      drawWinLine(ctx, winLine);
+    }
+
+    // 10. 最后一手落子醒目标记
     if (moves.length > 0) {
       const last = moves[moves.length - 1]!;
       const lx = PAD + last.x * CELL;
       const ly = PAD + last.y * CELL;
-      ctx.beginPath();
-      ctx.arc(lx, ly, 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = last.c === BLACK ? '#f87171' : '#dc2626';
-      ctx.fill();
+      if (showMoveNumbers) {
+        // 当开启手数显示时，最后一手标记在棋子右上角，避免遮挡中心数字
+        ctx.beginPath();
+        ctx.arc(lx + 8.5, ly - 8.5, 3, 0, Math.PI * 2);
+        ctx.fillStyle = '#ef4444';
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      } else {
+        // 未开启手数时，保持正中央经典红点
+        ctx.beginPath();
+        ctx.arc(lx, ly, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = last.c === BLACK ? '#f87171' : '#dc2626';
+        ctx.fill();
+      }
     }
 
-    // 10. 获胜五子金色辉光连线（游戏决出胜负时高亮标出制胜五子）
-    if (winLine && winLine.length >= 5) {
-      drawWinLine(ctx, winLine);
+    // 11. 手数标注（从 1 开始累加渲染在棋子正中央）
+    if (showMoveNumbers && moves.length > 0) {
+      drawMoveNumbers(ctx, moves);
     }
-  }, [board, moves, winLine, hoverPos, connected, over, myTurn, myColor]);
+  }, [board, moves, winLine, hoverPos, connected, over, myTurn, myColor, showMoveNumbers]);
+
 
   /**
    * 绘制单枚立体棋子（黑子/白子）
@@ -324,9 +350,32 @@ export const Board: React.FC<BoardProps> = ({
     ctx.restore();
   }
 
+  /**
+   * 绘制棋子中心落子手数序号
+   * 视觉规范：黑子白色文字、白子深色文字，居中清晰无遮挡
+   */
+  function drawMoveNumbers(ctx: CanvasRenderingContext2D, movesList: Move[]) {
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i < movesList.length; i++) {
+      const m = movesList[i]!;
+      const mx = PAD + m.x * CELL;
+      const my = PAD + m.y * CELL;
+      const num = i + 1;
+      ctx.font = num >= 100
+        ? 'bold 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+        : 'bold 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      ctx.fillStyle = m.c === BLACK ? '#ffffff' : '#1e293b';
+      ctx.fillText(String(num), mx, my);
+    }
+    ctx.restore();
+  }
+
   // 当外部依赖属性变化时，重新触发绘制
   useEffect(() => {
     drawBoard();
+
   }, [drawBoard]);
 
   /**
@@ -348,8 +397,7 @@ export const Board: React.FC<BoardProps> = ({
     const x = Math.round((cx - PAD) / CELL);
     const y = Math.round((cy - PAD) / CELL);
 
-    const dummyGame = { size: SIZE };
-    if (inBounds(dummyGame as any, x, y)) {
+    if (x >= 0 && x < SIZE && y >= 0 && y < SIZE) {
       setHoverPos({ x, y });
     } else {
       setHoverPos(null);
@@ -376,8 +424,7 @@ export const Board: React.FC<BoardProps> = ({
     const x = Math.round((cx - PAD) / CELL);
     const y = Math.round((cy - PAD) / CELL);
 
-    const dummyGame = { size: SIZE };
-    if (inBounds(dummyGame as any, x, y)) {
+    if (x >= 0 && x < SIZE && y >= 0 && y < SIZE) {
       onMove(x, y);
     }
   };
@@ -462,7 +509,16 @@ export const Board: React.FC<BoardProps> = ({
         >
           {soundEnabled ? '音效：开' : '音效：关'}
         </button>
+        <button
+          id="toggle-move-numbers-btn"
+          className={`${styles.btn} ${styles.btnGhost} btn ghost`}
+          aria-pressed={showMoveNumbers}
+          onClick={onToggleMoveNumbers}
+        >
+          {showMoveNumbers ? '隐藏手数' : '显示手数'}
+        </button>
         <span className={`${styles.spacer} spacer`} />
+
         {/* 回合提示文案（如 "黑方执黑先行" 或 "对方正在思考..."） */}
         <span id="turn-hint" className={`${styles.turnHint} hint`}>
           {turnText}

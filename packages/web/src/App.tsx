@@ -1,19 +1,5 @@
 /**
- * ============================================================================
  * 顶层应用协调器与状态机主控 (App.tsx)
- * ============================================================================
- *
- * 【架构职责】：
- * 1. 状态大脑（State Orchestrator）：
- *    集中管理对局棋盘、玩家身份、聊天记录、弹窗、提示等全部 UI 状态；
- * 2. 双模网络调度中心：
- *    - 信令服务模式：驱动 WebSocket 与 apps/server 通信，处理 4 位房间号匹配与 SDP 转发；
- *    - 手动邀请码模式：驱动 qr.ts 与 codec.ts，生成/识别包含完整 ICE 的短码与二维码；
- * 3. P2P 协议中枢：
- *    初始化 WebRTCClient，在 DataChannel 建立后监听并派发对端发来的落子、聊天、悔棋协商消息；
- * 4. 界面组装：
- *    将 Header, Board, ConnectionPanel, GameStatus, Chat, ScannerModal, ConfirmModal, Toast
- *    等受控子组件有机拼装并驱动渲染。
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -79,18 +65,14 @@ export const App: React.FC = () => {
   const [guestTextFolded, setGuestTextFolded] = useState(true);
   const [transport, setTransport] = useState<TransportInfo | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [showMoveNumbers, setShowMoveNumbers] = useState(false);
   const [messages, setMessages] = useState<ChatItem[]>([]);
+
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [scannerTarget, setScannerTarget] = useState<ScannerTarget>(null);
-  const [modal, setModal] = useState<ModalState>({
-    open: false,
-    title: '',
-    text: '',
-    onOk: () => {},
-    onNo: () => {},
-  });
+  const [modal, setModal] = useState<ModalState>({ open: false, title: '', text: '', onOk: () => {}, onNo: () => {} });
 
-  const toastTimerRef = useRef<any>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((msg: string) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToastMessage(msg);
@@ -117,6 +99,9 @@ export const App: React.FC = () => {
   myNameRef.current = myName;
   const isHostRef = useRef(isHost);
   isHostRef.current = isHost;
+  const swapPhaseRef = useRef<'idle' | 'outgoing' | 'incoming'>('idle');
+  const hasConnectedRef = useRef(false);
+  const awaitingColorRef = useRef(false);
 
   /** 底层 WebRTC 客户端（仅「手动邀请码」模式与 e2e 诊断需要直接读） */
   const clientRef = useRef<WebRTCClient | null>(null);
@@ -124,6 +109,10 @@ export const App: React.FC = () => {
   const handleGameMessageRef = useRef<(msg: GameMessage) => void>(() => {});
   const handleConnEventRef = useRef<(e: ConnSideEffect) => void>(() => {});
 
+  const sendHello = useCallback(() => {
+    const name = myNameRef.current || (isHostRef.current ? '房主' : '玩家');
+    connRef.current?.send({ t: 'hello', name, hostColor: isHostRef.current ? myColorRef.current : undefined });
+  }, []);
   const conn = useConnection({
     onGameMessage: (msg) => handleGameMessageRef.current(msg),
     onEvent: (e) => handleConnEventRef.current(e),
@@ -139,6 +128,7 @@ export const App: React.FC = () => {
     },
     onTransportUpdate: (info) => setTransport(info),
     onP2pConnected: () => {
+      hasConnectedRef.current = true;
       // 房间模式由编排器的 `connected` 副作用负责；这里只兜「手动邀请码」模式
       if (connRef.current && connRef.current.status.state !== 'IDLE') return;
       setManualConnected(true);
@@ -146,12 +136,14 @@ export const App: React.FC = () => {
       showToast('P2P 连接已建立！');
       addSysMsg('P2P 直连已建立，开始对局！');
       sounds.playNotify();
-      clientRef.current?.sendMessage({
-        t: 'hello',
-        name: myNameRef.current || (isHostRef.current ? '房主' : '玩家'),
-      });
+      sendHello();
     },
     onP2pDisconnected: () => {
+      if (clientRef.current?.dc?.readyState !== 'open') {
+        swapPhaseRef.current = 'idle';
+        awaitingColorRef.current = !isHostRef.current;
+        setModal((m) => m.title.includes('换边') ? { ...m, open: false } : m);
+      }
       if (connRef.current && connRef.current.status.state !== 'IDLE') return;
       setManualConnected(false);
       setTransport(null);
@@ -174,16 +166,77 @@ export const App: React.FC = () => {
         case 'hello':
           setPeerName(msg.name || '对手');
           addSysMsg(`${msg.name || '对手'} 加入了对局`);
+          if (!isHostRef.current && msg.hostColor) {
+            awaitingColorRef.current = false;
+            const next = msg.hostColor === BLACK ? WHITE : BLACK;
+            setMyColor(next);
+            myColorRef.current = next;
+          }
+          break;
+        case 'color':
+          if (!isHostRef.current) {
+            awaitingColorRef.current = false;
+            const nextColor = msg.color === BLACK ? WHITE : BLACK;
+            setMyColor(nextColor);
+            myColorRef.current = nextColor;
+            addSysMsg(`房主选择了${msg.color === BLACK ? '执黑' : '执白'}，你被分配为${nextColor === BLACK ? '执黑' : '执白'}`);
+          }
+          break;
+        case 'swap-req':
+          if (gameRef.current.over) { connRef.current?.send({ t: 'swap-no' }); return; }
+          if (swapPhaseRef.current === 'outgoing') {
+            if (isHostRef.current) {
+              swapPhaseRef.current = 'idle';
+              if (!connRef.current?.send({ t: 'swap-ok' })) { showToast('换边确认发送失败，请检查连接状态'); return; }
+              setMyColor((c) => { const next = c === BLACK ? WHITE : BLACK; myColorRef.current = next; return next; });
+              showToast('双方均申请换边，已完成换边'); addSysMsg('双方均申请换边，已完成换边');
+            }
+            return;
+          }
+          if (swapPhaseRef.current === 'incoming') return;
+          if (modal.open) { connRef.current?.send({ t: 'swap-no' }); return; }
+          swapPhaseRef.current = 'incoming';
+          setModal({
+            open: true, title: '对方申请换边（切换执黑/执白）', text: '对手希望能互换执子颜色（黑白互换），是否同意？',
+            onOk: () => {
+              if (swapPhaseRef.current !== 'incoming') return;
+              swapPhaseRef.current = 'idle';
+              setModal((m) => ({ ...m, open: false }));
+              if (gameRef.current.over) { connRef.current?.send({ t: 'swap-no' }); showToast('当前对局已结束，无法换边'); return; }
+              if (!connRef.current?.send({ t: 'swap-ok' })) { showToast('换边确认发送失败，请检查连接状态'); return; }
+              setMyColor((c) => { const next = c === BLACK ? WHITE : BLACK; myColorRef.current = next; return next; });
+              addSysMsg('你同意了换边申请，双方已互换颜色'); showToast('双方已互换执黑/执白');
+            },
+            onNo: () => {
+              swapPhaseRef.current = 'idle';
+              setModal((m) => ({ ...m, open: false }));
+              connRef.current?.send({ t: 'swap-no' }); addSysMsg('你拒绝了对方的换边申请');
+            },
+          });
+          break;
+        case 'swap-ok':
+          if (swapPhaseRef.current !== 'outgoing') return;
+          setModal((m) => (m.open && m.title.includes('换边') ? { ...m, open: false } : m));
+          swapPhaseRef.current = 'idle';
+          if (gameRef.current.over) return;
+          setMyColor((c) => { const next = c === BLACK ? WHITE : BLACK; myColorRef.current = next; return next; });
+          showToast('对方同意了换边申请，双方已互换颜色'); addSysMsg('对方同意了换边申请，双方已互换颜色');
+          break;
+        case 'swap-no':
+          if (swapPhaseRef.current !== 'outgoing') return;
+          swapPhaseRef.current = 'idle';
+          setModal((m) => (m.open && m.title.includes('换边') ? { ...m, open: false } : m));
+          showToast('对方拒绝了换边申请'); addSysMsg('对方拒绝了换边申请');
           break;
         case 'move':
           setGame((prevGame) => {
-            const opponentColor = myColor === BLACK ? WHITE : BLACK;
-            const res = applyMove(prevGame, msg.x, msg.y, opponentColor);
+            const moveColor = currentColor(prevGame);
+            const res = applyMove(prevGame, msg.x, msg.y, moveColor);
             if (res.ok) {
-              sounds.playStone(opponentColor === BLACK);
+              sounds.playStone(moveColor === BLACK);
               if (res.event === 'win') {
                 sounds.playWin();
-                addSysMsg(`游戏结束，${opponentColor === BLACK ? '黑方' : '白方'} 胜！`);
+                addSysMsg(`游戏结束，${moveColor === BLACK ? '黑方' : '白方'} 胜！`);
               } else if (res.event === 'draw') {
                 addSysMsg('棋盘下满，平局！');
               }
@@ -194,75 +247,40 @@ export const App: React.FC = () => {
         case 'chat':
           setMessages((prev) => [
             ...prev,
-            {
-              id: Math.random().toString(36).slice(2),
-              sender: 'peer',
-              text: msg.text,
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            },
+            { id: Math.random().toString(36).slice(2), sender: 'peer', text: msg.text, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
           ]);
           sounds.playNotify();
           break;
         case 'undo-req':
+          if (swapPhaseRef.current !== 'idle') { connRef.current?.send({ t: 'undo-no' }); return; }
           setModal({
-            open: true,
-            title: '对方申请悔棋',
-            text: '对手希望能撤回最后一手，是否同意？',
-            onOk: () => {
-              setModal((m) => ({ ...m, open: false }));
-              setGame((g) => {
-                undoMove(g);
-                return { ...g };
-              });
-              clientRef.current?.sendMessage({ t: 'undo-ok' });
-              addSysMsg('你同意了对方的悔棋申请');
-            },
-            onNo: () => {
-              setModal((m) => ({ ...m, open: false }));
-              clientRef.current?.sendMessage({ t: 'undo-no' });
-              addSysMsg('你拒绝了对方的悔棋申请');
-            },
+            open: true, title: '对方申请悔棋', text: '对手希望能撤回最后一手，是否同意？',
+            onOk: () => { setModal((m) => ({ ...m, open: false })); setGame((g) => { undoMove(g); return { ...g }; }); clientRef.current?.sendMessage({ t: 'undo-ok' }); addSysMsg('你同意了对方的悔棋申请'); },
+            onNo: () => { setModal((m) => ({ ...m, open: false })); clientRef.current?.sendMessage({ t: 'undo-no' }); addSysMsg('你拒绝了对方的悔棋申请'); },
           });
           break;
         case 'undo-ok':
-          setGame((g) => {
-            undoMove(g);
-            return { ...g };
-          });
-          showToast('对方同意了悔棋');
-          addSysMsg('对方同意了悔棋申请');
+          setGame((g) => { undoMove(g); return { ...g }; });
+          showToast('对方同意了悔棋'); addSysMsg('对方同意了悔棋申请');
           break;
         case 'undo-no':
-          showToast('对方拒绝了悔棋申请');
-          addSysMsg('对方拒绝了悔棋申请');
+          showToast('对方拒绝了悔棋申请'); addSysMsg('对方拒绝了悔棋申请');
           break;
         case 'restart-req':
+          if (swapPhaseRef.current !== 'idle') { connRef.current?.send({ t: 'restart-no' }); return; }
           setModal({
-            open: true,
-            title: '对方申请重新开始',
-            text: '对手希望能重开一局，是否同意？',
-            onOk: () => {
-              setModal((m) => ({ ...m, open: false }));
-              setGame(createGame());
-              clientRef.current?.sendMessage({ t: 'restart-ok' });
-              addSysMsg('对局已重新开始');
-            },
-            onNo: () => {
-              setModal((m) => ({ ...m, open: false }));
-              clientRef.current?.sendMessage({ t: 'restart-no' });
-              addSysMsg('你拒绝了对方的重开申请');
-            },
+            open: true, title: '对方申请重新开始', text: '对手希望能重开一局，是否同意？',
+            onOk: () => { setModal((m) => ({ ...m, open: false })); setGame(createGame()); clientRef.current?.sendMessage({ t: 'restart-ok' }); addSysMsg('对局已重新开始'); },
+            onNo: () => { setModal((m) => ({ ...m, open: false })); clientRef.current?.sendMessage({ t: 'restart-no' }); addSysMsg('你拒绝了对方的重开申请'); },
           });
           break;
         case 'restart-ok':
-          setGame(createGame());
-          showToast('对方同意重开一局');
-          addSysMsg('对局已重新开始');
+          setGame(createGame()); showToast('对方同意重开一局'); addSysMsg('对局已重新开始');
           break;
         case 'restart-no':
-          showToast('对方拒绝了重开申请');
-          addSysMsg('对方拒绝了重开申请');
+          showToast('对方拒绝了重开申请'); addSysMsg('对方拒绝了重开申请');
           break;
+
         case 'bye':
           // 对手主动 bye → 交给编排器收敛为 PEER_GONE（禁止在这里自己改连接状态）
           connRef.current?.notifyPeerGone();
@@ -272,15 +290,41 @@ export const App: React.FC = () => {
           break;
       }
     },
-    [myColor, addSysMsg, showToast]
+    [myColor, modal.open, addSysMsg, showToast]
   );
 
   // 让编排器永远拿到最新的消息处理器（避免 useCallback 闭包过期）
   handleGameMessageRef.current = handleGameMessage;
 
+  const handleToggleMoveNumbers = useCallback(() => {
+    setShowMoveNumbers((v) => !v);
+  }, []);
+
+  const handleToggleColor = useCallback(() => {
+    if (game.over) { showToast('当前对局已结束，请重新开局后再换边'); return; }
+    if (!connected) {
+      if (hasConnectedRef.current) { showToast('请等待连接恢复后再申请换边'); return; }
+      const next = myColor === BLACK ? WHITE : BLACK;
+      setMyColor(next); myColorRef.current = next;
+      showToast(next === BLACK ? '已选择执黑（先行）' : '已选择执白（后手）');
+      return;
+    }
+    if (swapPhaseRef.current !== 'idle') { showToast('正在协商换边，请先完成当前申请'); return; }
+    swapPhaseRef.current = 'outgoing';
+    const sent = connRef.current?.send({ t: 'swap-req' }) ?? false;
+    if (!sent) {
+      swapPhaseRef.current = 'idle';
+      showToast('换边申请发送失败，请检查连接状态');
+      return;
+    }
+    showToast('已发送换边申请，等待对方同意…');
+  }, [connected, game.over, myColor, showToast]);
+
   // 本地落子逻辑
   const handleLocalMove = useCallback(
     (x: number, y: number) => {
+      if (awaitingColorRef.current) { showToast('正在恢复执子颜色，请稍后落子'); return; }
+      if (swapPhaseRef.current !== 'idle') { showToast('正在协商换边，请稍后落子'); return; }
       if (!connected) {
         showToast('请先连接对手后再落子');
         return;
@@ -322,6 +366,7 @@ export const App: React.FC = () => {
 
   // 悔棋操作
   const handleUndo = useCallback(() => {
+    if (swapPhaseRef.current !== 'idle') { showToast('请先完成换边协商'); return; }
     if (!connected || game.over || game.moves.length === 0) return;
     connRef.current?.send({ t: 'undo-req' });
     showToast('已发送悔棋申请，等待对方同意…');
@@ -329,6 +374,7 @@ export const App: React.FC = () => {
 
   // 重开操作
   const handleRestart = useCallback(() => {
+    if (swapPhaseRef.current !== 'idle') { showToast('请先完成换边协商'); return; }
     if (!connected) return;
     connRef.current?.send({ t: 'restart-req' });
     showToast('已发送重新开始申请，等待对方同意…');
@@ -357,10 +403,9 @@ export const App: React.FC = () => {
   const startHostFlow = async () => {
     if (!clientRef.current) return;
     setIsHost(true);
-    setMyColor(BLACK);
     setFlow('host-wait');
     try {
-      const offer = await clientRef.current.createHostOffer(myName || '房主');
+      const offer = await clientRef.current.createHostOffer(myName || '房主', myColor);
       setHostOfferCode(offer);
     } catch (err) {
       alert('生成邀请码失败：' + (err as Error).message);
@@ -374,29 +419,20 @@ export const App: React.FC = () => {
     setFlow('guest-invite');
   };
 
+
   const connectedRef = useRef(connected);
-  const diagTimerRef = useRef<any>(null);
+  const diagTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [flowResult, setFlowResult] = useState<{ type: string; html: string } | null>(null);
 
-  /**
-   * 复位房间会话：换房（创建/加入房间）或对手离开时调用。
-   * 只清「界面态」，**不再自己关连接**——连接生命周期由编排器负责。
-   */
+  // 复位房间会话（只清界面态，连接生命周期由编排器负责）
   const resetRoomSession = useCallback(() => {
+    swapPhaseRef.current = 'idle'; hasConnectedRef.current = false; awaitingColorRef.current = false;
     const fresh = createRoomSession();
-    setGame(fresh.game);
-    setMessages(fresh.messages);
-    setPeerName(fresh.peerName);
-    setManualConnected(false);
-    setTransport(fresh.transport);
-    setFlow(fresh.flow);
-    setHostOfferCode(fresh.hostOfferCode);
-    setGuestOfferInput(fresh.guestOfferInput);
-    setHostAnswerInput(fresh.hostAnswerInput);
-    setGuestAnswerCode(fresh.guestAnswerCode);
-    setHostTimer(fresh.hostTimer);
-    setFlowResult(fresh.flowResult);
-    setModal(fresh.modal);
+    setGame(fresh.game); setMessages(fresh.messages); setPeerName(fresh.peerName);
+    setManualConnected(false); setTransport(fresh.transport); setFlow(fresh.flow);
+    setHostOfferCode(fresh.hostOfferCode); setGuestOfferInput(fresh.guestOfferInput);
+    setHostAnswerInput(fresh.hostAnswerInput); setGuestAnswerCode(fresh.guestAnswerCode);
+    setHostTimer(fresh.hostTimer); setFlowResult(fresh.flowResult); setModal(fresh.modal);
   }, []);
 
   useEffect(() => {
@@ -412,16 +448,11 @@ export const App: React.FC = () => {
 
   const diagnoseFailure = useCallback(() => {
     if (diagTimerRef.current) clearTimeout(diagTimerRef.current);
-    const items = [
-      '双方已交换候选但仍无法互通：可能处于对称型 NAT 或企业防火墙后',
-      '可尝试：双方都切到手机热点；或自建/租用 TURN 服务器兜底',
-    ];
-    setFlowResult({
-      type: 'bad',
-      html: '<b>⚠️ 连接失败</b><ul>' + items.map((i) => '<li>' + i + '</li>').join('') + '</ul>',
-    });
+    const items = ['双方已交换候选但仍无法互通：可能处于对称型 NAT 或企业防火墙后', '可尝试：双方都切到手机热点；或自建/租用 TURN 服务器兜底'];
+    setFlowResult({ type: 'bad', html: '<b>⚠️ 连接失败</b><ul>' + items.map((i) => '<li>' + i + '</li>').join('') + '</ul>' });
     showToast('P2P 连接失败，请查看右侧「邀请对局」面板中的原因说明');
   }, [showToast]);
+
 
   const scheduleDiag = useCallback(() => {
     if (diagTimerRef.current) clearTimeout(diagTimerRef.current);
@@ -438,6 +469,14 @@ export const App: React.FC = () => {
       return;
     }
     try {
+      try {
+        const payload = await unpack<{ hostColor?: PlayerColor }>(guestOfferInput.trim());
+        if (payload?.hostColor) {
+          const next = payload.hostColor === BLACK ? WHITE : BLACK;
+          setMyColor(next);
+          myColorRef.current = next;
+        }
+      } catch {}
       const answer = await clientRef.current.handleGuestOffer(
         guestOfferInput.trim(),
         myName || '被邀请方'
@@ -449,6 +488,7 @@ export const App: React.FC = () => {
     } catch (err) {
       alert('解析邀请码失败：' + (err as Error).message);
     }
+
   };
 
   const handleHostFinish = async () => {
@@ -467,40 +507,32 @@ export const App: React.FC = () => {
 
   // 复制文本码到剪贴板
   const copyText = (text: string, tip: string) => {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(() => showToast(tip)).catch(() => {
-        showToast('请手动全选复制');
-      });
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(() => showToast(tip)).catch(() => showToast('请手动全选复制'));
     } else {
       showToast('复制成功');
     }
   };
 
-  /* ---------------- 房间联机（信令 / 协商全部交给编排器） ---------------- */
-
-  /**
-   * 编排器副作用 → 界面反馈（toast / 系统消息 / 失效房间入口）。
-   *
-   * 这里只做「用户能看见的反应」：状态机、退避、对账全部在 shared 编排器里，
-   * 任何重连判断都不许回流到这个组件。
-   */
+  // 房间联机：编排器副作用 → 界面反馈
   const handleConnEvent = useCallback(
     (e: ConnSideEffect) => {
       switch (e.type) {
         case 'connected':
+          hasConnectedRef.current = true;
           showToast('P2P 连接已建立！');
           addSysMsg('P2P 直连已建立，开始对局！');
           sounds.playNotify();
-          connRef.current?.send({
-            t: 'hello',
-            name: myNameRef.current || (isHostRef.current ? '房主' : '玩家'),
-          });
+          sendHello();
           break;
+
         case 'restored':
+          if (isHostRef.current) connRef.current?.send({ t: 'color', color: myColorRef.current });
           showToast('已恢复连接');
           addSysMsg(`连接已自动恢复（${e.via === 'ws-only' ? '信令通道' : '直连'}），棋谱已对齐`);
           break;
         case 'failed':
+          swapPhaseRef.current = 'idle';
           showToast('连接已断开，棋盘已保留');
           addSysMsg('连接已断开，棋盘已保留；可点击顶部「立即重试」');
           break;
@@ -518,11 +550,13 @@ export const App: React.FC = () => {
           showToast('对手已离开房间');
           break;
         case 'room-ready':
-          // 会话已提交（首次建房/入房或换房成功）—— 清盘与角色切换都在此刻发生，
-          // 这样「输错房号」被服务端拒绝时当前对局零变化。
+          // 会话已提交（首次建房/入房或换房成功）—— 清盘与角色切换都在此刻发生
           resetRoomSession();
           setIsHost(e.role === 'host');
-          setMyColor(e.role === 'host' ? BLACK : WHITE);
+          if (e.role === 'guest') {
+            setMyColor(WHITE);
+            myColorRef.current = WHITE;
+          }
           break;
         case 'join-rejected':
           // 换房被拒：只提示服务端原文，不动任何对局状态
@@ -551,7 +585,7 @@ export const App: React.FC = () => {
           break;
       }
     },
-    [showToast, addSysMsg, resetRoomSession]
+    [showToast, addSysMsg, resetRoomSession, sendHello]
   );
   handleConnEventRef.current = handleConnEvent;
 
@@ -610,7 +644,14 @@ export const App: React.FC = () => {
         showToast('该二维码不是有效的邀请码（可能是应答码或非对局二维码）');
         return false;
       }
+      const offerPayload = payload as unknown as { hostColor?: PlayerColor };
+      if (offerPayload.hostColor) {
+        const next = offerPayload.hostColor === BLACK ? WHITE : BLACK;
+        setMyColor(next);
+        myColorRef.current = next;
+      }
       setGuestOfferInput(code);
+
       closeScannerModal();
       showToast('成功扫描邀请码，正在生成应答码…');
       try {
@@ -647,68 +688,30 @@ export const App: React.FC = () => {
   /* ---------------- 暴露全局测试钩子 window.__gomoku ---------------- */
 
   useEffect(() => {
-    (window as unknown as { __gomoku: any }).__gomoku = {
-      get connected() {
-        return connected;
-      },
-      get moves() {
-        return game.moves.map((m) => ({ x: m.x, y: m.y, c: m.c }));
-      },
-      get over() {
-        return game.over;
-      },
-      get myColor() {
-        return myColor;
-      },
-      get peerName() {
-        return peerName;
-      },
-      get room() {
-        return roomCode;
-      },
-      /* ---- 编排器状态（e2e 只读探针，绝不提供写入口） ---- */
-      get connState() {
-        return connRef.current?.status.state ?? 'IDLE';
-      },
-      get isPlayable() {
-        return connRef.current?.status.isPlayable ?? false;
-      },
-      get attempt() {
-        return connRef.current?.status.attempt ?? 0;
-      },
-      get nextRetryInMs() {
-        return connRef.current?.status.nextRetryInMs ?? null;
-      },
-      get reason() {
-        return connRef.current?.status.reason ?? null;
-      },
-      get label() {
-        return connRef.current?.status.label ?? '未连接';
-      },
-      /* ---- 底层探针（排障用） ---- */
-      get pcState() {
-        return clientRef.current?.pc?.connectionState ?? 'none';
-      },
-      get iceState() {
-        return clientRef.current?.pc?.iceConnectionState ?? 'none';
-      },
-      get signalingState() {
-        return clientRef.current?.pc?.signalingState ?? 'none';
-      },
-      get dcState() {
-        return clientRef.current?.dc?.readyState ?? 'none';
-      },
-      get pendingIce() {
-        return clientRef.current?.pendingIce.length ?? 0;
-      },
-      get flow() {
-        return flow;
-      },
-      get transport() {
-        return transport;
-      },
+    (window as unknown as { __gomoku: unknown }).__gomoku = {
+      get connected() { return connected; },
+      get moves() { return game.moves.map((m) => ({ x: m.x, y: m.y, c: m.c })); },
+      get over() { return game.over; },
+      get myColor() { return myColor; },
+      get peerName() { return peerName; },
+      get room() { return roomCode; },
+      get showMoveNumbers() { return showMoveNumbers; },
+      toggleMoveNumbers: handleToggleMoveNumbers,
+      toggleColor: handleToggleColor,
+      get connState() { return connRef.current?.status.state ?? 'IDLE'; },
+      get isPlayable() { return connRef.current?.status.isPlayable ?? false; },
+      get attempt() { return connRef.current?.status.attempt ?? 0; },
+      get nextRetryInMs() { return connRef.current?.status.nextRetryInMs ?? null; },
+      get reason() { return connRef.current?.status.reason ?? null; },
+      get label() { return connRef.current?.status.label ?? '未连接'; },
+      get pcState() { return clientRef.current?.pc?.connectionState ?? 'none'; },
+      get iceState() { return clientRef.current?.pc?.iceConnectionState ?? 'none'; },
+      get signalingState() { return clientRef.current?.pc?.signalingState ?? 'none'; },
+      get dcState() { return clientRef.current?.dc?.readyState ?? 'none'; },
+      get pendingIce() { return clientRef.current?.pendingIce.length ?? 0; },
+      get flow() { return flow; },
+      get transport() { return transport; },
       forceConnected: (v: boolean) => {
-        // 仅供 e2e 模拟「手动邀请码模式已直连」（房间模式的连通由编排器决定）
         setManualConnected(!!v);
         if (v) setFlow('connected');
       },
@@ -719,20 +722,23 @@ export const App: React.FC = () => {
       openScanner: (target: ScannerTarget) => openScannerModal(target),
       stopScanner: () => closeScannerModal(),
     };
-  }, [connected, game, myColor, peerName, roomCode, flow, transport, handleGameMessage]);
+  }, [connected, game, myColor, peerName, roomCode, flow, transport, showMoveNumbers, handleGameMessage, handleToggleMoveNumbers, handleToggleColor]);
 
   // 计算回合与提示信息
-  const isMyTurn = currentColor(game) === myColor;
-  const turnText = !connected ? '等待连接…' : game.over ? '对局结束' : isMyTurn ? '轮到你落子' : '对方思考中…';
+  const isMyTurn = currentColor(game) === myColor && swapPhaseRef.current === 'idle' && !awaitingColorRef.current;
+  const turnText = !connected ? '等待连接…' : game.over ? '对局结束' : swapPhaseRef.current !== 'idle' ? '等待换边确认…' : isMyTurn ? '轮到你落子' : '对方思考中…';
   const overlayText = connected ? '' : '输入昵称，创建或加入房间，开始 P2P 对局';
   const winnerColor = game.moves[game.moves.length - 1]?.c;
-  const resultText = !game.over
-    ? ''
-    : game.winLine
-    ? winnerColor === myColor
-      ? '你赢了（' + (winnerColor === BLACK ? '黑' : '白') + '方五连）'
-      : '你输了，再来一局？'
+  const resultText = !game.over ? '' : game.winLine
+    ? winnerColor === myColor ? '你赢了（' + (winnerColor === BLACK ? '黑' : '白') + '方五连）' : '你输了，再来一局？'
     : '平局！';
+
+  const isMeBlack = myColor === BLACK;
+  const myLabel = myName ? `${myName} (我)` : isHost ? '房主 (我)' : '玩家 (我)';
+  const peerLabel = peerName || (isHost ? '加入方' : '房主');
+  const blackName = isMeBlack ? myLabel : peerLabel, whiteName = !isMeBlack ? myLabel : peerLabel;
+  const blackTag = isMeBlack ? (isHost ? '房主 (先行)' : '加入方 (先行)') : (isHost ? '加入方 (先行)' : '房主 (先行)');
+  const whiteTag = !isMeBlack ? (isHost ? '房主' : '加入方') : (isHost ? '加入方' : '房主');
 
   const headerStatus = connected ? 'online' : roomCode || conn.status.state !== 'IDLE' ? 'signaling' : 'offline';
   const headerStatusText = connected ? '已直连' : conn.status.state === 'IDLE' ? '未连接' : '匹配中';
@@ -762,19 +768,18 @@ export const App: React.FC = () => {
           onMove={handleLocalMove}
           onUndo={handleUndo}
           onRestart={handleRestart}
-          onToggleSound={() => {
-            setSoundEnabled((v) => {
-              sounds.enabled = !v;
-              return !v;
-            });
-          }}
-          onRematch={() => {
-            handleRestart();
-          }}
+          onToggleSound={() => setSoundEnabled((v) => { sounds.enabled = !v; return !v; })}
+          showMoveNumbers={showMoveNumbers}
+          onToggleMoveNumbers={handleToggleMoveNumbers}
+          onRematch={handleRestart}
         />
 
         <aside className={`${styles.side} side`}>
           <ConnectionPanel
+            myColor={myColor}
+            isHost={isHost}
+            connected={connected}
+            onToggleColor={handleToggleColor}
             name={myName}
             setName={setMyName}
             activeTab={activeTab}
@@ -797,10 +802,8 @@ export const App: React.FC = () => {
             setGuestTextFolded={setGuestTextFolded}
             onCreateRoom={handleCreateRoom}
             onJoinRoom={handleJoinRoom}
-            onCopyInviteLink={() => {
-              const url = `${window.location.origin}/?room=${roomCode}`;
-              copyText(url, '邀请链接已复制');
-            }}
+            onCopyInviteLink={() => copyText(`${window.location.origin}/?room=${roomCode}`, '邀请链接已复制')}
+
             onStartHostFlow={startHostFlow}
             onStartGuestFlow={startGuestFlow}
             onCopyHostOffer={() => copyText(hostOfferCode, '邀请码已复制')}
@@ -812,10 +815,10 @@ export const App: React.FC = () => {
           />
 
           <GameStatus
-            blackName={isHost ? myName || '黑方 (我)' : peerName || '黑方'}
-            whiteName={!isHost ? myName || '白方 (我)' : peerName || '白方'}
-            blackTag={isHost ? '邀请方 (先行)' : '加入方 (先行)'}
-            whiteTag={!isHost ? '加入方' : '邀请方'}
+            blackName={blackName}
+            whiteName={whiteName}
+            blackTag={blackTag}
+            whiteTag={whiteTag}
             myColor={myColor}
             moves={game.moves}
             over={game.over}

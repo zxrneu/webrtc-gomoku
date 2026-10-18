@@ -38,6 +38,68 @@
   outline: none;
 }
 
+.colorSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #f7f4ed;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+
+.colorHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.colorLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.colorBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.badgeBlack {
+  background: #1e293b;
+  color: #ffffff;
+}
+
+.badgeWhite {
+  background: #ffffff;
+  color: #1e293b;
+  border: 1px solid #cbd5e1;
+}
+
+.stoneDotSmall {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.stoneDotBlack {
+  background: #111827;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.stoneDotWhite {
+  background: #f8fafc;
+  border: 1px solid #94a3b8;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+
 .tabs {
   display: flex;
   background: #ede6d8;

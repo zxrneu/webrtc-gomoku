@@ -11,9 +11,13 @@
  * 3. 最终效果：把几千字符的 SDP 压缩到 600~700 字符以内，以字母 'Z' 开头，微信/短信单条即可发送，极佳兼容！
  */
 
+import { BLACK, WHITE } from '@webrtc-gomoku/core';
+import type { GameMessage } from './types';
+
 // ==========================================
 // 1. Base64URL 编解码工具函数
 // ==========================================
+
 
 /**
  * 将二进制字节数组 (Uint8Array) 转换为 URL 安全的 Base64 字符串 (base64url)
@@ -148,4 +152,87 @@ export async function unpack<T = unknown>(str: string): Promise<T> {
   // 兜底分支：如果不是 'Z' 开头，或者解压流程失败，尝试直接作为纯 JSON 字符串解析
   return JSON.parse(trimmed) as T;
 }
+
+// ==========================================
+// 4. P2P 局内消息双向编解码与强校验 (GameMessage Codec)
+// ==========================================
+
+/**
+ * 将局内 GameMessage 序列化为规范 JSON 字符串
+ */
+export function encodeGameMessage(msg: GameMessage): string {
+  return JSON.stringify(msg);
+}
+
+/**
+ * 校验解析出的对象是否为合法的 GameMessage
+ */
+function validateGameMessage(obj: Record<string, unknown>): GameMessage {
+  if (typeof obj.t !== 'string') {
+    throw new Error('局内消息缺少字符串类型字段 t');
+  }
+
+  switch (obj.t) {
+    case 'hello':
+      if (typeof obj.name !== 'string') throw new Error('hello 消息缺少合法的 name 字段');
+      if (obj.hostColor !== undefined && obj.hostColor !== BLACK && obj.hostColor !== WHITE) {
+        throw new Error('hello 消息 hostColor 必须为 1(黑) 或 2(白)');
+      }
+      return obj as unknown as GameMessage;
+    case 'color':
+      if (obj.color !== BLACK && obj.color !== WHITE) {
+        throw new Error('color 消息 color 字段必须为 1(黑) 或 2(白)');
+      }
+      return obj as unknown as GameMessage;
+    case 'swap-req':
+    case 'swap-ok':
+    case 'swap-no':
+    case 'undo-req':
+    case 'undo-ok':
+    case 'undo-no':
+    case 'restart-req':
+    case 'restart-ok':
+    case 'restart-no':
+    case 'bye':
+    case 'ping':
+    case 'pong':
+      return obj as unknown as GameMessage;
+    case 'move':
+      if (typeof obj.x !== 'number' || typeof obj.y !== 'number') {
+        throw new Error('move 消息缺少有效的坐标 x, y');
+      }
+      return obj as unknown as GameMessage;
+    case 'chat':
+      if (typeof obj.text !== 'string') throw new Error('chat 消息缺少合法的 text 字段');
+      return obj as unknown as GameMessage;
+    case 'sync':
+      if (!Array.isArray(obj.moves)) throw new Error('sync 消息缺少 moves 数组');
+      return obj as unknown as GameMessage;
+    default:
+      throw new Error(`未知消息类型: ${String(obj.t)}`);
+  }
+}
+
+/**
+ * 将原始 JSON 字符串反序列化并强校验为合法 GameMessage
+ * @param raw 原始输入字符串
+ * @returns 校验通过的 GameMessage
+ * @throws 格式非法或包含未知字段时抛出明确 Error
+ */
+export function decodeGameMessage(raw: string): GameMessage {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    throw new Error('消息不能为空');
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('JSON 解析失败');
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('消息必须为非空对象');
+  }
+  return validateGameMessage(parsed as Record<string, unknown>);
+}
+
 

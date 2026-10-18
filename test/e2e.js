@@ -51,6 +51,30 @@ async function launchBrowser() {
     const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
     const page = await ctx.newPage();
     page.on('pageerror', (e) => console.error(`[${name} pageerror]`, e.message));
+    await page.addInitScript(() => {
+      const send = RTCDataChannel.prototype.send;
+      const create = RTCPeerConnection.prototype.createDataChannel;
+      window.__gameplayTest = { hold: false, holdColor: false, queue: [], channels: [] };
+      RTCDataChannel.prototype.send = function (raw) {
+        const message = typeof raw === 'string' ? JSON.parse(raw) : null;
+        if ((window.__gameplayTest.hold && ['swap-ok', 'move'].includes(message?.t)) ||
+            (window.__gameplayTest.holdColor && message?.t === 'color')) {
+          window.__gameplayTest.queue.push({ channel: this, raw });
+          return;
+        }
+        return send.call(this, raw);
+      };
+      RTCPeerConnection.prototype.createDataChannel = function (...args) {
+        const channel = create.apply(this, args);
+        window.__gameplayTest.channels.push(channel);
+        return channel;
+      };
+      window.__gameplayTest.flush = () => {
+        window.__gameplayTest.hold = false;
+        window.__gameplayTest.holdColor = false;
+        for (const { channel, raw } of window.__gameplayTest.queue.splice(0)) send.call(channel, raw);
+      };
+    });
     await page.goto(BASE);
     return page;
   }
@@ -238,6 +262,167 @@ async function launchBrowser() {
   if (!p2p) await pageA.evaluate(() => window.__gomoku.deliver({ t: 'undo-ok' }));
   await pageA.waitForFunction(() => window.__gomoku.moves.length === 0, null, { timeout: 5000 });
   check('悔棋流程（请求-同意-回退）', true);
+
+  /* ---------- 换边协商流程 (R1) ---------- */
+  console.log('== 阶段二·新增：换边协商与手数显示 ==');
+  // 1. A 发起换边申请，B 收到弹窗并同意
+  const colorBeforeA = (await state(pageA)).myColor;
+  const colorBeforeB = (await state(pageB)).myColor;
+  await pageA.click('#toggle-color-btn');
+  if (p2p) {
+    await pageB.waitForSelector('#modal-mask:not(.hidden)', { timeout: 5000 });
+  } else {
+    await pageB.evaluate(() => window.__gomoku.deliver({ t: 'swap-req' }));
+    await pageB.waitForSelector('#modal-mask:not(.hidden)', { timeout: 5000 });
+  }
+  check('对端收到「换边」申请确认弹窗', true);
+  if (p2p) {
+    await pageA.locator('#board').click({ position: { x: PAD + 7 * CELL, y: PAD + 7 * CELL } });
+    check('换边协商期间申请方无法落子', (await state(pageA)).moves === 0);
+    await pageA.click('#restart-btn');
+    check('重开不会覆盖待确认的换边申请', (await pageB.textContent('#modal-title')).includes('换边'));
+    await pageB.evaluate(() => { window.__gameplayTest.hold = true; });
+  }
+  await pageB.click('#modal-ok');
+  if (!p2p) await pageA.evaluate(() => window.__gomoku.deliver({ t: 'swap-ok' }));
+  if (p2p) {
+    await pageB.waitForFunction(() => window.__gomoku.myColor === 1);
+    await pageA.locator('#board').click({ position: { x: PAD + 7 * CELL, y: PAD + 7 * CELL } });
+    check('换边同意消息尚未到达时申请方仍无法落子', (await state(pageA)).moves === 0);
+    check('确认方换边后可以执黑落子', await clickCell(pageB, 8, 8, 1));
+    await pageB.evaluate(() => window.__gameplayTest.flush());
+    await pageA.waitForFunction(() => window.__gomoku.moves.length === 1);
+    const movesA = await pageA.evaluate(() => window.__gomoku.moves);
+    const movesB = await pageB.evaluate(() => window.__gomoku.moves);
+    check('延迟换边确认和落子按顺序到达后双方棋盘一致', JSON.stringify(movesA) === JSON.stringify(movesB));
+    await pageA.click('#restart-btn');
+    await pageB.waitForSelector('#modal-mask:not(.hidden)');
+    await pageB.click('#modal-ok');
+    await pageA.waitForFunction(() => window.__gomoku.moves.length === 0);
+  }
+  await pageA.waitForFunction((c) => window.__gomoku.myColor !== c, colorBeforeA, { timeout: 5000 });
+  await pageB.waitForFunction((c) => window.__gomoku.myColor !== c, colorBeforeB, { timeout: 5000 });
+  const colorAfterA = (await state(pageA)).myColor;
+  const colorAfterB = (await state(pageB)).myColor;
+  check('换边同意后双方执子颜色互换（A 黑变白，B 白变黑）', colorAfterA === 2 && colorAfterB === 1);
+
+  // 1.1 验证换边后轮次提示与身份标识实时同步
+  const turnTextA = (await pageA.textContent('#turn-hint')).trim();
+  const turnTextB = (await pageB.textContent('#turn-hint')).trim();
+  check('换边后执白方A提示对方思考中', turnTextA.includes('对方思考中'));
+  check('换边后执黑方B提示轮到你落子', turnTextB.includes('轮到你落子'));
+
+  const roleA = (await pageA.textContent('#role-select-box')).trim();
+  const roleB = (await pageB.textContent('#role-select-box')).trim();
+  check('换边后A控制面板显示执白（后手）', roleA.includes('执白（后手）'));
+  check('换边后B控制面板显示执黑（先行）', roleB.includes('执黑（先行）'));
+
+  // 1.2 验证始终由执黑方首手落子：白方落子被拒，黑方可落子
+  if (p2p) {
+    // A (白) 尝试先手落子，应被拒绝
+    const boardA = pageA.locator('#board');
+    const boxA = await boardA.boundingBox();
+    await pageA.mouse.click(boxA.x + PAD + 0 * CELL, boxA.y + PAD + 0 * CELL);
+    await pageA.waitForTimeout(200);
+    check('执白方A不可首手落子（非回合被拦截）', (await state(pageA)).moves === 0);
+
+    // B (黑) 首手落子 (7,7)
+    const bMoved = await clickCell(pageB, 7, 7, 1);
+    check('执黑方B成功首手落子 (7,7)', bMoved);
+    await pageA.waitForFunction(() => window.__gomoku.moves.length === 1, null, { timeout: 5000 });
+
+    // A (白) 轮到后落子 (7,8)
+    const aMoved = await clickCell(pageA, 7, 8, 2);
+    check('执白方A成功二手落子 (7,8)', aMoved);
+    await pageB.waitForFunction(() => window.__gomoku.moves.length === 2, null, { timeout: 5000 });
+
+    // 重开清空测试落子
+    await pageA.click('#restart-btn');
+    await pageB.waitForSelector('#modal-mask:not(.hidden)', { timeout: 5000 });
+    await pageB.click('#modal-ok');
+    await pageA.waitForFunction(() => window.__gomoku.moves.length === 0, null, { timeout: 5000 });
+    await pageB.waitForFunction(() => window.__gomoku.moves.length === 0, null, { timeout: 5000 });
+  }
+
+  // 2. 再次申请换边，测试拒绝逻辑
+  await pageB.click('#toggle-color-btn');
+  if (p2p) {
+    await pageA.waitForSelector('#modal-mask:not(.hidden)', { timeout: 5000 });
+  } else {
+    await pageA.evaluate(() => window.__gomoku.deliver({ t: 'swap-req' }));
+    await pageA.waitForSelector('#modal-mask:not(.hidden)', { timeout: 5000 });
+  }
+  await pageA.click('#modal-no');
+  if (!p2p) await pageB.evaluate(() => window.__gomoku.deliver({ t: 'swap-no' }));
+  await pageA.waitForTimeout(300);
+  check('换边拒绝后双方执子颜色保持不变', (await state(pageA)).myColor === 2 && (await state(pageB)).myColor === 1);
+
+  // 3. 换边后再换回来以保持后续测试的默认顺序
+  await pageA.click('#toggle-color-btn');
+  if (p2p) {
+    await pageB.waitForSelector('#modal-mask:not(.hidden)', { timeout: 5000 });
+  } else {
+    await pageB.evaluate(() => window.__gomoku.deliver({ t: 'swap-req' }));
+    await pageB.waitForSelector('#modal-mask:not(.hidden)', { timeout: 5000 });
+  }
+  await pageB.click('#modal-ok');
+  if (!p2p) await pageA.evaluate(() => window.__gomoku.deliver({ t: 'swap-ok' }));
+  await pageA.waitForFunction(() => window.__gomoku.myColor === 1, null, { timeout: 5000 });
+  await pageB.waitForFunction(() => window.__gomoku.myColor === 2, null, { timeout: 5000 });
+  check('换回原执子角色成功（A 恢复执黑，B 恢复执白）', true);
+
+  if (p2p) {
+    await pageA.click('#toggle-color-btn');
+    await pageB.waitForSelector('#modal-mask:not(.hidden)');
+    await pageA.evaluate(() => window.__gameplayTest.channels.at(-1).close());
+    await pageA.waitForFunction(() => !window.__gomoku.connected);
+    await pageA.click('#toggle-color-btn');
+    check('重连期间不能私自修改执子颜色', (await state(pageA)).myColor === 1);
+    await pageA.waitForFunction(() => window.__gomoku.connected, null, { timeout: 45000 });
+    await pageB.waitForFunction(() => window.__gomoku.connected, null, { timeout: 10000 });
+    check('恢复后双方仍分别执黑执白', (await state(pageA)).myColor === 1 && (await state(pageB)).myColor === 2);
+    check('断线取消旧换边弹窗', !(await pageB.locator('#modal-mask').isVisible()));
+    await pageA.click('#toggle-color-btn');
+    await pageB.waitForSelector('#modal-mask:not(.hidden)');
+    check('恢复后可以重新发起换边申请', true);
+    await pageB.click('#modal-no');
+    await pageA.waitForFunction(() => document.getElementById('toast').textContent.includes('拒绝'));
+
+    // Lose a swap confirmation, then delay the authoritative color during recovery.
+    await pageB.evaluate(() => { window.__gameplayTest.hold = true; });
+    await pageA.click('#toggle-color-btn');
+    await pageB.waitForSelector('#modal-mask:not(.hidden)');
+    await pageB.click('#modal-ok');
+    await pageB.waitForFunction(() => window.__gomoku.myColor === 1);
+    await pageA.evaluate(() => {
+      window.__gameplayTest.holdColor = true;
+      window.__gameplayTest.channels.at(-1).close();
+    });
+    await pageB.evaluate(() => {
+      window.__gameplayTest.hold = false;
+      window.__gameplayTest.queue = [];
+    });
+    await pageA.waitForFunction(() => !window.__gomoku.connected);
+    await pageA.waitForFunction(() => window.__gomoku.connected, null, { timeout: 45000 });
+    await pageB.waitForFunction(() => window.__gomoku.connected, null, { timeout: 10000 });
+    await pageB.locator('#board').click({ position: { x: PAD + 7 * CELL, y: PAD + 7 * CELL } });
+    check('换边确认丢失后加入方等待颜色同步，不能抢先落子', (await state(pageB)).moves === 0);
+    await pageA.evaluate(() => window.__gameplayTest.flush());
+    await pageB.waitForFunction(() => window.__gomoku.myColor === 2);
+    check('恢复时按房主颜色消除单侧已换边的状态', (await state(pageA)).myColor === 1 && (await state(pageB)).myColor === 2);
+  }
+
+  /* ---------- 手数切换开关 (R2) ---------- */
+  check('初始手数状态为隐藏 (showMoveNumbers=false)', !(await pageA.evaluate(() => window.__gomoku.showMoveNumbers)));
+  const btnTextBefore = (await pageA.textContent('#toggle-move-numbers-btn')).trim();
+  check('手数按钮初始文案显示「显示手数」', btnTextBefore === '显示手数');
+  await pageA.click('#toggle-move-numbers-btn');
+  await pageA.waitForFunction(() => window.__gomoku.showMoveNumbers === true, null, { timeout: 3000 });
+  const btnTextAfter = (await pageA.textContent('#toggle-move-numbers-btn')).trim();
+  check('点击后手数状态开启 (showMoveNumbers=true) 且文案切换为「隐藏手数」', btnTextAfter === '隐藏手数');
+  await pageA.click('#toggle-move-numbers-btn');
+  await pageA.waitForFunction(() => window.__gomoku.showMoveNumbers === false, null, { timeout: 3000 });
+  check('再次点击平滑恢复为隐藏状态', true);
 
   /* ---------- 换房不残留（回归：上一房间数据不得带到下一房间） ---------- */
   console.log('== 阶段二·补：换房不残留 ==');

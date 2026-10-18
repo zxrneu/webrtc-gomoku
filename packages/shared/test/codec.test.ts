@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pack, unpack, bytesToB64url, b64urlToBytes } from '../src/index';
+import { pack, unpack, bytesToB64url, b64urlToBytes, encodeGameMessage, decodeGameMessage } from '../src/index';
 
 describe('Shared Codec (Connection Code & Compression)', () => {
   it('base64url roundtrip', () => {
@@ -38,4 +38,70 @@ describe('Shared Codec (Connection Code & Compression)', () => {
   it('empty code throws error', async () => {
     await expect(unpack('')).rejects.toThrow();
   });
+
+  it('pack & unpack roundtrip with hostColor in ManualOfferPayload', async () => {
+    const payload = {
+      type: 'offer' as const,
+      sdp: 'v=0 sdp-with-color',
+      name: '房主',
+      hostColor: 2 as const, // WHITE
+    };
+    const packed = await pack(payload);
+    const unpacked = await unpack<typeof payload>(packed);
+    expect(unpacked.hostColor).toBe(2);
+  });
 });
+
+describe('GameMessage Codec & Validation', () => {
+  it('encode and decode color message roundtrip (BLACK and WHITE)', () => {
+    const msgBlack = { t: 'color' as const, color: 1 as const };
+    const encodedBlack = encodeGameMessage(msgBlack);
+    expect(decodeGameMessage(encodedBlack)).toEqual(msgBlack);
+
+    const msgWhite = { t: 'color' as const, color: 2 as const };
+    const encodedWhite = encodeGameMessage(msgWhite);
+    expect(decodeGameMessage(encodedWhite)).toEqual(msgWhite);
+  });
+
+  it('encode and decode hello message with hostColor', () => {
+    const msg = { t: 'hello' as const, name: 'Alice', hostColor: 2 as const };
+    const encoded = encodeGameMessage(msg);
+    expect(decodeGameMessage(encoded)).toEqual(msg);
+  });
+
+  it('encode and decode swap negotiation messages roundtrip', () => {
+    const req = { t: 'swap-req' as const };
+    expect(decodeGameMessage(encodeGameMessage(req))).toEqual(req);
+
+    const ok = { t: 'swap-ok' as const };
+    expect(decodeGameMessage(encodeGameMessage(ok))).toEqual(ok);
+
+    const no = { t: 'swap-no' as const };
+    expect(decodeGameMessage(encodeGameMessage(no))).toEqual(no);
+  });
+
+
+  it('rejects invalid color value in color message', () => {
+    expect(() => decodeGameMessage(JSON.stringify({ t: 'color', color: 0 }))).toThrow();
+    expect(() => decodeGameMessage(JSON.stringify({ t: 'color', color: 3 }))).toThrow();
+    expect(() => decodeGameMessage(JSON.stringify({ t: 'color', color: '1' }))).toThrow();
+    expect(() => decodeGameMessage(JSON.stringify({ t: 'color' }))).toThrow();
+  });
+
+  it('rejects invalid hostColor in hello message', () => {
+    expect(() => decodeGameMessage(JSON.stringify({ t: 'hello', name: 'Alice', hostColor: 5 }))).toThrow();
+  });
+
+  it('rejects unknown message type', () => {
+    expect(() => decodeGameMessage(JSON.stringify({ t: 'unknown-type' }))).toThrow(/未知/);
+  });
+
+  it('rejects invalid inputs and non-object JSON', () => {
+    expect(() => decodeGameMessage('')).toThrow();
+    expect(() => decodeGameMessage('{invalid json}')).toThrow();
+    expect(() => decodeGameMessage('123')).toThrow();
+    expect(() => decodeGameMessage('null')).toThrow();
+    expect(() => decodeGameMessage('{}')).toThrow();
+  });
+});
+
