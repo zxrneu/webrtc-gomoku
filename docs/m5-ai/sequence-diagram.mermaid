@@ -1,0 +1,38 @@
+sequenceDiagram
+  participant U as 玩家
+  participant A as App(mode='ai')
+  participant H as useAiGame
+  participant P as aiGame(纯函数)
+  participant D as searchDriver
+  participant S as AiSession(core)
+  participant C as core(applyMove/currentColor)
+
+  Note over A: 模式切换为纯视图态，联机 game 不动
+  U->>A: 点击棋盘 (x,y)
+  A->>H: play(x,y)
+  H->>H: 守卫：thinking / over / 非玩家回合 → 忽略
+  H->>P: applyPlayerMove(game, x, y, playerColor)
+  P->>C: applyMove(...)
+  C-->>P: MoveResult（win/draw/move）
+  P-->>H: game'
+  H-->>U: setGame(game') 重渲染（棋盘 + 棋谱 + 音效）
+  H->>H: effect：!over && currentColor(game') !== playerColor
+  H-->>U: setThinking(true) 渲染「AI 正在思考…」(aria-live)
+  H->>D: runSearchSharded(game', aiColor, DIFFICULTY_PRESETS[d], {sliceMs:32})
+  D->>S: createSearchSession(game', aiColor, opts)
+  Note right of S: fromGameState 全量重建 + tt.clear()<br/>开局策略 → 硬规则短路 → VCF → 迭代加深
+  loop 每 32ms 一片（首片在 thinking 上屏之后）
+    D->>S: step(32)
+    S-->>D: true（仍有工作）
+    D->>D: schedule(setTimeout 0) 让出主线程
+  end
+  S-->>D: step() === false
+  D-->>H: onDone(point, stats)
+  H->>P: applyAiMove(game', point, aiColor)
+  P->>C: applyMove(...)
+  C-->>P: MoveResult
+  P-->>H: game''
+  H-->>U: setGame(game'') + setThinking(false) → AI 子高亮 + 轮到我
+
+  Note over U,H: 悔棋：undoPair → 退 2 步 → currentColor === playerColor
+  Note over U,H: 切回联机：mode='online'，取消在跑 session，aiGame 原样保留

@@ -8,4 +8,5 @@ apps/*/dist/
 dist/
 .workbuddy/
 .workbuddy-ai/
+.agents/
 apps/signaling-rust/target/

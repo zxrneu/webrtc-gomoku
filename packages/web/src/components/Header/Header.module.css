@@ -19,6 +19,15 @@
   gap: 14px;
 }
 
+/* 右侧：模式切换 + 连接状态徽标（窄屏自动换行，不挤压标题） */
+.rightGroup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .logo {
   display: flex;
   align-items: center;

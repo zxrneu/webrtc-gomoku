@@ -48,6 +48,16 @@ interface BoardProps {
   onToggleMoveNumbers: () => void;
   /** 对局结束后点击再来一局回调 */
   onRematch: () => void;
+  /**
+   * AI 是否正在思考（**可选**，仅人机模式传入）
+   * 为 true 时棋盘进入 not-allowed 光标 + 棋盘内浮层提示，点击一律被守卫拦下
+   */
+  thinking?: boolean;
+  /**
+   * AI 执子颜色（**可选**，仅人机模式传入）
+   * 传入后「最后一手」标记改用与玩家不同的描边样式，便于区分谁刚下过
+   */
+  aiColor?: PlayerColor;
 }
 
 
@@ -101,6 +111,8 @@ export const Board: React.FC<BoardProps> = ({
   showMoveNumbers,
   onToggleMoveNumbers,
   onRematch,
+  thinking = false,
+  aiColor,
 }) => {
 
   /** Canvas DOM 节点的引用，用于获取 2D 渲染上下文 (CanvasRenderingContext2D) */
@@ -237,6 +249,14 @@ export const Board: React.FC<BoardProps> = ({
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 1;
         ctx.stroke();
+      } else if (aiColor !== undefined && last.c === aiColor) {
+        // 人机模式：AI 的最后一手用「蓝色空心环」区分（PRD P1-4）；
+        // aiColor 未传时这条分支永不进入，联机路径保持原有红点行为不变
+        ctx.beginPath();
+        ctx.arc(lx, ly, 4.5, 0, Math.PI * 2);
+        ctx.strokeStyle = '#2563eb';
+        ctx.lineWidth = 2;
+        ctx.stroke();
       } else {
         // 未开启手数时，保持正中央经典红点
         ctx.beginPath();
@@ -250,7 +270,7 @@ export const Board: React.FC<BoardProps> = ({
     if (showMoveNumbers && moves.length > 0) {
       drawMoveNumbers(ctx, moves);
     }
-  }, [board, moves, winLine, hoverPos, connected, over, myTurn, myColor, showMoveNumbers]);
+  }, [board, moves, winLine, hoverPos, connected, over, myTurn, myColor, showMoveNumbers, aiColor]);
 
 
   /**
@@ -438,11 +458,24 @@ export const Board: React.FC<BoardProps> = ({
           ref={canvasRef}
           width={CANVAS_SIZE}
           height={CANVAS_SIZE}
-          className={styles.canvas}
+          className={`${styles.canvas} ${thinking ? styles.canvasThinking : ''}`}
+          aria-disabled={thinking}
           onClick={handleClick}
           onPointerMove={handlePointerMove}
           onPointerLeave={handlePointerLeave}
         />
+
+        {/* AI 思考浮层条（人机模式专用）：thinking=false 时不渲染，联机路径零变化 */}
+        {thinking && (
+          <div
+            id="board-thinking"
+            className={`${styles.thinkingBar} board-thinking`}
+            aria-live="polite"
+          >
+            <span className={styles.thinkingDot} />
+            AI 正在思考…
+          </div>
+        )}
 
         {/* 蒙层等待提示（等待对端加入房间时覆盖在棋盘上方） */}
         <div
@@ -496,7 +529,7 @@ export const Board: React.FC<BoardProps> = ({
         <button
           id="restart-btn"
           className={`${styles.btn} btn`}
-          disabled={!connected}
+          disabled={!connected || thinking}
           onClick={onRestart}
         >
           重新开始

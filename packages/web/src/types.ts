@@ -1,4 +1,4 @@
-import type { Color, Move, PlayerColor, Point } from '@webrtc-gomoku/core';
+import type { Move, PlayerColor, Point } from '@webrtc-gomoku/core';
 import type { TransportInfo } from '@webrtc-gomoku/shared';
 
 /**
@@ -18,6 +18,17 @@ import type { TransportInfo } from '@webrtc-gomoku/shared';
  * 5. connected: 双方 WebRTC DataChannel 成功建立直连，进入对局！
  */
 export type FlowState = 'idle' | 'host-wait' | 'guest-invite' | 'guest-wait' | 'connected';
+
+/**
+ * 顶层视图模式（纯前端视图态，不参与任何连接与棋局数据）
+ *
+ * - 'online': 联机对战（WebRTC P2P，原有路径，行为与引入人机前完全一致）
+ * - 'ai': 人机对战（本地 AI 引擎，零连接、断网可用）
+ *
+ * 切换只改这一个枚举值：不触碰 `conn`、不发消息、不清盘，
+ * 因此「切走再切回，联机棋局原样还在」天然成立（PRD P0-1）。
+ */
+export type GameMode = 'online' | 'ai';
 
 /**
  * 实时对局聊天消息结构

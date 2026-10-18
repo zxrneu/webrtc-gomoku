@@ -190,7 +190,7 @@ export function createWsTransport(options: WsTransportOptions): SignalTransport 
     }
     if (!isRecord(parsed) || typeof parsed.t !== 'string') return;
 
-    const msg = parsed as ServerSignalingMsg;
+    const msg = parsed as unknown as ServerSignalingMsg;
 
     // `pong` 只用于心跳记账，不进入业务分发
     if (msg.t === 'pong') {

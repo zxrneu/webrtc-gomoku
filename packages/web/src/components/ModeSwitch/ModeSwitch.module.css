@@ -1,0 +1,70 @@
+/**
+ * 模式切换分段控件样式（Warm Skeuomorphic 风格，与 Header 胶囊徽标同源配色）
+ */
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: rgba(120, 95, 55, 0.09);
+  border: 1px solid var(--card-border);
+}
+
+.option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.option:hover {
+  color: var(--text-main);
+}
+
+.option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* 选中项：暖白底 + 微阴影，形成「抬起」的实体分段感 */
+.active {
+  background: var(--card-bg);
+  color: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.dotOnline {
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(21, 128, 61, 0.14);
+}
+
+.dotAi {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(180, 83, 9, 0.14);
+}
+
+@media (max-width: 620px) {
+  .option {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+}

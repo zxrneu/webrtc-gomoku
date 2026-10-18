@@ -1,13 +1,17 @@
 /**
  * 顶层应用协调器与状态机主控 (App.tsx)
+ *
+ * 两套棋局共存（架构 §6）：
+ * - 联机：`game` / `myColor` 由本组件持有，`useConnection` 是唯一连接状态源；
+ * - 人机：全部封装在 `useAiGame` 内部，本组件只读它的返回值。
+ * 二者**互不写入**：`mode` 只是视图开关，切换不触碰 `conn`、不发消息、不清盘。
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import type { GameState, Move, PlayerColor } from '@webrtc-gomoku/core';
+import type { GameState, PlayerColor } from '@webrtc-gomoku/core';
 import {
   create as createGame,
   applyMove,
-  undo as undoMove,
   currentColor,
   BLACK,
   WHITE,
@@ -19,18 +23,22 @@ import type {
 } from '@webrtc-gomoku/shared';
 import { unpack } from '@webrtc-gomoku/shared';
 
-import type { ChatItem, FlowState, ModalState, ScannerTarget } from './types';
+import type { ChatItem, FlowState, GameMode, ModalState, ScannerTarget } from './types';
 import { sounds } from './audio';
 import { detectQrFromSource, renderQrToCanvas } from './qr';
 import { createRoomSession } from './roomSession';
 import type { WebRTCClient } from './webrtc';
 import type { ConnectionApi } from './connection/useConnection';
 import { useConnection } from './connection/useConnection';
+import { createOnlineMessageHandler } from './connection/onlineMessages';
+import { useAiGame } from './ai/useAiGame';
+import { DIFFICULTY_LABELS } from './ai/aiLabels';
 
 import { Header } from './components/Header/Header';
 import { Board } from './components/Board/Board';
 import { ConnectionBanner } from './components/Banner/ConnectionBanner';
 import { ConnectionPanel } from './components/Connection/ConnectionPanel';
+import { AiPanel } from './components/AiPanel/AiPanel';
 import { GameStatus } from './components/GameStatus/GameStatus';
 import { Chat } from './components/Chat/Chat';
 import { ScannerModal } from './components/Scanner/ScannerModal';
@@ -40,7 +48,7 @@ import { Toast } from './components/Toast/Toast';
 import styles from './App.module.css';
 
 export const App: React.FC = () => {
-  // 核心对局状态
+  // 核心对局状态（联机）
   const [game, setGame] = useState<GameState>(() => createGame());
   const [myColor, setMyColor] = useState<PlayerColor>(BLACK);
   /**
@@ -51,6 +59,11 @@ export const App: React.FC = () => {
   const [myName, setMyName] = useState('');
   const [peerName, setPeerName] = useState('');
   const [isHost, setIsHost] = useState(true);
+
+  /** 视图模式：'online' 联机（默认，保持老用户路径） | 'ai' 人机（纯本地） */
+  const [mode, setMode] = useState<GameMode>('online');
+  /** 人机棋局编排：状态与副作用全部封装在 hook 内，联机路径不读它的 setter */
+  const ai = useAiGame(mode);
 
   // 界面交互状态
   const [activeTab, setActiveTab] = useState<'room' | 'manual'>('room');
@@ -86,6 +99,15 @@ export const App: React.FC = () => {
     setMessages((prev) => [
       ...prev,
       { id: Math.random().toString(36).slice(2), sender: 'sys', text, time },
+    ]);
+  }, []);
+
+  /** 追加对手发来的聊天消息（与系统消息区分样式） */
+  const addPeerMsg = useCallback((text: string) => {
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setMessages((prev) => [
+      ...prev,
+      { id: Math.random().toString(36).slice(2), sender: 'peer', text, time },
     ]);
   }, []);
 
@@ -159,138 +181,44 @@ export const App: React.FC = () => {
   /** 房间号一律以服务端下发的为准（created / joined / resumed） */
   const roomCode = conn.status.room ?? '';
 
-  // 对局数据通道消息接收
-  const handleGameMessage = useCallback(
-    (msg: GameMessage) => {
-      switch (msg.t) {
-        case 'hello':
-          setPeerName(msg.name || '对手');
-          addSysMsg(`${msg.name || '对手'} 加入了对局`);
-          if (!isHostRef.current && msg.hostColor) {
-            awaitingColorRef.current = false;
-            const next = msg.hostColor === BLACK ? WHITE : BLACK;
-            setMyColor(next);
-            myColorRef.current = next;
-          }
-          break;
-        case 'color':
-          if (!isHostRef.current) {
-            awaitingColorRef.current = false;
-            const nextColor = msg.color === BLACK ? WHITE : BLACK;
-            setMyColor(nextColor);
-            myColorRef.current = nextColor;
-            addSysMsg(`房主选择了${msg.color === BLACK ? '执黑' : '执白'}，你被分配为${nextColor === BLACK ? '执黑' : '执白'}`);
-          }
-          break;
-        case 'swap-req':
-          if (gameRef.current.over) { connRef.current?.send({ t: 'swap-no' }); return; }
-          if (swapPhaseRef.current === 'outgoing') {
-            if (isHostRef.current) {
-              swapPhaseRef.current = 'idle';
-              if (!connRef.current?.send({ t: 'swap-ok' })) { showToast('换边确认发送失败，请检查连接状态'); return; }
-              setMyColor((c) => { const next = c === BLACK ? WHITE : BLACK; myColorRef.current = next; return next; });
-              showToast('双方均申请换边，已完成换边'); addSysMsg('双方均申请换边，已完成换边');
-            }
-            return;
-          }
-          if (swapPhaseRef.current === 'incoming') return;
-          if (modal.open) { connRef.current?.send({ t: 'swap-no' }); return; }
-          swapPhaseRef.current = 'incoming';
-          setModal({
-            open: true, title: '对方申请换边（切换执黑/执白）', text: '对手希望能互换执子颜色（黑白互换），是否同意？',
-            onOk: () => {
-              if (swapPhaseRef.current !== 'incoming') return;
-              swapPhaseRef.current = 'idle';
-              setModal((m) => ({ ...m, open: false }));
-              if (gameRef.current.over) { connRef.current?.send({ t: 'swap-no' }); showToast('当前对局已结束，无法换边'); return; }
-              if (!connRef.current?.send({ t: 'swap-ok' })) { showToast('换边确认发送失败，请检查连接状态'); return; }
-              setMyColor((c) => { const next = c === BLACK ? WHITE : BLACK; myColorRef.current = next; return next; });
-              addSysMsg('你同意了换边申请，双方已互换颜色'); showToast('双方已互换执黑/执白');
-            },
-            onNo: () => {
-              swapPhaseRef.current = 'idle';
-              setModal((m) => ({ ...m, open: false }));
-              connRef.current?.send({ t: 'swap-no' }); addSysMsg('你拒绝了对方的换边申请');
-            },
-          });
-          break;
-        case 'swap-ok':
-          if (swapPhaseRef.current !== 'outgoing') return;
-          setModal((m) => (m.open && m.title.includes('换边') ? { ...m, open: false } : m));
-          swapPhaseRef.current = 'idle';
-          if (gameRef.current.over) return;
-          setMyColor((c) => { const next = c === BLACK ? WHITE : BLACK; myColorRef.current = next; return next; });
-          showToast('对方同意了换边申请，双方已互换颜色'); addSysMsg('对方同意了换边申请，双方已互换颜色');
-          break;
-        case 'swap-no':
-          if (swapPhaseRef.current !== 'outgoing') return;
-          swapPhaseRef.current = 'idle';
-          setModal((m) => (m.open && m.title.includes('换边') ? { ...m, open: false } : m));
-          showToast('对方拒绝了换边申请'); addSysMsg('对方拒绝了换边申请');
-          break;
-        case 'move':
-          setGame((prevGame) => {
-            const moveColor = currentColor(prevGame);
-            const res = applyMove(prevGame, msg.x, msg.y, moveColor);
-            if (res.ok) {
-              sounds.playStone(moveColor === BLACK);
-              if (res.event === 'win') {
-                sounds.playWin();
-                addSysMsg(`游戏结束，${moveColor === BLACK ? '黑方' : '白方'} 胜！`);
-              } else if (res.event === 'draw') {
-                addSysMsg('棋盘下满，平局！');
-              }
-            }
-            return { ...prevGame };
-          });
-          break;
-        case 'chat':
-          setMessages((prev) => [
-            ...prev,
-            { id: Math.random().toString(36).slice(2), sender: 'peer', text: msg.text, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
-          ]);
-          sounds.playNotify();
-          break;
-        case 'undo-req':
-          if (swapPhaseRef.current !== 'idle') { connRef.current?.send({ t: 'undo-no' }); return; }
-          setModal({
-            open: true, title: '对方申请悔棋', text: '对手希望能撤回最后一手，是否同意？',
-            onOk: () => { setModal((m) => ({ ...m, open: false })); setGame((g) => { undoMove(g); return { ...g }; }); clientRef.current?.sendMessage({ t: 'undo-ok' }); addSysMsg('你同意了对方的悔棋申请'); },
-            onNo: () => { setModal((m) => ({ ...m, open: false })); clientRef.current?.sendMessage({ t: 'undo-no' }); addSysMsg('你拒绝了对方的悔棋申请'); },
-          });
-          break;
-        case 'undo-ok':
-          setGame((g) => { undoMove(g); return { ...g }; });
-          showToast('对方同意了悔棋'); addSysMsg('对方同意了悔棋申请');
-          break;
-        case 'undo-no':
-          showToast('对方拒绝了悔棋申请'); addSysMsg('对方拒绝了悔棋申请');
-          break;
-        case 'restart-req':
-          if (swapPhaseRef.current !== 'idle') { connRef.current?.send({ t: 'restart-no' }); return; }
-          setModal({
-            open: true, title: '对方申请重新开始', text: '对手希望能重开一局，是否同意？',
-            onOk: () => { setModal((m) => ({ ...m, open: false })); setGame(createGame()); clientRef.current?.sendMessage({ t: 'restart-ok' }); addSysMsg('对局已重新开始'); },
-            onNo: () => { setModal((m) => ({ ...m, open: false })); clientRef.current?.sendMessage({ t: 'restart-no' }); addSysMsg('你拒绝了对方的重开申请'); },
-          });
-          break;
-        case 'restart-ok':
-          setGame(createGame()); showToast('对方同意重开一局'); addSysMsg('对局已重新开始');
-          break;
-        case 'restart-no':
-          showToast('对方拒绝了重开申请'); addSysMsg('对方拒绝了重开申请');
-          break;
+  /* ---------------- 单一视图派生（架构 §6） ---------------- */
+  // Board / GameStatus 只吃 view.*，避免「人机/联机」分支散落到每个组件里。
+  // 人机侧 connected 恒为 true：本地引擎没有连接概念，棋盘不应出现「等待连接」遮罩。
+  const view = mode === 'ai'
+    ? {
+      game: ai.aiGame,
+      myColor: ai.playerColor,
+      connected: true,
+      isMyTurn: !ai.thinking && currentColor(ai.aiGame) === ai.playerColor,
+    }
+    : {
+      game,
+      myColor,
+      connected: boardConnected,
+      isMyTurn: currentColor(game) === myColor,
+    };
 
-        case 'bye':
-          // 对手主动 bye → 交给编排器收敛为 PEER_GONE（禁止在这里自己改连接状态）
-          connRef.current?.notifyPeerGone();
-          setManualConnected(false);
-          addSysMsg('对方退出了对局');
-          showToast('对方已断开连接');
-          break;
-      }
-    },
-    [myColor, modal.open, addSysMsg, showToast]
+  // 对局数据通道消息接收（联机路径：只写联机棋局，不触碰人机状态）
+  const handleGameMessage = useCallback(
+    createOnlineMessageHandler({
+      setGame,
+      setMyColor,
+      setPeerName,
+      setModal,
+      setManualConnected,
+      addSysMsg,
+      onPeerChat: addPeerMsg,
+      showToast,
+      isModalOpen: () => modal.open,
+      gameRef,
+      myColorRef,
+      isHostRef,
+      swapPhaseRef,
+      awaitingColorRef,
+      connRef,
+      clientRef,
+    }),
+    [modal.open, addSysMsg, addPeerMsg, showToast],
   );
 
   // 让编排器永远拿到最新的消息处理器（避免 useCallback 闭包过期）
@@ -323,6 +251,11 @@ export const App: React.FC = () => {
   // 本地落子逻辑
   const handleLocalMove = useCallback(
     (x: number, y: number) => {
+      // 人机模式：守卫（思考中 / 终局 / 非玩家回合）全在纯函数层，这里只做分流
+      if (mode === 'ai') {
+        ai.play(x, y);
+        return;
+      }
       if (awaitingColorRef.current) { showToast('正在恢复执子颜色，请稍后落子'); return; }
       if (swapPhaseRef.current !== 'idle') { showToast('正在协商换边，请稍后落子'); return; }
       if (!connected) {
@@ -361,24 +294,28 @@ export const App: React.FC = () => {
         return { ...prevGame };
       });
     },
-    [connected, game, myColor, showToast, addSysMsg]
+    [mode, ai, connected, game, myColor, showToast, addSysMsg]
   );
 
   // 悔棋操作
   const handleUndo = useCallback(() => {
+    // 人机模式：一次退两步，回到我方回合（PRD P0-5）
+    if (mode === 'ai') { ai.undo(); return; }
     if (swapPhaseRef.current !== 'idle') { showToast('请先完成换边协商'); return; }
     if (!connected || game.over || game.moves.length === 0) return;
     connRef.current?.send({ t: 'undo-req' });
     showToast('已发送悔棋申请，等待对方同意…');
-  }, [connected, game.over, game.moves.length, showToast]);
+  }, [mode, ai, connected, game.over, game.moves.length, showToast]);
 
   // 重开操作
   const handleRestart = useCallback(() => {
+    // 人机模式：清盘并保留先后手与难度（难度取 pending）
+    if (mode === 'ai') { ai.restart(); return; }
     if (swapPhaseRef.current !== 'idle') { showToast('请先完成换边协商'); return; }
     if (!connected) return;
     connRef.current?.send({ t: 'restart-req' });
     showToast('已发送重新开始申请，等待对方同意…');
-  }, [connected, showToast]);
+  }, [mode, ai, connected, showToast]);
 
   // 聊天发送
   const handleSendChat = useCallback(
@@ -711,6 +648,17 @@ export const App: React.FC = () => {
       get pendingIce() { return clientRef.current?.pendingIce.length ?? 0; },
       get flow() { return flow; },
       get transport() { return transport; },
+      /** 人机模式诊断快照（e2e 断言 thinking / 手数 / 难度用） */
+      get ai() {
+        return {
+          mode,
+          thinking: ai.thinking,
+          moves: ai.aiGame.moves.map((m) => ({ x: m.x, y: m.y, c: m.c })),
+          difficulty: ai.difficulty,
+        };
+      },
+      get mode() { return mode; },
+      setMode: (next: GameMode) => setMode(next),
       forceConnected: (v: boolean) => {
         setManualConnected(!!v);
         if (v) setFlow('connected');
@@ -722,49 +670,61 @@ export const App: React.FC = () => {
       openScanner: (target: ScannerTarget) => openScannerModal(target),
       stopScanner: () => closeScannerModal(),
     };
-  }, [connected, game, myColor, peerName, roomCode, flow, transport, showMoveNumbers, handleGameMessage, handleToggleMoveNumbers, handleToggleColor]);
+  }, [connected, game, myColor, peerName, roomCode, flow, transport, showMoveNumbers, handleGameMessage, handleToggleMoveNumbers, handleToggleColor, mode, ai]);
 
-  // 计算回合与提示信息
-  const isMyTurn = currentColor(game) === myColor && swapPhaseRef.current === 'idle' && !awaitingColorRef.current;
-  const turnText = !connected ? '等待连接…' : game.over ? '对局结束' : swapPhaseRef.current !== 'idle' ? '等待换边确认…' : isMyTurn ? '轮到你落子' : '对方思考中…';
-  const overlayText = connected ? '' : '输入昵称，创建或加入房间，开始 P2P 对局';
-  const winnerColor = game.moves[game.moves.length - 1]?.c;
-  const resultText = !game.over ? '' : game.winLine
-    ? winnerColor === myColor ? '你赢了（' + (winnerColor === BLACK ? '黑' : '白') + '方五连）' : '你输了，再来一局？'
-    : '平局！';
+  // 计算回合与提示信息（人机 / 联机两套文案，但都从 view 派生）
+  const isMyTurn = view.isMyTurn && swapPhaseRef.current === 'idle' && !awaitingColorRef.current;
+  const turnText = mode === 'ai'
+    ? view.game.over ? '对局结束' : ai.thinking ? 'AI 正在思考…' : view.isMyTurn ? '轮到你落子' : 'AI 回合'
+    : !connected ? '等待连接…' : game.over ? '对局结束' : swapPhaseRef.current !== 'idle' ? '等待换边确认…' : isMyTurn ? '轮到你落子' : '对方思考中…';
+  const overlayText = mode === 'ai' ? '' : connected ? '' : '输入昵称，创建或加入房间，开始 P2P 对局';
+  const winnerColor = view.game.moves[view.game.moves.length - 1]?.c;
+  const resultText = !view.game.over ? '' : !view.game.winLine
+    ? '平局！'
+    : winnerColor === view.myColor
+      ? mode === 'ai' ? '你赢了，再来一局？' : '你赢了（' + (winnerColor === BLACK ? '黑' : '白') + '方五连）'
+      : mode === 'ai' ? 'AI 获胜，再来一局？' : '你输了，再来一局？';
 
-  const isMeBlack = myColor === BLACK;
+  const isMeBlack = view.myColor === BLACK;
   const myLabel = myName ? `${myName} (我)` : isHost ? '房主 (我)' : '玩家 (我)';
   const peerLabel = peerName || (isHost ? '加入方' : '房主');
-  const blackName = isMeBlack ? myLabel : peerLabel, whiteName = !isMeBlack ? myLabel : peerLabel;
-  const blackTag = isMeBlack ? (isHost ? '房主 (先行)' : '加入方 (先行)') : (isHost ? '加入方 (先行)' : '房主 (先行)');
-  const whiteTag = !isMeBlack ? (isHost ? '房主' : '加入方') : (isHost ? '加入方' : '房主');
+  const aiLabel = `AI（${DIFFICULTY_LABELS[ai.difficulty]}）`;
+  const blackName = mode === 'ai' ? (isMeBlack ? '我' : aiLabel) : isMeBlack ? myLabel : peerLabel;
+  const whiteName = mode === 'ai' ? (isMeBlack ? aiLabel : '我') : !isMeBlack ? myLabel : peerLabel;
+  const blackTag = mode === 'ai' ? (isMeBlack ? '先行' : 'AI') : isMeBlack ? (isHost ? '房主 (先行)' : '加入方 (先行)') : (isHost ? '加入方 (先行)' : '房主 (先行)');
+  const whiteTag = mode === 'ai' ? (isMeBlack ? 'AI' : '后手') : !isMeBlack ? (isHost ? '房主' : '加入方') : (isHost ? '加入方' : '房主');
 
-  const headerStatus = connected ? 'online' : roomCode || conn.status.state !== 'IDLE' ? 'signaling' : 'offline';
-  const headerStatusText = connected ? '已直连' : conn.status.state === 'IDLE' ? '未连接' : '匹配中';
+  const headerStatus = mode === 'ai' ? 'online' : connected ? 'online' : roomCode || conn.status.state !== 'IDLE' ? 'signaling' : 'offline';
+  const headerStatusText = mode === 'ai'
+    ? `人机对战 · ${DIFFICULTY_LABELS[ai.difficulty]}`
+    : connected ? '已直连' : conn.status.state === 'IDLE' ? '未连接' : '匹配中';
 
   return (
     <div className={styles.layout}>
-      <Header status={headerStatus} statusText={headerStatusText} />
+      <Header status={headerStatus} statusText={headerStatusText} mode={mode} onModeChange={setMode} />
 
-      {/* 连接状态条：文案全部来自编排器（PRD §6.4），组件内不拼业务文案 */}
-      <ConnectionBanner status={conn.status} onRetry={conn.retryNow} onLeave={conn.leave} />
+      {/* 连接状态条：文案全部来自编排器（PRD §6.4）；人机模式无连接概念，不渲染 */}
+      {mode === 'online' && (
+        <ConnectionBanner status={conn.status} onRetry={conn.retryNow} onLeave={conn.leave} />
+      )}
 
       <main className={`${styles.wrap} wrap`}>
         <Board
-          board={game.board}
-          moves={game.moves}
-          winLine={game.winLine}
-          connected={boardConnected}
+          board={view.game.board}
+          moves={view.game.moves}
+          winLine={view.game.winLine}
+          connected={view.connected}
           turnText={turnText}
           overlayText={overlayText}
-          showOverlay={!connected}
-          over={game.over}
+          showOverlay={!view.connected}
+          over={view.game.over}
           resultText={resultText}
           soundEnabled={soundEnabled}
           myTurn={isMyTurn}
-          myColor={myColor}
-          canUndo={game.moves.length > 0}
+          myColor={view.myColor}
+          canUndo={mode === 'ai' ? ai.canUndo : view.game.moves.length > 0}
+          thinking={mode === 'ai' && ai.thinking}
+          aiColor={mode === 'ai' ? (ai.playerColor === BLACK ? WHITE : BLACK) : undefined}
           onMove={handleLocalMove}
           onUndo={handleUndo}
           onRestart={handleRestart}
@@ -775,64 +735,71 @@ export const App: React.FC = () => {
         />
 
         <aside className={`${styles.side} side`}>
-          <ConnectionPanel
-            myColor={myColor}
-            isHost={isHost}
-            connected={connected}
-            onToggleColor={handleToggleColor}
-            name={myName}
-            setName={setMyName}
-            activeTab={activeTab}
-            setActiveTab={setActiveTab}
-            flow={flow}
-            roomCode={roomCode}
-            inputRoomCode={inputRoomCode}
-            setInputRoomCode={setInputRoomCode}
-            roomStatus={conn.status.label}
-            hostOfferCode={hostOfferCode}
-            guestOfferInput={guestOfferInput}
-            setGuestOfferInput={setGuestOfferInput}
-            hostAnswerInput={hostAnswerInput}
-            setHostAnswerInput={setHostAnswerInput}
-            guestAnswerCode={guestAnswerCode}
-            hostTimer={hostTimer}
-            hostTextFolded={hostTextFolded}
-            setHostTextFolded={setHostTextFolded}
-            guestTextFolded={guestTextFolded}
-            setGuestTextFolded={setGuestTextFolded}
-            onCreateRoom={handleCreateRoom}
-            onJoinRoom={handleJoinRoom}
-            onCopyInviteLink={() => copyText(`${window.location.origin}/?room=${roomCode}`, '邀请链接已复制')}
+          {mode === 'ai' ? (
+            <AiPanel api={ai} over={view.game.over} />
+          ) : (
+            <ConnectionPanel
+              myColor={myColor}
+              isHost={isHost}
+              connected={connected}
+              onToggleColor={handleToggleColor}
+              name={myName}
+              setName={setMyName}
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              flow={flow}
+              roomCode={roomCode}
+              inputRoomCode={inputRoomCode}
+              setInputRoomCode={setInputRoomCode}
+              roomStatus={conn.status.label}
+              hostOfferCode={hostOfferCode}
+              guestOfferInput={guestOfferInput}
+              setGuestOfferInput={setGuestOfferInput}
+              hostAnswerInput={hostAnswerInput}
+              setHostAnswerInput={setHostAnswerInput}
+              guestAnswerCode={guestAnswerCode}
+              hostTimer={hostTimer}
+              hostTextFolded={hostTextFolded}
+              setHostTextFolded={setHostTextFolded}
+              guestTextFolded={guestTextFolded}
+              setGuestTextFolded={setGuestTextFolded}
+              onCreateRoom={handleCreateRoom}
+              onJoinRoom={handleJoinRoom}
+              onCopyInviteLink={() => copyText(`${window.location.origin}/?room=${roomCode}`, '邀请链接已复制')}
 
-            onStartHostFlow={startHostFlow}
-            onStartGuestFlow={startGuestFlow}
-            onCopyHostOffer={() => copyText(hostOfferCode, '邀请码已复制')}
-            onCopyGuestAnswer={() => copyText(guestAnswerCode, '应答码已复制')}
-            onGuestGenerateAnswer={handleGuestGenerateAnswer}
-            onHostFinish={handleHostFinish}
-            onOpenScanner={(target) => openScannerModal(target)}
-            flowResult={flowResult}
-          />
+              onStartHostFlow={startHostFlow}
+              onStartGuestFlow={startGuestFlow}
+              onCopyHostOffer={() => copyText(hostOfferCode, '邀请码已复制')}
+              onCopyGuestAnswer={() => copyText(guestAnswerCode, '应答码已复制')}
+              onGuestGenerateAnswer={handleGuestGenerateAnswer}
+              onHostFinish={handleHostFinish}
+              onOpenScanner={(target) => openScannerModal(target)}
+              flowResult={flowResult}
+            />
+          )}
 
           <GameStatus
             blackName={blackName}
             whiteName={whiteName}
             blackTag={blackTag}
             whiteTag={whiteTag}
-            myColor={myColor}
-            moves={game.moves}
-            over={game.over}
-            connected={connected}
-            transport={transport}
+            myColor={view.myColor}
+            moves={view.game.moves}
+            over={view.game.over}
+            connected={view.connected}
+            transport={mode === 'ai' ? null : transport}
           />
 
-          <Chat
-            messages={messages}
-            connected={connected}
-            myName={myName}
-            peerName={peerName}
-            onSend={handleSendChat}
-          />
+          {/* 聊天区仅联机模式存在（PRD §5.2：人机模式下隐藏） */}
+          {mode === 'online' && (
+            <Chat
+              messages={messages}
+              connected={connected}
+              myName={myName}
+              peerName={peerName}
+              onSend={handleSendChat}
+            />
+          )}
         </aside>
       </main>
 

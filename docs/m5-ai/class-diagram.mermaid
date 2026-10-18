@@ -1,0 +1,107 @@
+classDiagram
+  class GameState {
+    +number size
+    +Color[][] board
+    +Move[] moves
+    +boolean over
+    +Point[]|null winLine
+  }
+  class AiOptions {
+    +Difficulty difficulty
+    +number timeBudgetMs
+    +number maxDepth
+    +number maxNodes
+    +() => number now
+  }
+  class AiSearchStats {
+    +number depth
+    +number nodes
+    +number elapsedMs
+    +CutoffReason cutoff
+    +number bestScore
+    +boolean fromOpening
+  }
+  class AiSession {
+    <<interface>>
+    +Difficulty difficulty
+    +step(budgetMs?) boolean
+    +result() Point|null
+    +stats() AiSearchStats
+    +abort() void
+  }
+  class DifficultyPreset {
+    <<readonly>>
+    +number timeBudgetMs
+    +number maxDepth
+    +number maxNodes
+  }
+  class AiBoard {
+    <<interface>>
+    +Int8Array cells
+    +number size
+  }
+  class TranspositionTable {
+    +Int32Array keysLo
+    +Int32Array keysHi
+    +Int32Array scores
+    +Int8Array depths
+    +Uint8Array flags
+    +Int16Array moves
+    +clear() void
+    +probe(lo, hi) TtEntry|null
+    +store(lo, hi, e) void
+  }
+  class SearchContext {
+    +AiBoard board
+    +TranspositionTable tt
+    +AiSearchStats stats
+    +number deadline
+    +number nodesLimit
+    +boolean aborted
+    +bestRoot() Point|null
+  }
+  class SearchSession {
+    -SearchContext ctx
+    -Generator gen
+    +step(budgetMs?) boolean
+    +result() Point|null
+    +stats() AiSearchStats
+    +abort() void
+  }
+  class AiGameState {
+    +GameState game
+    +PlayerColor playerColor
+    +Difficulty difficulty
+    +Difficulty pendingDifficulty
+    +boolean thinking
+    +Point|null aiLastMove
+  }
+  class UseAiGameResult {
+    +GameState game
+    +PlayerColor playerColor
+    +Difficulty difficulty
+    +boolean thinking
+    +Point|null aiLastMove
+    +boolean canUndo
+    +play(x, y) void
+    +undo() void
+    +restart() void
+    +setDifficulty(d) void
+    +setPlayerColor(c) void
+  }
+  class DriverOptions {
+    +number sliceMs
+    +() => number now
+    +(cb) => void schedule
+  }
+
+  GameState ..> AiBoard : fromGameState 唯一转换点
+  AiOptions ..> DifficultyPreset : 缺省值来源
+  SearchSession ..|> AiSession : 实现
+  SearchSession --> SearchContext : 持有
+  SearchContext --> AiBoard : 搜索用可变副本
+  SearchContext --> TranspositionTable : 剪枝缓存
+  SearchSession ..> AiSearchStats : 产出
+  AiGameState --> GameState : 包一层（不改联机 game）
+  UseAiGameResult ..> AiGameState : 派生视图
+  DriverOptions ..> SearchSession : step(sliceMs) 驱动

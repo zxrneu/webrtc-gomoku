@@ -1,0 +1,9 @@
+{
+  "moves": [[5, 7], [0, 0], [6, 7], [0, 2], [7, 5], [14, 14], [7, 6], [14, 12]],
+  "options": {
+    "mode": "threats",
+    "maxNodes": 3000,
+    "maxAttacks": 3,
+    "timeBudgetMs": 10000
+  }
+}

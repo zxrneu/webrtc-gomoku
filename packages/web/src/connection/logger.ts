@@ -121,7 +121,8 @@ export function createLogger(options: LoggerOptions = {}): Logger {
     log(e: LogEvent): void {
       if (!enabled) return;
       const line = `${prefix} ${formatEvent(e)}`;
-      switch (LEVEL_OF[e.ev]) {
+      const level: LogLevel = LEVEL_OF[e.ev] ?? 'info';
+      switch (level) {
         case 'debug':
           sink.debug(line);
           break;
@@ -135,7 +136,7 @@ export function createLogger(options: LoggerOptions = {}): Logger {
           sink.error(line);
           break;
         default:
-          assertNever(LEVEL_OF[e.ev]);
+          assertNever(level);
       }
     },
   };

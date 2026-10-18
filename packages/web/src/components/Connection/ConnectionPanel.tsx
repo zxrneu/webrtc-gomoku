@@ -91,7 +91,7 @@ interface ConnectionPanelProps {
  */
 export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
   myColor,
-  isHost,
+  isHost: _isHost,
   connected,
   onToggleColor,
   name,

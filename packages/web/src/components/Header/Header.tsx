@@ -1,4 +1,6 @@
 import React from 'react';
+import type { GameMode } from '../../types';
+import { ModeSwitch } from '../ModeSwitch/ModeSwitch';
 import styles from './Header.module.css';
 
 /**
@@ -9,15 +11,20 @@ interface HeaderProps {
   status: 'online' | 'signaling' | 'offline';
   /** 状态胶囊徽标内展示的文本（如 "未连接" / "信令就绪" / "对局直连"） */
   statusText: string;
+  /** 当前视图模式（联机 / 人机） */
+  mode: GameMode;
+  /** 切换视图模式回调（纯视图态，不触碰连接与棋局） */
+  onModeChange: (mode: GameMode) => void;
 }
 
 /**
  * 顶部导航栏组件 (Header)
  * 职责：
  * 1. 展现五子棋黑白 Logo 与产品定位副标题
- * 2. 醒目展示全站连接状态呼吸灯胶囊徽标 (online / signaling / offline)
+ * 2. 「联机对战 ↔ 人机对战」模式切换（PRD §5.1，默认停在联机以保持老用户路径）
+ * 3. 醒目展示全站连接状态呼吸灯胶囊徽标 (online / signaling / offline)
  */
-export const Header: React.FC<HeaderProps> = ({ status, statusText }) => {
+export const Header: React.FC<HeaderProps> = ({ status, statusText, mode, onModeChange }) => {
   // 根据状态切换不同配色的呼吸灯样式类名
   const badgeClass =
     status === 'online'
@@ -42,10 +49,14 @@ export const Header: React.FC<HeaderProps> = ({ status, statusText }) => {
         </div>
       </div>
 
-      {/* 动态连接状态胶囊徽标（含呼吸指示灯圆点） */}
-      <div id="conn-badge" className={badgeClass}>
-        <span className={`${styles.dot} dot`} />
-        <span id="conn-text">{statusText}</span>
+      {/* 模式切换分段控件 + 动态连接状态胶囊徽标 */}
+      <div className={styles.rightGroup}>
+        <ModeSwitch mode={mode} onChange={onModeChange} />
+
+        <div id="conn-badge" className={badgeClass}>
+          <span className={`${styles.dot} dot`} />
+          <span id="conn-text">{statusText}</span>
+        </div>
       </div>
     </header>
   );

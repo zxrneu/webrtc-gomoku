@@ -291,3 +291,70 @@
     justify-content: center;
   }
 }
+
+/**
+ * ============================================================================
+ * 人机模式：AI 思考期视觉（thinking 为 false 时这些类不会被挂上，联机零影响）
+ * ============================================================================
+ */
+
+/* 思考期棋盘：明确告知「此刻点了也没用」，避免误触后怀疑卡死（PRD P0-4） */
+.canvasThinking {
+  cursor: not-allowed;
+  filter: saturate(0.92);
+}
+
+/* 棋盘内轻量浮层条：不做全屏遮罩，不遮挡棋局（PRD §5.3） */
+.thinkingBar {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: var(--radius-pill);
+  background: rgba(43, 37, 31, 0.78);
+  color: #fff8ec;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none; /* 浮层不吃点击，点击继续落到 canvas 上被守卫拦下 */
+  box-shadow: var(--shadow-md);
+  animation: thinkingFadeIn 0.18s ease-out;
+}
+
+/* 呼吸小圆点，暗示「还在算」而不是「卡死了」 */
+.thinkingDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fbbf24;
+  animation: thinkingPulse 1s ease-in-out infinite;
+}
+
+@keyframes thinkingFadeIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@keyframes thinkingPulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
