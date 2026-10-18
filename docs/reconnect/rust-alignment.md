@@ -1,12 +1,12 @@
-# v1.1 协议与 Rust 信令端对齐清单（P1 · 下一期 M3 迭代承接）
+# v1.1 协议与 Rust 信令端对齐清单
 
 | 项 | 内容 |
 |---|---|
-| 状态 | **P1 待办**（本期不实施） |
-| 决策依据 | `docs/reconnect/architecture.md` §12 回签 **Q-C**（主理人 Qi · 2026-10-17） |
+| 状态 | **已完成**（Rust 信令服务器全面支持 v1.1 断线重连与座位保持协议） |
+| 决策依据 | `docs/reconnect/architecture.md` §12 回签 **Q-C** |
 | 唯一契约源 | `packages/shared/src/types.ts` |
-| 本期范围 | `apps/signaling-rust/**` **零改动**（`git status` 必须为空） |
-| 承接方 | 下一期 M3 迭代（Rust 信令服务器） |
+| 实现范围 | `apps/signaling-rust/**`（配置项、协议编解码、Seat 注册表、重连换绑、跨节点中继、清理协程） |
+| 验证结果 | 全部单测 (157+) 与端到端集成测试通过 |
 
 ---
 

@@ -10,6 +10,8 @@ use crate::protocol::{self, messages, Classification};
 use crate::relay::{CrossKind, CrossNodeMsg, JoinStatus};
 use crate::rooms::{generate_room_code, PeerId, RoomCode, RoomError, MAX_ROOM_MEMBERS};
 
+use super::heartbeat;
+use super::seat::{SeatRole, VerifyResult};
 use super::{ConnCtx, ConnDeps};
 
 /// Maximum attempts when generating a fresh room code (architecture §9.4).
@@ -51,6 +53,17 @@ impl Router {
             Classification::Join { room, name } => self.handle_join(ctx, &room, &name).await,
             Classification::Signal { data } => self.handle_signal(ctx, data).await,
             Classification::Leave => self.leave_current(ctx).await,
+            // v1.1: `ping` never touches room/connection state — reply and move
+            // on. It works in *any* state (not in a room / in a room / in grace).
+            Classification::Ping { ts } => {
+                self.deps.metrics.inc_message(names::msg_type::PING);
+                ctx.send(messages::pong(ts));
+            }
+            Classification::Resume {
+                room,
+                peer_id,
+                token,
+            } => self.handle_resume(ctx, &room, &peer_id, &token).await,
         }
     }
 
@@ -101,7 +114,8 @@ impl Router {
 
     async fn attempt_create(&self, ctx: &ConnCtx, code: &RoomCode) -> CreateOutcome {
         let ttl = self.deps.cfg.snapshot().redis.room_ttl_secs;
-        let member = member_id(&self.deps.node_id, &ctx.peer_id);
+        let peer = ctx.peer_id();
+        let member = member_id(&self.deps.node_id, &peer);
         let registry_outcome = self.deps.relay.registry_create(code, &member, ttl).await;
         let registered = match registry_outcome {
             Ok(ok) => ok,
@@ -113,15 +127,25 @@ impl Router {
         if !registered {
             return CreateOutcome::Exists;
         }
-        match self.deps.rooms.create(code.clone(), ctx.handle.clone()) {
+        match self.deps.rooms.create(code.clone(), ctx.handle()) {
             Ok(()) => {
                 ctx.set_room(code.clone());
-                ctx.send(messages::created(code.as_str(), ctx.peer_id.as_str()));
+                // v1.1: a seat is issued *before* `created` so the client can
+                // resume with the token it just received.
+                let token = self.deps.seats.issue(
+                    &peer,
+                    code,
+                    "",
+                    SeatRole::Host,
+                    ctx.conn_id,
+                    heartbeat::now_ms(),
+                );
+                ctx.send(messages::created_with_token(code.as_str(), peer.as_str(), &token));
                 self.deps.relay.subscribe_room(code).await;
                 self.deps.metrics.inc_message(names::msg_type::CREATE);
                 tracing::info!(
                     node_id = %self.deps.node_id,
-                    peer_id = %ctx.peer_id,
+                    peer_id = %peer,
                     room = %code,
                     "房间创建"
                 );
@@ -160,7 +184,8 @@ impl Router {
         };
 
         let ttl = self.deps.cfg.snapshot().redis.room_ttl_secs;
-        let member = member_id(&self.deps.node_id, &ctx.peer_id);
+        let peer = ctx.peer_id();
+        let member = member_id(&self.deps.node_id, &peer);
         let registry_outcome = self.deps.relay.registry_join(&code, &member, ttl).await;
         // F6: only a *successful* Redis SADD needs rollback on local failure.
         let (status, redis_joined) = match registry_outcome {
@@ -192,10 +217,10 @@ impl Router {
 
         // Register locally; if the room is not local yet this is the cross-node
         // case (it exists globally) and we create the local entry.
-        let existing = match self.deps.rooms.join(&code, ctx.handle.clone()) {
+        let existing = match self.deps.rooms.join(&code, ctx.handle()) {
             Ok(existing) => existing,
             Err(RoomError::NotFound) => {
-                match self.deps.rooms.join_or_create(&code, ctx.handle.clone()) {
+                match self.deps.rooms.join_or_create(&code, ctx.handle()) {
                     Ok(existing) => existing,
                     Err(RoomError::Full) => {
                         self.compensate_registry_join(&code, &member, redis_joined)
@@ -229,18 +254,27 @@ impl Router {
         // `peer-joined` packet on the remote node (first-packet race).
         self.deps.relay.subscribe_room(&code).await;
 
+        let name = protocol::truncate_name(name);
+        let token = self.deps.seats.issue(
+            &peer,
+            &code,
+            &name,
+            SeatRole::Guest,
+            ctx.conn_id,
+            heartbeat::now_ms(),
+        );
+
         ctx.set_room(code.clone());
-        ctx.send(messages::joined(code.as_str(), ctx.peer_id.as_str()));
+        ctx.send(messages::joined_with_token(code.as_str(), peer.as_str(), &token));
         self.deps.metrics.inc_message(names::msg_type::JOIN);
 
-        let name = protocol::truncate_name(name);
         if existing.is_empty() {
             // The existing peer lives on another node: notify it via the channel.
             let msg = CrossNodeMsg::new(
                 CrossKind::PeerJoined,
                 &code,
                 &self.deps.node_id,
-                &ctx.peer_id,
+                &peer,
             )
             .with_name(&name);
             if self.deps.relay.publish(msg).await.is_err() {
@@ -250,14 +284,14 @@ impl Router {
             }
         } else {
             for handle in existing {
-                if handle.send(messages::peer_joined(ctx.peer_id.as_str(), &name)) {
+                if handle.send(messages::peer_joined(peer.as_str(), &name)) {
                     self.deps.metrics.inc_error(names::err_kind::SLOW_CLIENT);
                 }
             }
         }
         tracing::info!(
             node_id = %self.deps.node_id,
-            peer_id = %ctx.peer_id,
+            peer_id = %peer,
             room = %code,
             "加入房间"
         );
@@ -277,10 +311,11 @@ impl Router {
         let Some(code) = ctx.current_room() else {
             return; // sender not in a room → silently dropped (v1)
         };
-        let targets = self.deps.rooms.signal_targets(&code, &ctx.peer_id);
+        let peer = ctx.peer_id();
+        let targets = self.deps.rooms.signal_targets(&code, &peer);
         if targets.is_empty() {
             // No local peer → the peer (if any) is on another node: relay it.
-            let msg = CrossNodeMsg::new(CrossKind::Signal, &code, &self.deps.node_id, &ctx.peer_id)
+            let msg = CrossNodeMsg::new(CrossKind::Signal, &code, &self.deps.node_id, &peer)
                 .with_payload(data);
             match self.deps.relay.publish(msg).await {
                 Ok(()) => self.deps.metrics.inc_message(names::msg_type::SIGNAL),
@@ -292,6 +327,10 @@ impl Router {
             }
         } else {
             for handle in targets {
+                if handle.is_closed() {
+                    // Opponent socket is dropped and in grace window: silently drop.
+                    continue;
+                }
                 if handle.send(messages::signal(data.clone())) {
                     self.deps.metrics.inc_error(names::err_kind::SLOW_CLIENT);
                 }
@@ -303,9 +342,113 @@ impl Router {
             .observe_signal_latency(started.elapsed().as_secs_f64());
     }
 
+    async fn handle_resume(&self, ctx: &ConnCtx, room: &str, peer_id: &str, token: &str) {
+        let code = match RoomCode::new(room) {
+            Ok(c) => c,
+            Err(_) => {
+                self.deps.metrics.inc_error(names::err_kind::RESUME_REJECTED);
+                ctx.send(messages::error_with_code(
+                    messages::ERR_RESUME_REJECTED,
+                    messages::code::RESUME_REJECTED,
+                ));
+                return;
+            }
+        };
+        let peer = match PeerId::new(peer_id) {
+            Ok(p) => p,
+            Err(_) => {
+                self.deps.metrics.inc_error(names::err_kind::RESUME_REJECTED);
+                ctx.send(messages::error_with_code(
+                    messages::ERR_RESUME_REJECTED,
+                    messages::code::RESUME_REJECTED,
+                ));
+                return;
+            }
+        };
+
+        let now = heartbeat::now_ms();
+        match self.deps.seats.verify(&peer, &code, token, now) {
+            VerifyResult::Ok => {}
+            VerifyResult::Invalid => {
+                self.deps
+                    .metrics
+                    .inc_error(names::err_kind::RESUME_TOKEN_INVALID);
+                ctx.send(messages::error_with_code(
+                    messages::ERR_RESUME_TOKEN_INVALID,
+                    messages::code::RESUME_TOKEN_INVALID,
+                ));
+                return;
+            }
+            VerifyResult::Expired | VerifyResult::Unknown => {
+                self.deps.metrics.inc_error(names::err_kind::RESUME_REJECTED);
+                ctx.send(messages::error_with_code(
+                    messages::ERR_RESUME_REJECTED,
+                    messages::code::RESUME_REJECTED,
+                ));
+                return;
+            }
+        }
+
+        let rebound_handle = ctx.adopt_peer(peer.clone());
+        if !self.deps.rooms.rebind(&code, &peer, rebound_handle) {
+            self.deps.metrics.inc_error(names::err_kind::RESUME_REJECTED);
+            ctx.send(messages::error_with_code(
+                messages::ERR_RESUME_REJECTED,
+                messages::code::RESUME_REJECTED,
+            ));
+            return;
+        }
+
+        let Some(new_token) = self.deps.seats.rotate(&peer, ctx.conn_id, now) else {
+            self.deps.metrics.inc_error(names::err_kind::RESUME_REJECTED);
+            ctx.send(messages::error_with_code(
+                messages::ERR_RESUME_REJECTED,
+                messages::code::RESUME_REJECTED,
+            ));
+            return;
+        };
+
+        ctx.set_room(code.clone());
+        self.deps.relay.subscribe_room(&code).await;
+
+        let targets = self.deps.rooms.signal_targets(&code, &peer);
+        let peer_present = !targets.is_empty();
+
+        ctx.send(messages::resumed(
+            code.as_str(),
+            peer.as_str(),
+            &new_token,
+            peer_present,
+        ));
+        self.deps.metrics.inc_message(names::msg_type::RESUME);
+
+        if targets.is_empty() {
+            let msg = CrossNodeMsg::new(CrossKind::PeerOnline, &code, &self.deps.node_id, &peer);
+            if self.deps.relay.publish(msg).await.is_err() && !self.deps.relay.is_connected() {
+                self.deps.metrics.inc_error(names::err_kind::RELAY_UNAVAILABLE);
+            }
+        } else {
+            for handle in targets {
+                if handle.send(messages::peer_online()) {
+                    self.deps.metrics.inc_error(names::err_kind::SLOW_CLIENT);
+                }
+            }
+        }
+
+        tracing::info!(
+            node_id = %self.deps.node_id,
+            peer_id = %peer,
+            room = %code,
+            grace_ms = self.deps.seats.grace_ms(),
+            "srv.resume.ok"
+        );
+    }
+
     async fn leave_current(&self, ctx: &ConnCtx) {
         if let Some(code) = ctx.take_room() {
-            do_leave(&self.deps, &ctx.peer_id, &code).await;
+            let peer = ctx.peer_id();
+            self.deps.seats.release(&peer);
+            do_leave(&self.deps, &peer, &code).await;
         }
     }
 }

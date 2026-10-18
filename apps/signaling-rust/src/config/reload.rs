@@ -125,6 +125,22 @@ pub fn compute_reload_report(old: &Config, new: &Config) -> ReloadReport {
         &mut restart,
     );
 
+    // `[session]`: the sweeper re-reads the snapshot every tick, so both keys
+    // take effect without a restart (seats already in grace keep their
+    // absolute expiry — no retroactive shortening).
+    changed(
+        "session.grace_secs",
+        old.session.grace_secs != new.session.grace_secs,
+        &mut applied,
+        &mut restart,
+    );
+    changed(
+        "session.sweep_interval_secs",
+        old.session.sweep_interval_secs != new.session.sweep_interval_secs,
+        &mut applied,
+        &mut restart,
+    );
+
     changed(
         "limits.max_connections",
         old.limits.max_connections != new.limits.max_connections,

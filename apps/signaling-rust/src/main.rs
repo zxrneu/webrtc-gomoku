@@ -25,6 +25,7 @@ use gomoku_signaling::metrics::Metrics;
 use gomoku_signaling::relay;
 use gomoku_signaling::rooms::{LocalDelivery, RoomTable};
 use gomoku_signaling::transport::registry::ConnectionRegistry;
+use gomoku_signaling::transport::seat::{spawn_sweeper, SeatRegistry};
 use gomoku_signaling::transport::shutdown::Shutdown;
 
 #[tokio::main]
@@ -47,6 +48,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
     // 优雅停机广播与排空协调器
     let shutdown = Shutdown::new();
+    // 座位簿记与宽限期管理器
+    let seats = Arc::new(SeatRegistry::new(
+        cfg.session.grace_secs.saturating_mul(1000),
+    ));
 
     // 4. 构建中继分发器（单节点使用基于 tokio 内存通道的 InProcessRelay，集群模式使用 Redis Relay）
     let delivery: Arc<dyn LocalDelivery> = rooms.clone();
@@ -77,11 +82,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         relay,
         metrics: metrics.clone(),
         shutdown: shutdown.clone(),
+        seats: seats.clone(),
         node_id: Arc::from(cfg.cluster.node_id.as_str()),
         started: Instant::now(),
         public_dir,
         log_level: Some(log_setter),
     };
+
+    // 7.1 启动后台座位宽限期过期回收任务
+    let _sweeper = spawn_sweeper(state.conn_deps(), shutdown.subscribe());
 
     tracing::info!(
         node_id = %cfg.cluster.node_id,

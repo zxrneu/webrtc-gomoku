@@ -17,6 +17,10 @@ pub enum CrossKind {
     PeerLeft,
     /// An opaque signaling payload.
     Signal,
+    /// A peer entered the grace window (offline).
+    PeerOffline,
+    /// A peer restored its seat within the grace window (online).
+    PeerOnline,
 }
 
 /// A message exchanged between nodes through the per-room pub/sub channel.
@@ -41,6 +45,9 @@ pub struct CrossNodeMsg {
     /// Opaque signaling payload (only for `signal`; never inspected here).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub payload: Option<serde_json::Value>,
+    /// Grace window in seconds (only for `peer-offline`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grace_sec: Option<u32>,
 }
 
 impl CrossNodeMsg {
@@ -55,12 +62,19 @@ impl CrossNodeMsg {
             target: None,
             name: None,
             payload: None,
+            grace_sec: None,
         }
     }
 
     /// Attach a display name.
     pub fn with_name(mut self, name: &str) -> Self {
         self.name = Some(name.to_string());
+        self
+    }
+
+    /// Attach a grace window in seconds.
+    pub fn with_grace(mut self, grace_sec: u32) -> Self {
+        self.grace_sec = Some(grace_sec);
         self
     }
 

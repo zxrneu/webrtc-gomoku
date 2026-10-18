@@ -19,6 +19,13 @@ ws_idle_timeout_secs = 60
 ws_handshake_timeout_secs = 10
 shutdown_drain_secs = 15
 
+[session]
+# 断线座位保留时长（秒）。宽限内 resume 可占回原座位，对手只收到 peer-offline；
+# 超时后 sweep 才补发 peer-left（v1 语义）。对齐 Node 端 GRACE_SECS=60。
+grace_secs = 60
+# 宽限过期扫描周期（秒）
+sweep_interval_secs = 5
+
 [limits]
 max_connections = 100000
 max_connections_per_ip = 10

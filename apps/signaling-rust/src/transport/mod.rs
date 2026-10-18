@@ -1,11 +1,12 @@
 //! Connection lifecycle, heartbeat, bounded broadcast queues, connection
-//! registry and graceful shutdown.
+//! registry, seat preservation and graceful shutdown.
 
 pub mod connection;
 pub mod heartbeat;
 pub mod queue;
 pub mod registry;
 pub mod router;
+pub mod seat;
 pub mod shutdown;
 
 use std::sync::{Arc, Mutex};
@@ -19,67 +20,104 @@ use crate::rooms::{ConnHandle, PeerId, RoomCode, RoomTable};
 pub use connection::{run_connection, ConnectionGuard};
 pub use registry::{AdmitResult, ConnAdmission, ConnectionRegistry};
 pub use router::Router;
+pub use seat::{Seat, SeatRegistry, SeatRole, VerifyResult};
 pub use shutdown::{ConnTicket, Shutdown};
 
 /// Mutable per-connection state.
-#[derive(Debug, Default, Clone)]
+///
+/// Everything here can change while the connection is alive:
+/// * `current_room` — set by `create`/`join`, cleared by `leave`;
+/// * `peer_id` — **rewritten by `resume`** (the new socket inherits the seat's
+///   identity);
+/// * `handle` — rewritten together with `peer_id`, because the room table keys
+///   members by peer id and routes through the handle's outbound queue.
 pub struct ConnState {
+    /// This connection's peer id (mutable: `resume` adopts the old one).
+    pub peer_id: PeerId,
+    /// Outbound handle (bounded queue).
+    pub handle: ConnHandle,
     /// Room the connection currently belongs to, if any.
     pub current_room: Option<RoomCode>,
 }
 
 /// Per-connection context shared by the reader task, the router and the RAII
-/// guard (so a dropped connection always leaves its room).
+/// guard (so a dropped connection always settles its seat).
 #[derive(Clone)]
 pub struct ConnCtx {
-    /// This connection's peer id.
-    pub peer_id: PeerId,
     /// This node's id.
     pub node_id: Arc<str>,
-    /// Outbound handle (bounded queue).
-    pub handle: ConnHandle,
-    /// Shared mutable state.
-    pub state: Arc<Mutex<ConnState>>,
+    /// Monotonic physical-connection id (`seat.owner_conn`).
+    ///
+    /// Never rewritten — that is exactly what makes a *late* `close` from a
+    /// superseded socket harmless.
+    pub conn_id: u64,
+    state: Arc<Mutex<ConnState>>,
 }
 
 impl ConnCtx {
     /// Build a context for a fresh connection.
-    pub fn new(peer_id: PeerId, node_id: Arc<str>, handle: ConnHandle) -> Self {
+    pub fn new(conn_id: u64, peer_id: PeerId, node_id: Arc<str>, handle: ConnHandle) -> Self {
         Self {
-            peer_id,
             node_id,
-            handle,
-            state: Arc::new(Mutex::new(ConnState::default())),
+            conn_id,
+            state: Arc::new(Mutex::new(ConnState {
+                peer_id,
+                handle,
+                current_room: None,
+            })),
         }
+    }
+
+    /// Current peer id (clone).
+    pub fn peer_id(&self) -> PeerId {
+        self.lock().peer_id.clone()
+    }
+
+    /// Current outbound handle (clone).
+    pub fn handle(&self) -> ConnHandle {
+        self.lock().handle.clone()
     }
 
     /// Current room (clone).
     pub fn current_room(&self) -> Option<RoomCode> {
-        self.state
-            .lock()
-            .map(|s| s.current_room.clone())
-            .unwrap_or(None)
+        self.lock().current_room.clone()
     }
 
     /// Set the current room.
     pub fn set_room(&self, code: RoomCode) {
-        if let Ok(mut s) = self.state.lock() {
-            s.current_room = Some(code);
-        }
+        self.lock().current_room = Some(code);
     }
 
     /// Take the current room, clearing it.
     pub fn take_room(&self) -> Option<RoomCode> {
-        self.state
-            .lock()
-            .map(|mut s| s.current_room.take())
-            .unwrap_or(None)
+        self.lock().current_room.take()
+    }
+
+    /// Adopt the identity of a seat during `resume`.
+    ///
+    /// The outbound queue is preserved (same socket, same writer task); only the
+    /// peer id changes, and the returned handle is the one that must be
+    /// re-bound in the room table. Returns `None` only if the state lock is
+    /// poisoned beyond recovery (never in practice).
+    pub fn adopt_peer(&self, peer_id: PeerId) -> ConnHandle {
+        let mut state = self.lock();
+        let handle = state.handle.with_peer_id(peer_id.clone());
+        state.peer_id = peer_id;
+        state.handle = handle.clone();
+        handle
     }
 
     /// Non-blocking enqueue to this connection. Returns `true` when the client
     /// is slow and should be disconnected.
     pub fn send(&self, msg: ServerMsg) -> bool {
-        self.handle.send(msg)
+        self.handle().send(msg)
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, ConnState> {
+        match self.state.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
     }
 }
 
@@ -96,6 +134,8 @@ pub struct ConnDeps {
     pub relay: Arc<dyn Relay>,
     /// Metrics registry.
     pub metrics: Arc<Metrics>,
+    /// Seat table (grace window + resume credentials).
+    pub seats: Arc<SeatRegistry>,
     /// This node's id.
     pub node_id: Arc<str>,
 }

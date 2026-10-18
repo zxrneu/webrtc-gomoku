@@ -1,5 +1,12 @@
 //! Per-connection lifecycle: reader task + writer task, heartbeat, and the RAII
-//! guard that guarantees a dropped connection leaves its room.
+//! guard that settles the seat when the socket drops.
+//!
+//! ## Disconnect ≠ leave (v1.1)
+//!
+//! A dropped socket keeps the seat: the room entry stays in the table, the peer
+//! id stays valid, and the opponent only receives `peer-offline{graceSec}`.
+//! `peer-left` is emitted later, by the sweep, once the grace window expires —
+//! which is exactly the frozen v1 semantics for clients that never resume.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -13,14 +20,26 @@ use tokio::sync::{mpsc, Notify};
 use tokio::time::MissedTickBehavior;
 
 use crate::metrics::names;
-use crate::protocol::ServerMsg;
-use crate::rooms::{generate_peer_id, outbound_channel, ConnHandle, PeerId};
+use crate::protocol::{messages, ServerMsg};
+use crate::relay::{CrossKind, CrossNodeMsg};
+use crate::rooms::{generate_peer_id, outbound_channel, ConnHandle};
 
 use super::heartbeat;
 use super::registry::ConnAdmission;
-use super::router::{self, Router};
+use super::router::Router;
 use super::shutdown::Shutdown;
 use super::{ConnCtx, ConnDeps};
+
+/// Monotonic physical-connection id.
+///
+/// A process-wide counter is enough: it only has to be unique *within this
+/// node's seat table* (seats are node-local).
+static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Allocate a fresh physical-connection id.
+fn next_conn_id() -> u64 {
+    NEXT_CONN_ID.fetch_add(1, Ordering::Relaxed)
+}
 
 /// Control frames the reader forwards to the writer (pong replies, close).
 enum WriterCmd {
@@ -49,15 +68,16 @@ pub async fn run_connection(
     let ticket = shutdown.register_connection();
 
     let peer_id = generate_peer_id();
+    let conn_id = next_conn_id();
     let capacity = deps.cfg.snapshot().limits.broadcast_queue_capacity as usize;
     let (tx, rx) = outbound_channel(capacity);
     let slow = Arc::new(Notify::new());
     let handle = ConnHandle::new(peer_id.clone(), deps.node_id.clone(), tx, slow.clone());
-    let ctx = ConnCtx::new(peer_id.clone(), deps.node_id.clone(), handle.clone());
+    let ctx = ConnCtx::new(conn_id, peer_id.clone(), deps.node_id.clone(), handle.clone());
     let guard = ConnectionGuard::new(deps.clone(), ctx.clone());
 
     deps.metrics.set_ws_connections(deps.conns.current());
-    tracing::info!(node_id = %deps.node_id, peer_id = %peer_id, "连接建立");
+    tracing::info!(node_id = %deps.node_id, peer_id = %peer_id, conn_id, "连接建立");
 
     let (ping_secs, idle_secs) = {
         let cfg = deps.cfg.snapshot();
@@ -116,7 +136,7 @@ pub async fn run_connection(
         }
     }
 
-    // Stop the writer deterministically, then release the room.
+    // Stop the writer deterministically, then settle the seat.
     let _ = cmd_tx.try_send(WriterCmd::Close(1001, "going away"));
     drop(cmd_tx);
     let _ = writer.await;
@@ -125,7 +145,55 @@ pub async fn run_connection(
     drop(handle);
     drop(ticket);
     deps.metrics.set_ws_connections(deps.conns.current());
-    tracing::info!(node_id = %deps.node_id, peer_id = %peer_id, "连接关闭");
+    tracing::info!(node_id = %deps.node_id, peer_id = %peer_id, conn_id, "连接关闭");
+}
+
+/// Settle the seat of a connection that just ended.
+///
+/// Order matters and is not negotiable:
+/// 1. a *stale* connection (already superseded by a successful `resume`) does
+///    nothing — otherwise the freshly restored seat would be pushed straight
+///    back into the grace window;
+/// 2. a connection that never joined a room does nothing;
+/// 3. `mark_offline` is idempotent, so `close` + `error` cannot broadcast
+///    `peer-offline` twice;
+/// 4. the room is **not** left — that is what makes resume cheap (ADR-7).
+pub async fn on_disconnect(deps: &ConnDeps, ctx: &ConnCtx) {
+    let peer = ctx.peer_id();
+    if !deps.seats.is_owner(&peer, ctx.conn_id) {
+        return;
+    }
+    let Some(code) = ctx.current_room() else {
+        return;
+    };
+    let now = heartbeat::now_ms();
+    let Some(_seat) = deps.seats.mark_offline(&peer, now) else {
+        return;
+    };
+
+    let grace_secs = deps.seats.grace_secs();
+    let targets = deps.rooms.signal_targets(&code, &peer);
+    if targets.is_empty() {
+        // The opponent (if any) lives on another node.
+        let msg = CrossNodeMsg::new(CrossKind::PeerOffline, &code, &deps.node_id, &peer)
+            .with_grace(grace_secs);
+        if deps.relay.publish(msg).await.is_err() && deps.relay.is_connected() {
+            deps.metrics.inc_error(names::err_kind::RELAY_UNAVAILABLE);
+        }
+    } else {
+        for handle in targets {
+            if handle.send(messages::peer_offline(grace_secs)) {
+                deps.metrics.inc_error(names::err_kind::SLOW_CLIENT);
+            }
+        }
+    }
+    tracing::info!(
+        node_id = %deps.node_id,
+        peer_id = %peer,
+        room = %code,
+        grace_ms = deps.seats.grace_ms(),
+        "srv.grace.start"
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -186,8 +254,9 @@ async fn write_loop(
     let _ = sink.close().await;
 }
 
-/// RAII guard: on drop, the connection leaves its room (local cleanup is
-/// synchronous; the Redis side runs on a spawned task).
+/// RAII guard: on drop, the connection settles its seat (offline + broadcast)
+/// instead of leaving the room. Local cleanup is synchronous; the Redis side
+/// runs on a spawned task.
 pub struct ConnectionGuard {
     deps: ConnDeps,
     ctx: ConnCtx,
@@ -202,12 +271,10 @@ impl ConnectionGuard {
 
 impl Drop for ConnectionGuard {
     fn drop(&mut self) {
-        if let Some(code) = self.ctx.take_room() {
-            let deps = self.deps.clone();
-            let peer: PeerId = self.ctx.peer_id.clone();
-            tokio::spawn(async move {
-                router::do_leave(&deps, &peer, &code).await;
-            });
-        }
+        let deps = self.deps.clone();
+        let ctx = self.ctx.clone();
+        tokio::spawn(async move {
+            on_disconnect(&deps, &ctx).await;
+        });
     }
 }

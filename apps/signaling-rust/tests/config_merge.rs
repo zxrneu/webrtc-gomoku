@@ -32,6 +32,8 @@ fn builtin_defaults_apply_when_nothing_is_supplied() {
     assert_eq!(cfg.timeouts.ws_idle_timeout_secs, 60);
     assert_eq!(cfg.timeouts.ws_handshake_timeout_secs, 10);
     assert_eq!(cfg.timeouts.shutdown_drain_secs, 15);
+    assert_eq!(cfg.session.grace_secs, 60);
+    assert_eq!(cfg.session.sweep_interval_secs, 5);
     assert_eq!(cfg.limits.max_connections, 100_000);
     assert_eq!(cfg.limits.max_connections_per_ip, 10);
     assert_eq!(cfg.limits.max_rooms, 50_000);
@@ -66,6 +68,10 @@ allowed_ws_origins = ["https://from-file.example"]
 max_rooms = 123
 broadcast_queue_capacity = 128
 
+[session]
+grace_secs = 30
+sweep_interval_secs = 2
+
 [ice]
 turn_url = "turn:file.example:3478"
 turn_credential_exposed = false
@@ -84,6 +90,8 @@ turn_credential_exposed = false
     assert_eq!(from_file.limits.broadcast_queue_capacity, 128);
     assert_eq!(from_file.ice.turn_url, "turn:file.example:3478");
     assert!(!from_file.ice.turn_credential_exposed);
+    assert_eq!(from_file.session.grace_secs, 30);
+    assert_eq!(from_file.session.sweep_interval_secs, 2);
 
     // Layer 3: environment overrides the file (scalars, lists and booleans).
     let envsrc = MapEnv::new(&[
@@ -93,6 +101,7 @@ turn_credential_exposed = false
         (env::TRUST_PROXY_HEADERS, "true"),
         (env::TURN_CREDENTIAL_EXPOSED, "true"),
         (env::BROADCAST_QUEUE_CAPACITY, "512"),
+        (env::SESSION_GRACE, "20"),
     ]);
     let merged = Config::assemble(&path, &envsrc).expect("assemble");
 
@@ -113,6 +122,8 @@ turn_credential_exposed = false
         merged.server.allowed_ws_origins,
         vec!["https://from-file.example"]
     );
+    assert_eq!(merged.session.grace_secs, 20, "env wins over the file");
+    assert_eq!(merged.session.sweep_interval_secs, 2, "file value kept");
 }
 
 #[test]
@@ -129,6 +140,7 @@ fn config_example_toml_round_trips_to_the_documented_defaults() {
     // example pins an explicit value; compare the rest field by field.
     assert_eq!(cfg.server, builtin.server);
     assert_eq!(cfg.timeouts, builtin.timeouts);
+    assert_eq!(cfg.session, builtin.session);
     assert_eq!(cfg.limits, builtin.limits);
     assert_eq!(cfg.redis, builtin.redis);
     assert_eq!(cfg.cors, builtin.cors);

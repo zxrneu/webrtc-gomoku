@@ -65,6 +65,19 @@ pub struct TimeoutsConfig {
     pub shutdown_drain_secs: u64,
 }
 
+/// `[session]` — seat preservation / resume (v1.1 reconnect).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionConfig {
+    /// How long a disconnected peer keeps its seat (seconds).
+    ///
+    /// Inside this window a `resume` can reclaim the seat and the opponent only
+    /// sees `peer-offline`; once it elapses the sweep emits `peer-left`
+    /// (frozen v1 semantics). Mirrors the Node server's `GRACE_SECS`.
+    pub grace_secs: u64,
+    /// Grace-expiry sweep period (seconds).
+    pub sweep_interval_secs: u64,
+}
+
 /// `[limits]` — concurrency limits.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LimitsConfig {
@@ -171,6 +184,8 @@ pub struct Config {
     pub server: ServerConfig,
     /// `[timeouts]`
     pub timeouts: TimeoutsConfig,
+    /// `[session]`
+    pub session: SessionConfig,
     /// `[limits]`
     pub limits: LimitsConfig,
     /// `[redis]`
@@ -344,6 +359,8 @@ mod validate {
             c.timeouts.shutdown_drain_secs,
             "timeouts.shutdown_drain_secs",
         )?;
+        check_nonzero(c.session.grace_secs, "session.grace_secs")?;
+        check_nonzero(c.session.sweep_interval_secs, "session.sweep_interval_secs")?;
 
         check_nonzero(c.limits.max_connections, "limits.max_connections")?;
         check_nonzero(

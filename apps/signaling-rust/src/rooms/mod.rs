@@ -75,6 +75,27 @@ impl ConnHandle {
             Err(mpsc::error::TrySendError::Closed(_)) => true,
         }
     }
+
+    /// Whether the receiving connection task is already gone.
+    ///
+    /// A seat inside its grace window keeps its member entry but has no live
+    /// writer, so `signal` forwarding can tell "peer is offline" (drop
+    /// silently) apart from "peer is too slow" (back-pressure).
+    pub fn is_closed(&self) -> bool {
+        self.tx.is_closed()
+    }
+
+    /// Clone this handle under another peer id, keeping the same outbound
+    /// queue. Used by `resume`: the seat keeps its old peer id while the new
+    /// connection supplies a fresh channel.
+    pub fn with_peer_id(&self, peer_id: PeerId) -> Self {
+        Self {
+            peer_id,
+            node_id: self.node_id.clone(),
+            tx: self.tx.clone(),
+            slow: self.slow.clone(),
+        }
+    }
 }
 
 /// Room errors.
@@ -223,6 +244,44 @@ impl RoomTable {
                 Ok(Vec::new())
             }
         }
+    }
+
+    /// Re-bind the seat of `peer` in `code` to a fresh connection handle.
+    ///
+    /// `resume` never touches the room structure: the seat (member entry) is
+    /// already there because a dropped socket does not leave. Only the
+    /// outbound queue is swapped, so the opponent relationship and the member
+    /// count stay untouched.
+    ///
+    /// Returns `false` when the room or the seat no longer exists (the grace
+    /// window was swept concurrently), in which case the caller must reject the
+    /// resume.
+    pub fn rebind(&self, code: &RoomCode, peer: &PeerId, handle: ConnHandle) -> bool {
+        let shard = self.shard_ref(code);
+        let mut map = match shard.write() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        let Some(room) = map.get_mut(code) else {
+            return false;
+        };
+        if !room.members.contains_key(peer) {
+            return false;
+        }
+        room.members.insert(peer.clone(), handle);
+        true
+    }
+
+    /// Whether `peer` currently holds a seat in `code`.
+    pub fn contains_peer(&self, code: &RoomCode, peer: &PeerId) -> bool {
+        let shard = self.shard_ref(code);
+        let map = match shard.read() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        map.get(code)
+            .map(|room| room.members.contains_key(peer))
+            .unwrap_or(false)
     }
 
     /// Handles of every member except `from`.
@@ -532,8 +591,7 @@ mod tests {
     /// F4: the TTL refresher walks the local table, so it must be able to
     /// enumerate every live room code across all shards.
     #[test]
-    fn room_codes_returns_all_live_rooms() {
-        let table = RoomTable::default();
+    fn room_codes_returns_all_live_rooms() {        let table = RoomTable::default();
         assert!(table.room_codes().is_empty());
         table
             .create(code("AAAA"), handle("aaaaaaaa"))
@@ -545,5 +603,77 @@ mod tests {
         assert_eq!(codes.len(), 2);
         assert!(codes.contains(&code("AAAA")));
         assert!(codes.contains(&code("BBBB")));
+    }
+
+    #[test]
+    fn rebind_swaps_the_outbound_queue_for_the_same_seat() {
+        let table = RoomTable::default();
+        table
+            .create(code("AAAA"), handle("aaaaaaaa"))
+            .expect("create");
+
+        // The old connection's channel: used to prove it stops receiving.
+        let (old_tx, mut old_rx) = outbound_channel(4);
+        let old = ConnHandle::new(
+            PeerId::new("aaaaaaaa").expect("id"),
+            Arc::from("n"),
+            old_tx,
+            Arc::new(Notify::new()),
+        );
+        assert!(table.rebind(&code("AAAA"), &PeerId::new("aaaaaaaa").expect("id"), old));
+
+        // A resume swaps in a fresh channel (new connection, same peer id).
+        let (new_tx, mut new_rx) = outbound_channel(4);
+        let new = ConnHandle::new(
+            PeerId::new("aaaaaaaa").expect("id"),
+            Arc::from("n"),
+            new_tx,
+            Arc::new(Notify::new()),
+        );
+        assert!(table.rebind(&code("AAAA"), &PeerId::new("aaaaaaaa").expect("id"), new));
+
+        table.deliver(
+            &code("AAAA"),
+            &PeerId::new("aaaaaaaa").expect("id"),
+            ServerMsg::PeerOnline,
+        );
+        assert!(new_rx.try_recv().is_ok(), "new connection receives");
+        assert!(old_rx.try_recv().is_err(), "old connection is detached");
+    }
+
+    #[test]
+    fn rebind_rejects_unknown_room_or_seat() {
+        let table = RoomTable::default();
+        assert!(!table.rebind(
+            &code("AAAA"),
+            &PeerId::new("aaaaaaaa").expect("id"),
+            handle("aaaaaaaa")
+        ));
+        table
+            .create(code("AAAA"), handle("aaaaaaaa"))
+            .expect("create");
+        assert!(!table.rebind(
+            &code("AAAA"),
+            &PeerId::new("bbbbbbbb").expect("id"),
+            handle("bbbbbbbb")
+        ));
+        assert!(table.contains_peer(&code("AAAA"), &PeerId::new("aaaaaaaa").expect("id")));
+        assert!(!table.contains_peer(&code("AAAA"), &PeerId::new("bbbbbbbb").expect("id")));
+    }
+
+    #[test]
+    fn with_peer_id_keeps_the_same_queue() {
+        let (tx, mut rx) = outbound_channel(4);
+        let original = ConnHandle::new(
+            PeerId::new("aaaaaaaa").expect("id"),
+            Arc::from("n"),
+            tx,
+            Arc::new(Notify::new()),
+        );
+        let rebound = original.with_peer_id(PeerId::new("bbbbbbbb").expect("id"));
+        assert_eq!(rebound.peer_id.as_str(), "bbbbbbbb");
+        rebound.send(ServerMsg::PeerLeft);
+        assert!(rx.try_recv().is_ok(), "the queue is shared");
+        assert!(!rebound.is_closed());
     }
 }

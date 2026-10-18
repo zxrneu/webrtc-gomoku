@@ -211,6 +211,8 @@ fn dispatch(payload: &str, delivery: &dyn LocalDelivery, node_id: &str, metrics:
             messages::peer_joined(from_peer.as_str(), msg.name.as_deref().unwrap_or_default())
         }
         CrossKind::PeerLeft => messages::peer_left(),
+        CrossKind::PeerOffline => messages::peer_offline(msg.grace_sec.unwrap_or(60)),
+        CrossKind::PeerOnline => messages::peer_online(),
         CrossKind::Signal => {
             let data = msg.payload.clone().unwrap_or(serde_json::Value::Null);
             if crate::protocol::is_falsy(&data) {

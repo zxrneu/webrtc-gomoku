@@ -30,12 +30,16 @@ pub mod msg_type {
     pub const SIGNAL: &str = "signal";
     /// `leave`
     pub const LEAVE: &str = "leave";
+    /// `ping`
+    pub const PING: &str = "ping";
+    /// `resume`
+    pub const RESUME: &str = "resume";
 
     /// Every message type the router can record.
     ///
     /// Used to pre-register the label values at `0` so a cold, traffic-free
     /// instance still exposes `gomoku_messages_total` (PRD §6.2 / DoD10).
-    pub const ALL: [&str; 4] = [CREATE, JOIN, SIGNAL, LEAVE];
+    pub const ALL: [&str; 6] = [CREATE, JOIN, SIGNAL, LEAVE, PING, RESUME];
 }
 
 /// Error-kind label values.
@@ -60,12 +64,16 @@ pub mod err_kind {
     pub const INTERNAL: &str = "internal";
     /// An inbound frame exceeded `limits.max_message_bytes`.
     pub const MESSAGE_TOO_LARGE: &str = "message_too_large";
+    /// Room has expired or seat does not exist.
+    pub const RESUME_REJECTED: &str = "resume_rejected";
+    /// Seat token mismatch.
+    pub const RESUME_TOKEN_INVALID: &str = "resume_token_invalid";
 
     /// Every error kind the server can record.
     ///
     /// Used to pre-register the label values at `0` so a cold, traffic-free
     /// instance still exposes `gomoku_errors_total` (PRD §6.2 / DoD10).
-    pub const ALL: [&str; 10] = [
+    pub const ALL: [&str; 12] = [
         ROOM_FORMAT,
         ROOM_EXISTS,
         ROOM_NOT_FOUND,
@@ -76,5 +84,7 @@ pub mod err_kind {
         RELAY_UNAVAILABLE,
         INTERNAL,
         MESSAGE_TOO_LARGE,
+        RESUME_REJECTED,
+        RESUME_TOKEN_INVALID,
     ];
 }

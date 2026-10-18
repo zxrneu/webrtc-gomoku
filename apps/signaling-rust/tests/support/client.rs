@@ -54,6 +54,9 @@ impl TestServer {
             gomoku_signaling::http::static_files::resolve_public_dir(&cfg.server.public_dir);
         let handshake_timeout = Duration::from_secs(cfg.timeouts.ws_handshake_timeout_secs);
         let state = AppState {
+            seats: Arc::new(gomoku_signaling::transport::seat::SeatRegistry::new(
+                cfg.session.grace_secs.saturating_mul(1000),
+            )),
             cfg: Arc::new(ConfigSnapshot::new(cfg)),
             rooms,
             conns: Arc::new(ConnectionRegistry::new(1_000, 100)),

@@ -31,6 +31,11 @@ pub const WS_HANDSHAKE_TIMEOUT: &str = "GOMOKU_WS_HANDSHAKE_TIMEOUT";
 /// `[timeouts]`
 pub const SHUTDOWN_DRAIN: &str = "GOMOKU_SHUTDOWN_DRAIN";
 
+/// `[session]`
+pub const SESSION_GRACE: &str = "GOMOKU_SESSION_GRACE";
+/// `[session]`
+pub const SESSION_SWEEP_INTERVAL: &str = "GOMOKU_SESSION_SWEEP_INTERVAL";
+
 /// `[limits]`
 pub const MAX_CONNECTIONS: &str = "GOMOKU_MAX_CONNECTIONS";
 /// `[limits]`
@@ -157,6 +162,13 @@ pub fn apply(cfg: &mut Config, env: &dyn EnvSource) -> Result<(), ConfigError> {
     }
     if let Some(v) = u64_of(env, SHUTDOWN_DRAIN)? {
         cfg.timeouts.shutdown_drain_secs = v;
+    }
+
+    if let Some(v) = u64_of(env, SESSION_GRACE)? {
+        cfg.session.grace_secs = v;
+    }
+    if let Some(v) = u64_of(env, SESSION_SWEEP_INTERVAL)? {
+        cfg.session.sweep_interval_secs = v;
     }
 
     if let Some(v) = u64_of(env, MAX_CONNECTIONS)? {
@@ -331,8 +343,16 @@ mod tests {
     }
 
     #[test]
-    fn env_invalid_number_reports_error() {
-        let env = MapEnv::new(&[(PORT, "not-a-port")]);
+    fn env_overrides_session_grace_and_sweep() {
+        let env = MapEnv::new(&[(SESSION_GRACE, "15"), (SESSION_SWEEP_INTERVAL, "1")]);
+        let mut cfg = Config::default();
+        apply(&mut cfg, &env).expect("apply");
+        assert_eq!(cfg.session.grace_secs, 15);
+        assert_eq!(cfg.session.sweep_interval_secs, 1);
+    }
+
+    #[test]
+    fn env_invalid_number_reports_error() {        let env = MapEnv::new(&[(PORT, "not-a-port")]);
         let mut cfg = Config::default();
         let err = apply(&mut cfg, &env).unwrap_err();
         assert!(matches!(err, ConfigError::Env { ref var, .. } if var == PORT));

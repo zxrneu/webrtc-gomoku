@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use crate::config::{
     AdminConfig, ClusterConfig, Config, ConfigError, CorsConfig, IceConfig, LimitsConfig,
-    LoggingConfig, RedisConfig, ServerConfig, TimeoutsConfig,
+    LoggingConfig, RedisConfig, ServerConfig, SessionConfig, TimeoutsConfig,
 };
 
 /// Default configuration file path (relative to the working directory).
@@ -20,6 +20,8 @@ pub struct PartialConfig {
     pub server: PartialServer,
     /// `[timeouts]`
     pub timeouts: PartialTimeouts,
+    /// `[session]`
+    pub session: PartialSession,
     /// `[limits]`
     pub limits: PartialLimits,
     /// `[redis]`
@@ -66,11 +68,20 @@ pub struct PartialTimeouts {
     pub shutdown_drain_secs: Option<u64>,
 }
 
+/// `[session]` partial.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(default)]
+pub struct PartialSession {
+    /// See [`SessionConfig::grace_secs`].
+    pub grace_secs: Option<u64>,
+    /// See [`SessionConfig::sweep_interval_secs`].
+    pub sweep_interval_secs: Option<u64>,
+}
+
 /// `[limits]` partial.
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default)]
-pub struct PartialLimits {
-    /// See [`LimitsConfig::max_connections`].
+pub struct PartialLimits {    /// See [`LimitsConfig::max_connections`].
     pub max_connections: Option<u64>,
     /// See [`LimitsConfig::max_connections_per_ip`].
     pub max_connections_per_ip: Option<u32>,
@@ -157,6 +168,7 @@ impl PartialConfig {
     pub fn apply_to(&self, cfg: &mut Config) {
         self.server.apply_to(&mut cfg.server);
         self.timeouts.apply_to(&mut cfg.timeouts);
+        self.session.apply_to(&mut cfg.session);
         self.limits.apply_to(&mut cfg.limits);
         self.redis.apply_to(&mut cfg.redis);
         self.cluster.apply_to(&mut cfg.cluster);
@@ -204,9 +216,14 @@ impl PartialTimeouts {
     }
 }
 
+impl PartialSession {
+    fn apply_to(&self, d: &mut SessionConfig) {
+        overlay_field!(self, d, grace_secs, sweep_interval_secs);
+    }
+}
+
 impl PartialLimits {
-    fn apply_to(&self, d: &mut LimitsConfig) {
-        overlay_field!(
+    fn apply_to(&self, d: &mut LimitsConfig) {        overlay_field!(
             self,
             d,
             max_connections,
@@ -327,8 +344,19 @@ turn_credential_exposed = false
     }
 
     #[test]
-    fn redis_enabled_false_disables_relay() {
-        let partial = parse_partial("[redis]\nenabled = false\n").expect("parse");
+    fn parses_session_section() {
+        let text = "[session]\ngrace_secs = 30\nsweep_interval_secs = 2\n";
+        let partial = parse_partial(text).expect("parse");
+        let mut cfg = Config::default();
+        partial.apply_to(&mut cfg);
+        assert_eq!(cfg.session.grace_secs, 30);
+        assert_eq!(cfg.session.sweep_interval_secs, 2);
+        // Untouched keys keep the built-in defaults.
+        assert_eq!(cfg.timeouts.ws_idle_timeout_secs, 60);
+    }
+
+    #[test]
+    fn redis_enabled_false_disables_relay() {        let partial = parse_partial("[redis]\nenabled = false\n").expect("parse");
         let mut cfg = Config::default();
         assert!(cfg.redis.enabled, "前置条件：默认启用");
         partial.apply_to(&mut cfg);

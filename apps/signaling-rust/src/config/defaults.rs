@@ -9,7 +9,7 @@ use rand::distributions::{Alphanumeric, DistString};
 
 use crate::config::{
     AdminConfig, ClusterConfig, Config, CorsConfig, IceConfig, LimitsConfig, LoggingConfig,
-    RedisConfig, ServerConfig, TimeoutsConfig,
+    RedisConfig, ServerConfig, SessionConfig, TimeoutsConfig,
 };
 
 /// Default bind host.
@@ -26,6 +26,10 @@ pub const WS_IDLE_TIMEOUT_SECS: u64 = 60;
 pub const WS_HANDSHAKE_TIMEOUT_SECS: u64 = 10;
 /// Default graceful-shutdown drain window (seconds).
 pub const SHUTDOWN_DRAIN_SECS: u64 = 15;
+/// Default seat grace window (seconds) — mirrors the Node server's `GRACE_SECS`.
+pub const SESSION_GRACE_SECS: u64 = 60;
+/// Default grace-expiry sweep period (seconds) — mirrors the Node server.
+pub const SESSION_SWEEP_INTERVAL_SECS: u64 = 5;
 /// Default global connection cap.
 pub const MAX_CONNECTIONS: u64 = 100_000;
 /// Default per-IP connection cap.
@@ -111,6 +115,10 @@ pub fn builtin() -> Config {
             ws_handshake_timeout_secs: WS_HANDSHAKE_TIMEOUT_SECS,
             shutdown_drain_secs: SHUTDOWN_DRAIN_SECS,
         },
+        session: SessionConfig {
+            grace_secs: SESSION_GRACE_SECS,
+            sweep_interval_secs: SESSION_SWEEP_INTERVAL_SECS,
+        },
         limits: LimitsConfig {
             max_connections: MAX_CONNECTIONS,
             max_connections_per_ip: MAX_CONNECTIONS_PER_IP,
@@ -164,6 +172,8 @@ mod tests {
         assert_eq!(c.timeouts.ws_idle_timeout_secs, 60);
         assert_eq!(c.timeouts.ws_handshake_timeout_secs, 10);
         assert_eq!(c.timeouts.shutdown_drain_secs, 15);
+        assert_eq!(c.session.grace_secs, 60);
+        assert_eq!(c.session.sweep_interval_secs, 5);
         assert_eq!(c.limits.max_connections, 100_000);
         assert_eq!(c.limits.max_connections_per_ip, 10);
         assert_eq!(c.limits.max_rooms, 50_000);

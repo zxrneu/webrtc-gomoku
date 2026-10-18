@@ -18,6 +18,7 @@ use crate::metrics::Metrics;
 use crate::relay::Relay;
 use crate::rooms::RoomTable;
 use crate::transport::registry::ConnectionRegistry;
+use crate::transport::seat::SeatRegistry;
 use crate::transport::shutdown::Shutdown;
 use crate::transport::ConnDeps;
 
@@ -39,6 +40,8 @@ pub struct AppState {
     pub metrics: Arc<Metrics>,
     /// 优雅停机信号广播协调器
     pub shutdown: Shutdown,
+    /// 座位簿记与断线重连管理器
+    pub seats: Arc<SeatRegistry>,
     /// 本节点在分布式集群中的唯一标识 ID（如 "node-beijing-1"）
     pub node_id: Arc<str>,
     /// 进程启动时间戳，用于高精度计算 uptime 运行时间
@@ -59,6 +62,7 @@ impl AppState {
             conns: self.conns.clone(),
             relay: self.relay.clone(),
             metrics: self.metrics.clone(),
+            seats: self.seats.clone(),
             node_id: self.node_id.clone(),
         }
     }
@@ -72,6 +76,7 @@ impl AppState {
             cfg.limits.max_connections_per_ip,
         );
         self.rooms.set_max_rooms(u64::from(cfg.limits.max_rooms));
+        self.seats.set_grace_ms(cfg.session.grace_secs.saturating_mul(1000));
         if let Some(setter) = &self.log_level {
             let _ = setter(&cfg.logging.level);
         }

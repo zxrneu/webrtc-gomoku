@@ -25,6 +25,7 @@ pub(crate) mod test_support {
     use crate::rooms::RoomTable;
     use crate::state::AppState;
     use crate::transport::registry::ConnectionRegistry;
+    use crate::transport::seat::SeatRegistry;
     use crate::transport::shutdown::Shutdown;
 
     /// Build an [`AppState`] from a configuration with sensible test defaults.
@@ -36,6 +37,7 @@ pub(crate) mod test_support {
             relay: Arc::new(RelayManager::disabled("gomoku:signal")),
             metrics: Arc::new(Metrics::new()),
             shutdown: Shutdown::new(),
+            seats: Arc::new(SeatRegistry::default()),
             node_id: Arc::from("test-node"),
             started: Instant::now(),
             public_dir: PathBuf::from("public"),

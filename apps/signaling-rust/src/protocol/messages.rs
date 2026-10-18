@@ -19,10 +19,34 @@ pub const ERR_ROOM_EXISTS_SUFFIX: &str = " 已存在，请更换";
 pub const ERR_ROOM_FULL: &str = "房间已满（仅支持 1v1）";
 /// An unknown `t` value.
 pub const ERR_UNKNOWN_TYPE: &str = "未知消息类型";
+/// `resume` when the seat is gone / the grace window has expired (v1.1).
+pub const ERR_RESUME_REJECTED: &str = "房间已失效，请重新加入";
+/// `resume` when the credential does not match (v1.1).
+pub const ERR_RESUME_TOKEN_INVALID: &str = "座位凭证无效";
 /// Load-shedding / internal error (reached only when the node is at
 /// `limits.max_rooms` or code generation exhausts its retries). Not part of the
 /// frozen v1 error set — it never occurs in normal operation.
 pub const ERR_SERVER_BUSY: &str = "服务器繁忙，请稍后再试";
+
+/// Machine-readable error codes (v1.1, `ServerErrorCode` in `types.ts`).
+///
+/// Every string is part of the wire contract — never rename one.
+pub mod code {
+    /// Malformed room code.
+    pub const ROOM_FORMAT: &str = "ROOM_FORMAT";
+    /// Room already exists.
+    pub const ROOM_EXISTS: &str = "ROOM_EXISTS";
+    /// Room does not exist.
+    pub const ROOM_NOT_FOUND: &str = "ROOM_NOT_FOUND";
+    /// Room already holds two peers.
+    pub const ROOM_FULL: &str = "ROOM_FULL";
+    /// Unknown `t`.
+    pub const UNKNOWN_TYPE: &str = "UNKNOWN_TYPE";
+    /// The seat cannot be reclaimed (unknown / expired).
+    pub const RESUME_REJECTED: &str = "RESUME_REJECTED";
+    /// The credential does not match.
+    pub const RESUME_TOKEN_INVALID: &str = "RESUME_TOKEN_INVALID";
+}
 
 /// Maximum display-name length (Unicode scalar values).
 pub const NAME_MAX_CHARS: usize = 20;
@@ -46,6 +70,16 @@ pub fn created(room: &str, peer_id: &str) -> ServerMsg {
     ServerMsg::Created {
         room: room.to_string(),
         peer_id: peer_id.to_string(),
+        token: None,
+    }
+}
+
+/// `{t:'created', room, peerId, token}` (v1.1)
+pub fn created_with_token(room: &str, peer_id: &str, token: &str) -> ServerMsg {
+    ServerMsg::Created {
+        room: room.to_string(),
+        peer_id: peer_id.to_string(),
+        token: Some(token.to_string()),
     }
 }
 
@@ -54,6 +88,16 @@ pub fn joined(room: &str, peer_id: &str) -> ServerMsg {
     ServerMsg::Joined {
         room: room.to_string(),
         peer_id: peer_id.to_string(),
+        token: None,
+    }
+}
+
+/// `{t:'joined', room, peerId, token}` (v1.1)
+pub fn joined_with_token(room: &str, peer_id: &str, token: &str) -> ServerMsg {
+    ServerMsg::Joined {
+        room: room.to_string(),
+        peer_id: peer_id.to_string(),
+        token: Some(token.to_string()),
     }
 }
 
@@ -75,10 +119,45 @@ pub fn signal(data: serde_json::Value) -> ServerMsg {
     ServerMsg::Signal { data }
 }
 
-/// `{t:'error', message}`
+/// `{t:'error', message}` (no machine-readable code — the v1 shape).
 pub fn error(message: impl Into<String>) -> ServerMsg {
     ServerMsg::Error {
         message: message.into(),
+        code: None,
+    }
+}
+
+/// `{t:'error', message, code}` (v1.1: the message stays byte-identical, the
+/// code is *appended*).
+pub fn error_with_code(message: impl Into<String>, code: &str) -> ServerMsg {
+    ServerMsg::Error {
+        message: message.into(),
+        code: Some(code.to_string()),
+    }
+}
+
+/// `{t:'pong', ts?}`
+pub fn pong(ts: Option<f64>) -> ServerMsg {
+    ServerMsg::Pong { ts }
+}
+
+/// `{t:'peer-offline', graceSec}`
+pub fn peer_offline(grace_sec: u32) -> ServerMsg {
+    ServerMsg::PeerOffline { grace_sec }
+}
+
+/// `{t:'peer-online'}`
+pub fn peer_online() -> ServerMsg {
+    ServerMsg::PeerOnline
+}
+
+/// `{t:'resumed', room, peerId, token, peerPresent?}`
+pub fn resumed(room: &str, peer_id: &str, token: &str, peer_present: bool) -> ServerMsg {
+    ServerMsg::Resumed {
+        room: room.to_string(),
+        peer_id: peer_id.to_string(),
+        token: token.to_string(),
+        peer_present: Some(peer_present),
     }
 }
 
@@ -96,14 +175,30 @@ mod tests {
     }
 
     #[test]
+    fn resume_error_texts_are_frozen() {
+        assert_eq!(ERR_RESUME_REJECTED, "房间已失效，请重新加入");
+        assert_eq!(ERR_RESUME_TOKEN_INVALID, "座位凭证无效");
+        assert_eq!(code::RESUME_REJECTED, "RESUME_REJECTED");
+        assert_eq!(code::RESUME_TOKEN_INVALID, "RESUME_TOKEN_INVALID");
+    }
+
+    #[test]
     fn constructors_produce_expected_json() {
         assert_eq!(
             created("ABCD", "p1").encode(),
             r#"{"t":"created","room":"ABCD","peerId":"p1"}"#
         );
         assert_eq!(
+            created_with_token("ABCD", "p1", "tok").encode(),
+            r#"{"t":"created","room":"ABCD","peerId":"p1","token":"tok"}"#
+        );
+        assert_eq!(
             joined("ABCD", "p1").encode(),
             r#"{"t":"joined","room":"ABCD","peerId":"p1"}"#
+        );
+        assert_eq!(
+            joined_with_token("ABCD", "p1", "tok").encode(),
+            r#"{"t":"joined","room":"ABCD","peerId":"p1","token":"tok"}"#
         );
         assert_eq!(
             peer_joined("p1", "n").encode(),
@@ -117,6 +212,21 @@ mod tests {
         assert_eq!(
             error(ERR_UNKNOWN_TYPE).encode(),
             r#"{"t":"error","message":"未知消息类型"}"#
+        );
+        assert_eq!(
+            error_with_code(ERR_RESUME_TOKEN_INVALID, code::RESUME_TOKEN_INVALID).encode(),
+            r#"{"t":"error","message":"座位凭证无效","code":"RESUME_TOKEN_INVALID"}"#
+        );
+        assert_eq!(pong(Some(7.0)).encode(), r#"{"t":"pong","ts":7.0}"#);
+        assert_eq!(pong(None).encode(), r#"{"t":"pong"}"#);
+        assert_eq!(
+            peer_offline(60).encode(),
+            r#"{"t":"peer-offline","graceSec":60}"#
+        );
+        assert_eq!(peer_online().encode(), r#"{"t":"peer-online"}"#);
+        assert_eq!(
+            resumed("ABCD", "p1", "tok", true).encode(),
+            r#"{"t":"resumed","room":"ABCD","peerId":"p1","token":"tok","peerPresent":true}"#
         );
     }
 }
