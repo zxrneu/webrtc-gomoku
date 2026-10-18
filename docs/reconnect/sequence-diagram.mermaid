@@ -1,0 +1,161 @@
+%% ============================================================================
+%% 自动重连机制 · 时序图（4 张）
+%% 来源：docs/reconnect/architecture.md §5
+%% 渲染：任意 Mermaid 渲染器（VS Code Markdown Preview / mermaid.live）
+%% ============================================================================
+
+%% ---------------------------------------------------------------------------
+%% ① 正常建房 / 入房（含应用层心跳）
+%% ---------------------------------------------------------------------------
+sequenceDiagram
+    autonumber
+    participant H as 房主浏览器<br/>(ConnectionManager)
+    participant S as apps/server<br/>(ws + SeatRegistry)
+    participant G as 加入方浏览器<br/>(ConnectionManager)
+
+    H->>S: WS 升级 /signal
+    S-->>H: open
+    H->>S: {t:'create', room:'A8B2'}
+    S->>S: rooms.create() + grace.issue(peerId,'A8B2','host')
+    S-->>H: {t:'created', room, peerId, token}
+    Note over H: ROOM_READY → ROOM_WAITING
+
+    G->>S: {t:'join', room:'A8B2', name}
+    S->>S: rooms.join() + grace.issue(...,'guest')
+    S-->>G: {t:'joined', room, peerId, token}
+    S-->>H: {t:'peer-joined', peerId, name}
+    Note over G: ROOM_WAITING
+    Note over H: PEER_PRESENT → NEGOTIATING
+
+    H->>H: p2p.attach(true) → createOffer
+    H->>S: {t:'signal', data:{kind:'offer', sdp}}
+    S-->>G: {t:'signal', data}
+    G->>G: p2p.attach(false) → setRemote/answer
+    G->>S: {t:'signal', data:{kind:'answer', sdp}}
+    S-->>H: {t:'signal', data}
+    H->>G: ICE candidates 经 S 双向转发
+    G-->>H: DC open
+    Note over H,G: DC_OPEN → CONNECTED（isPlayable=true）
+
+    loop 每 5s（单飞，两跳并行）
+        H->>S: {t:'ping'}
+        S-->>H: {t:'pong'}
+        G->>S: {t:'ping'}
+        S-->>G: {t:'pong'}
+    end
+    loop 每 5s（DC 心跳）
+        H->>G: {t:'ping', ts} (DC)
+        G-->>H: {t:'pong', ts} (DC)
+    end
+
+%% ---------------------------------------------------------------------------
+%% ② WS 断开 → 退避 → resume → P2P 恢复（场景 C）
+%% ---------------------------------------------------------------------------
+sequenceDiagram
+    autonumber
+    participant H as 房主（断线方）
+    participant S as 服务端
+    participant G as 加入方
+
+    Note over H: state=CONNECTED, attempt=0
+    H--xS: TCP 断开（1006）
+    H->>H: classify('ws-close')=WS_CLOSED → SIGNAL_LOST
+    Note over H: RECONNECTING, attempt=1, nextRetry=now+500ms(±20%)
+    H->>H: logger: conn.state{from:'CONNECTED',to:'RECONNECTING'}
+    H->>H: logger: conn.retry{attempt:1,delayMs:520}
+
+    par 服务端侧
+        S->>S: close → grace.markOffline(peerId) → expiresAt=now+60s
+        S-->>G: {t:'peer-offline', graceSec:60}
+        Note over G: isPlayable=false, 状态条「对手网络不稳定，正在重连…」
+    end
+
+    H->>S: 退避到期 → new WebSocket
+    alt 5s 内 open
+        H->>S: {t:'resume', room, peerId, token}
+        S->>S: verify ok → rooms.rebind(peerId,newClient) → rotate token
+        S-->>H: {t:'resumed', room, peerId, token:新}
+        S-->>G: {t:'peer-online'}
+        Note over H: ROOM_READY → P2P_RECOVERING
+        H->>H: 房主：restartIce() → createOffer({iceRestart:true})
+        H->>S: {t:'signal', data:{kind:'offer'}}
+        S-->>G: {t:'signal', data}
+        G->>S: {t:'signal', data:{kind:'answer'}}
+        S-->>H: {t:'signal', data}
+        G-->>H: DC 保持 open（ICE 换路径，DC 不重建）
+        H->>G: {t:'sync', moves, rev:12}
+        G->>G: planSync → replayMoves → onMovesReplaced
+        G-->>H: {t:'sync', moves:[], rev:12, ack:true}
+        Note over H,G: SYNCED → CONNECTED，toast「已恢复连接」×1
+        H->>H: logger: conn.restore{via:'ice-restart',movesSynced:0}
+    else open 失败 / 5s 超时
+        H->>H: attempt++ → 下一个退避（1s/2s/4s/8s/16s）
+        Note over H: 6 次耗尽 → FAILED（reason=POLICY_EXHAUSTED）+ 两个按钮
+    end
+
+%% ---------------------------------------------------------------------------
+%% ③ 仅 P2P 断（场景 B：ICE restart ×2 → 重建 ×1）
+%% ---------------------------------------------------------------------------
+sequenceDiagram
+    autonumber
+    participant H as 房主（offerer）
+    participant S as 服务端（仅转发）
+    participant G as 加入方（answerer）
+
+    Note over H,G: CONNECTED，WS 正常
+    H->>H: pc.connectionState='disconnected' 起 5s 去抖
+    G->>G: 同上去抖（双方各自判定）
+    Note over H: 5s 内自愈 → 不迁移（M3 误报基线）
+    H->>H: 5s 到期仍未 connected → P2P_LOST → P2P_RECOVERING, p2pAttempt=1
+    Note over H,G: isPlayable=false，状态条「网络波动，正在恢复直连…」
+
+    H->>H: restartIce() #1（0s）
+    H->>S: {t:'signal', data:{kind:'offer', iceRestart:true}}
+    S-->>G: {t:'signal', data}
+    G->>G: applyRemoteOffer（复用现有 PC，绝不 initPeer）
+    G->>S: {t:'signal', data:{kind:'answer'}}
+    S-->>H: {t:'signal', data}
+    alt 3s 内 connected
+        Note over H,G: DC open → sync → CONNECTED, via='ice-restart'
+    else 3s 未恢复
+        H->>H: restartIce() #2（+3s），p2pAttempt=2
+        alt 仍失败
+            H->>H: rebuild() ×1 → initPeer(true)（首行 close 旧 PC，webrtc.ts:86）
+            H->>S: {t:'signal', data:{kind:'offer'}}
+            S-->>G: {t:'signal', data}
+            G->>G: 收到 offer 但本端 PC 仍活 → applyRemoteOffer 失败 → rebuild(false)
+            G->>S: {t:'signal', data:{kind:'answer'}}
+            S-->>H: {t:'signal', data}
+            Note over H,G: DC 重开 → sync 全量 → CONNECTED, via='rebuild'
+        else 重建也失败
+            Note over H: p2pAttempt=3 → P2P_EXHAUSTED → FAILED(reason=ICE_FAILED)
+        end
+    end
+
+%% ---------------------------------------------------------------------------
+%% ④ 服务端重启（场景 E：房间丢失 → 终态 → 同房号重建）
+%% ---------------------------------------------------------------------------
+sequenceDiagram
+    autonumber
+    participant H as 房主
+    participant S as 服务端（重启后内存清空）
+    participant G as 加入方
+
+    Note over H,G: CONNECTED，房间 A8B2
+    S--xH: 进程重启 → close(1006)
+    S--xG: 同刻 close(1006)
+    H->>H: RECONNECTING（attempt=1..6，退避）
+    G->>G: RECONNECTING（attempt=1..6）
+    H->>S: 重连成功 → {t:'resume', room:'A8B2', peerId, token}
+    S->>S: grace 为空 → verify='unknown'
+    S-->>H: {t:'error', code:'RESUME_REJECTED', message:'房间已失效，请重新加入'}
+    H->>H: classify('resume-rejected')=SERVER_RESTART → FATAL → FAILED
+    Note over H: 棋盘保留（不清盘）<br/>文案「服务器已重启，房间失效」<br/>按钮：重新连接 / 退出房间 / 以 A8B2 重新建房
+    H->>H: logger: conn.fail{reason:'SERVER_RESTART'}
+    H->>S: 用户点「以 A8B2 重新建房」→ {t:'create', room:'A8B2'}
+    S-->>H: {t:'created', room:'A8B2', peerId:新, token:新}
+    Note over H: ROOM_WAITING（新房号相同）
+    G->>S: 用户点「以 A8B2 重新加入」→ {t:'join', room:'A8B2'}
+    S-->>G: {t:'joined', ...}
+    S-->>H: {t:'peer-joined'}
+    Note over H,G: 重新协商（房主恒 offerer）→ sync 房主权威补全棋谱

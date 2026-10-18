@@ -1,4 +1,4 @@
-import type { PlayerColor } from '@webrtc-gomoku/core';
+import type { Move, PlayerColor } from '@webrtc-gomoku/core';
 
 /**
  * ============================================================================
@@ -69,6 +69,46 @@ export interface ByeMsg {
 }
 
 /**
+ * 11. 应用层心跳探测（v1.1 增量）
+ *
+ * 同一条消息用于两条通道：
+ * - WS：客户端 → 服务端（服务端立即回 `pong`），用于发现「半开连接」；
+ * - DC：对端 ↔ 对端，用于发现「P2P 已死但 PC 还没报 disconnected」。
+ *
+ * 旧客户端收到后会走 `switch` 的 default（无分支 → 忽略），不崩。
+ */
+export interface PingMsg {
+  t: 'ping';
+  /** 发送时刻（epoch 毫秒，可选；仅用于诊断） */
+  ts?: number;
+}
+
+/** 12. 应用层心跳应答（v1.1 增量） */
+export interface PongMsg {
+  t: 'pong';
+  /** 原样回带 ping 的 ts（可选） */
+  ts?: number;
+}
+
+/**
+ * 13. 棋谱对账（v1.1 增量，仅走 DataChannel）
+ *
+ * - 房主 → 加入方：`{ t:'sync', moves, rev }`（房主是唯一权威，D3）
+ * - 加入方 → 房主：`{ t:'sync', moves:[], rev, ack:true }`（回执，复用同一 `t`，Q-B 已回签）
+ *
+ * 旧客户端没有 `sync` 分支 → 忽略，不崩；但不会 ack，房主侧按超时兜底（§10.3）。
+ */
+export interface SyncMsg {
+  t: 'sync';
+  /** 权威棋谱（回执时为空数组） */
+  moves: Move[];
+  /** 棋谱版本号（房主每次对账递增，用于幂等与回执匹配） */
+  rev?: number;
+  /** 是否为回执 */
+  ack?: boolean;
+}
+
+/**
  * P2P 局内消息类型的联合集合（可区分联合 Discriminated Union）
  * 无论接收到什么消息，只需根据 msg.t 即可安全地做 switch-case 分发
  */
@@ -82,7 +122,10 @@ export type GameMessage =
   | RestartReqMsg
   | RestartOkMsg
   | RestartNoMsg
-  | ByeMsg;
+  | ByeMsg
+  | PingMsg
+  | PongMsg
+  | SyncMsg;
 
 /**
  * ============================================================================
@@ -104,6 +147,8 @@ export interface ClientCreateMsg {
   t: 'create';
   /** 可选的自定义房间号（若不填由服务器随机分配 4 位字母数字） */
   room?: string;
+  /** 房主昵称（v1.1 增量：用于服务端座位记录，旧服务端忽略） */
+  name?: string;
 }
 
 /** 客户端请求加入已有房间 */
@@ -127,12 +172,36 @@ export interface ClientLeaveMsg {
   t: 'leave';
 }
 
+/** 客户端应用层心跳（v1.1 增量）：服务端收到后立即回 pong，不改任何状态 */
+export interface ClientPingMsg {
+  t: 'ping';
+  /** 发送时刻（epoch 毫秒，可选） */
+  ts?: number;
+}
+
+/**
+ * 客户端请求占回原座位（v1.1 增量，**非幂等**：成功后 token 轮换）
+ *
+ * 只在 socket 重连成功后的第一时刻发送；服务端在 60s 宽限期内校验通过即恢复座位。
+ */
+export interface ClientResumeMsg {
+  t: 'resume';
+  /** 原房间号 */
+  room: string;
+  /** 服务端上次分配给该客户端的 Peer ID */
+  peerId: string;
+  /** 座位凭证（随 created/joined 下发，只走内存，绝不进 URL） */
+  token: string;
+}
+
 /** 客户端发出的信令消息联合类型 */
 export type ClientSignalingMsg =
   | ClientCreateMsg
   | ClientJoinMsg
   | ClientSignalMsg
-  | ClientLeaveMsg;
+  | ClientLeaveMsg
+  | ClientPingMsg
+  | ClientResumeMsg;
 
 // ----------------------------------------------------
 // B. 信令服务器推给客户端的消息 (Server -> Client)
@@ -145,6 +214,8 @@ export interface ServerCreatedMsg {
   room: string;
   /** 服务端分配给该客户端的唯一 Peer ID */
   peerId: string;
+  /** 座位凭证（v1.1 增量；旧服务端不下发，客户端需容忍缺失） */
+  token?: string;
 }
 
 /** 服务端通知加入者：成功加入房间 */
@@ -154,6 +225,8 @@ export interface ServerJoinedMsg {
   room: string;
   /** 服务端分配给该客户端的唯一 Peer ID */
   peerId: string;
+  /** 座位凭证（v1.1 增量） */
+  token?: string;
 }
 
 /** 服务端通知房主：对手已经进入房间 */
@@ -180,8 +253,52 @@ export interface ServerSignalMsg {
 /** 服务端错误通知（如：房间不存在、房间已满、房号格式错误等） */
 export interface ServerErrorMsg {
   t: 'error';
-  /** 错误描述原因 */
+  /** 错误描述原因（逐字复用 v1 文案，一个标点都不许改） */
   message: string;
+  /** 机器可读错误码（v1.1 增量；旧服务端不下发 → 客户端回退到文案匹配） */
+  code?: ServerErrorCode;
+}
+
+/** 服务端错误码（v1.1 增量，K2 逐字） */
+export type ServerErrorCode =
+  | 'ROOM_FORMAT'
+  | 'ROOM_EXISTS'
+  | 'ROOM_NOT_FOUND'
+  | 'ROOM_FULL'
+  | 'UNKNOWN_TYPE'
+  | 'RESUME_REJECTED'
+  | 'RESUME_TOKEN_INVALID';
+
+/** 服务端心跳应答（v1.1 增量） */
+export interface ServerPongMsg {
+  t: 'pong';
+  /** 原样回带客户端 ping 的 ts */
+  ts?: number;
+}
+
+/** 服务端通知：对手连接断开，进入宽限期（v1.1 增量，**替代**立即 peer-left） */
+export interface ServerPeerOfflineMsg {
+  t: 'peer-offline';
+  /** 宽限期秒数（客户端 UI 倒计时以本值为准） */
+  graceSec: number;
+}
+
+/** 服务端通知：对手在宽限期内恢复了连接（v1.1 增量） */
+export interface ServerPeerOnlineMsg {
+  t: 'peer-online';
+}
+
+/** 服务端通知：resume 校验通过，座位已恢复（v1.1 增量） */
+export interface ServerResumedMsg {
+  t: 'resumed';
+  /** 房间号 */
+  room: string;
+  /** 恢复后的 Peer ID（与请求一致） */
+  peerId: string;
+  /** 轮换后的新座位凭证（旧 token 立即失效，防重放） */
+  token: string;
+  /** 当前是否仍有对手占座；缺省时兼容旧服务端，沿用本地记录。 */
+  peerPresent?: boolean;
 }
 
 /** 服务端下发的信令消息联合类型 */
@@ -191,7 +308,11 @@ export type ServerSignalingMsg =
   | ServerPeerJoinedMsg
   | ServerPeerLeftMsg
   | ServerSignalMsg
-  | ServerErrorMsg;
+  | ServerErrorMsg
+  | ServerPongMsg
+  | ServerPeerOfflineMsg
+  | ServerPeerOnlineMsg
+  | ServerResumedMsg;
 
 /**
  * ============================================================================

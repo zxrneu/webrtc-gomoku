@@ -240,3 +240,50 @@ describe('RoomRegistry 信令转发对象', () => {
     expect(reg.others('ZZZZ', 'a')).toEqual([]);
   });
 });
+
+describe('RoomRegistry 座位重绑（v1.1 resume）', () => {
+  it('rebind 后新 client 收到转发消息，旧 client 不再收到', () => {
+    const reg = new RoomRegistry();
+    const host = fakeClient('host');
+    const guestOld = fakeClient('guest');
+    reg.create('AAAA', host);
+    reg.join('AAAA', guestOld);
+
+    const guestNew = fakeClient('guest');
+    const ok = reg.rebind('guest', guestNew);
+
+    expect(ok).toBe(true);
+    expect(reg.roomOf('guest')).toBe('AAAA');
+
+    // 房主转发一条信令：只有重绑后的新连接能收到
+    for (const peer of reg.others('AAAA', 'host')) {
+      peer.send({ t: 'signal', data: { kind: 'offer' } });
+    }
+
+    expect(guestNew.sent).toHaveLength(1);
+    expect(guestOld.sent).toHaveLength(0);
+  });
+
+  it('rebind 不存在的座位返回 false 且不影响房间', () => {
+    const reg = new RoomRegistry();
+    const host = fakeClient('host');
+    reg.create('AAAA', host);
+
+    expect(reg.rebind('nobody', fakeClient('nobody'))).toBe(false);
+    expect(reg.roomOf('host')).toBe('AAAA');
+    expect(reg.others('AAAA', 'host')).toEqual([]);
+  });
+
+  it('has 反映成员是否仍在房间（宽限期内为 true，leave 后为 false）', () => {
+    const reg = new RoomRegistry();
+    const host = fakeClient('host');
+    reg.create('AAAA', host);
+
+    expect(reg.has('host')).toBe(true);
+    expect(reg.has('nobody')).toBe(false);
+
+    reg.leave('host');
+
+    expect(reg.has('host')).toBe(false);
+  });
+});

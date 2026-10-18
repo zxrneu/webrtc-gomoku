@@ -404,3 +404,11 @@ stun:stun1.l.google.com:19302, stun:stun2.l.google.com:19302
 - **架构师**：§3.4 模块划分/数据结构/性能策略为需求侧输入，具体设计与任务分解归你；§5 配置项为契约，增删需回签 PRD。
 - **工程师**：§4 协议与 §5 配置为冻结契约；客户端改造范围 = `packages/web/src/webrtc.ts` 移除硬编码 `ICE_SERVERS`、改取 `/config`（含降级），其余协议代码零改动。
 - **QA**：§7 DoD 为验收基线；协议兼容用例可直接复用 `test/` 与 vitest 现有客户端仿真。
+
+---
+
+## 修订记录
+
+| 日期 | 修订 | 说明 |
+|---|---|---|
+| 2026-10-17 | v1.1 增量（reconnect）：新增 `ping`/`pong`/`resume`/`resumed`/`peer-offline`/`peer-online`（WS）与 `sync`（DC），`error` 增可选 `code`，`created`/`joined` 增可选 `token` —— 见 `docs/reconnect/architecture.md` §4；**纯增量，旧客户端忽略未知 `t` 不受影响**（原 §4.1「M3 不新增 WS 消息类型」就此收窄为「M3 自身不新增」，重连增量另行回签）；Rust 端对齐清单见 `docs/reconnect/rust-alignment.md`（P1，本期不动 `apps/signaling-rust/`）。 |

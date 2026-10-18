@@ -16,11 +16,20 @@ import type {
   GameMessage,
   ManualOfferPayload,
   ManualAnswerPayload,
+  P2pEvent,
   TransportInfo,
 } from '@webrtc-gomoku/shared';
 import { pack, unpack } from '@webrtc-gomoku/shared';
 
 import { DEFAULT_ICE_SERVERS } from './iceConfig';
+
+/**
+ * 底层诊断事件（**只上报事件名，绝不上报原始报文 / SDP / candidate**）
+ *
+ * 为什么不用 `console.warn/error`：AGENTS §5 规定脱敏与日志出口必须可替换，
+ * 且浏览器控制台里的原始错误对象可能夹带 SDP 片段。
+ */
+export type ClientDiagnostic = { kind: 'dc-error' } | { kind: 'dc-parse-failed' };
 
 /**
  * WebRTCClient 初始化选项接口
@@ -36,6 +45,11 @@ export interface WebRTCClientOptions {
   onTransportUpdate?: (info: TransportInfo) => void;
   /** 任何底层网络状态变化时触发（用于刷新 UI 状态指示灯） */
   onStateChange?: () => void;
+  /**
+   * 底层诊断出口（v1.1 增量，替代原先的 `console.warn/error`）。
+   * 只上报事件名，不含任何原始数据。
+   */
+  onDiagnostic?: (d: ClientDiagnostic) => void;
   /**
    * ICE 服务器配置（STUN / TURN）
    * 默认使用内置的国内高可用 STUN 列表，应用启动后会异步向 /config 拉取覆盖
@@ -54,9 +68,32 @@ export class WebRTCClient {
   private statsTimer: any = null;
   /** 当前生效的 ICE 服务器配置 */
   private iceServers: RTCIceServer[];
+  /**
+   * 底层事件通道（v1.1 增量）。
+   *
+   * 为什么不复用 `onConnected` / `onDisconnected`：
+   * 那两个回调是 v1 的语义（`disconnected` 立即上报），已被现有界面与用例锁定，
+   * **不允许改变**。重连编排器需要的是「原始状态 + 去抖后的事件」，
+   * 因此新增一条独立通道，由 `connection/p2pTransport.ts` 消费。
+   */
+  private transportHandler: ((e: P2pEvent) => void) | null = null;
 
   constructor(private options: WebRTCClientOptions) {
     this.iceServers = options.iceServers ?? DEFAULT_ICE_SERVERS;
+  }
+
+  /**
+   * 注册底层事件通道（单播，后注册覆盖先注册，避免监听器泄漏）。
+   *
+   * @param cb 接收 `dc-open` / `dc-closed` / `pc-state` / `msg` 的回调
+   */
+  public onTransportEvent(cb: (e: P2pEvent) => void): void {
+    this.transportHandler = cb;
+  }
+
+  /** 向上层发送一条底层事件（无监听者时静默丢弃） */
+  private emitTransport(e: P2pEvent): void {
+    this.transportHandler?.(e);
   }
 
   /**
@@ -104,6 +141,8 @@ export class WebRTCClient {
     // 3. 监听整体网络连接状态变化
     pc.onconnectionstatechange = () => {
       this.options.onStateChange?.();
+      // v1.1：把**原始状态**透出给重连适配器（去抖逻辑在适配器里，不在这里）
+      this.emitTransport({ type: 'pc-state', state: pc.connectionState });
       // 成功直连：开启 3 秒一次的网络指标轮询
       if (pc.connectionState === 'connected') {
         this.startStatsPoll();
@@ -132,6 +171,54 @@ export class WebRTCClient {
   }
 
   /**
+   * 应用对端发来的 offer（**能复用就复用**，v1.1 重连协商的唯一正确入口）
+   *
+   * 【这是本次改造最贵的坑，务必读完再改】
+   * `initPeer()` 的第一行是 `this.close()` —— 它会把「正在恢复的 PC」直接销毁。
+   * 若在重连流程里用 `initPeer(false)` 处理对端 offer，本端 PC 每次都被换新，
+   * 上一轮 ICE restart 收集到的候选全部作废，表现为「ICE restart 永远失败」。
+   *
+   * 因此本方法只在**真正不能复用**时（没有 PC / PC 已 closed / 协商状态不是 stable）
+   * 才新建应答方 PC；其余情况一律复用现有 PC。
+   *
+   * @param offer 远端 offer（只需 `sdp`）
+   * @returns 实际承载本次协商的 PeerConnection
+   */
+  public async applyRemoteOffer(offer: RTCSessionDescriptionInit): Promise<RTCPeerConnection> {
+    const current = this.pc;
+    if (
+      current !== null &&
+      current.connectionState !== 'closed' &&
+      current.signalingState === 'stable'
+    ) {
+      await current.setRemoteDescription({ type: 'offer', sdp: offer.sdp ?? '' });
+      return current;
+    }
+
+    const pc = this.initPeer(false);
+    await pc.setRemoteDescription({ type: 'offer', sdp: offer.sdp ?? '' });
+    return pc;
+  }
+
+  /**
+   * 只做一次 ICE restart（复用现有 PC，ADR-2）
+   *
+   * 与 `initPeer()` 的本质区别：**不销毁 PC**，只重新收集候选并生成新 offer，
+   * 因此对端可以沿用同一个 PC 完成 answer，恢复时延通常 < 1s。
+   *
+   * @returns 新的本地 offer 描述（调用方负责经信令转发）
+   * @throws 没有 PC 时抛错（由编排器降级为全量重建）
+   */
+  public async restartIce(): Promise<RTCSessionDescriptionInit> {
+    const pc = this.pc;
+    if (!pc) throw new Error('PeerConnection 未创建，无法执行 ICE restart');
+    pc.restartIce();
+    const offer = await pc.createOffer({ iceRestart: true });
+    await pc.setLocalDescription(offer);
+    return offer;
+  }
+
+  /**
    * 绑定 DataChannel 的收发事件监听
    * @param dc 目标 RTCDataChannel
    */
@@ -142,28 +229,42 @@ export class WebRTCClient {
     dc.onopen = () => {
       this.options.onStateChange?.();
       this.options.onConnected();
+      this.emitTransport({ type: 'dc-open' });
     };
 
     // 通道关闭
     dc.onclose = () => {
       this.options.onStateChange?.();
       this.options.onDisconnected();
+      this.emitTransport({ type: 'dc-closed' });
     };
 
-    // 异常监控
-    dc.onerror = (e) => {
-      console.warn('DataChannel error:', e);
+    // 异常监控（只上报事件名，原始错误对象可能夹带 SDP，禁止外泄）
+    dc.onerror = () => {
+      this.options.onDiagnostic?.({ kind: 'dc-error' });
       this.options.onStateChange?.();
     };
 
     // 核心：接收对端发来的数据包
     dc.onmessage = (e) => {
+      const raw: unknown = e.data;
+      let msg: GameMessage;
       try {
-        const msg = JSON.parse(e.data) as GameMessage;
-        this.options.onMessage(msg);
-      } catch (err) {
-        console.error('Failed to parse game message:', err);
+        const parsed: unknown = JSON.parse(typeof raw === 'string' ? raw : '');
+        if (
+          typeof parsed !== 'object' ||
+          parsed === null ||
+          typeof (parsed as { t?: unknown }).t !== 'string'
+        ) {
+          throw new Error('局内消息缺少字符串类型字段 t');
+        }
+        msg = parsed as GameMessage;
+      } catch {
+        this.options.onDiagnostic?.({ kind: 'dc-parse-failed' });
+        return;
       }
+      this.options.onMessage(msg);
+      this.emitTransport({ type: 'msg', msg });
     };
   }
 

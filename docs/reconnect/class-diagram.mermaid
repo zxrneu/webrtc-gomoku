@@ -1,0 +1,182 @@
+%% ============================================================================
+%% 自动重连机制 · 类图
+%% 来源：docs/reconnect/architecture.md §2
+%% ============================================================================
+
+classDiagram
+    class ConnSnapshot {
+      +ConnState state
+      +number attempt
+      +number p2pAttempt
+      +number|null nextRetryAtMs
+      +FailReason|null reason
+      +number since
+      +boolean paused
+      +string|null role
+      +string|null room
+      +number|null peerOfflineUntilMs
+      +number lastFailAtMs
+      +number movesSynced
+      +string serverCompat
+    }
+
+    class ConnEvent {
+      <<union>>
+      START
+      SIGNAL_LOST
+      SIGNAL_OPEN
+      ROOM_READY
+      PEER_PRESENT
+      PEER_OFFLINE
+      DC_OPEN
+      P2P_LOST
+      RETRY_DUE
+      RETRY_NOW
+      P2P_EXHAUSTED
+      FATAL
+      PAUSE
+      RESUME
+      INCIDENT_CLOSED
+      SYNCED
+      SERVER_COMPAT
+      PEER_GONE
+      LEAVE
+    }
+
+    class ReconnectPolicy {
+      +number baseDelayMs
+      +number capDelayMs
+      +number maxAttempts
+      +number jitterRatio
+      +number connectTimeoutMs
+      +number debounceMs
+      +number incidentSettleMs
+      +WsHeartbeatConfig wsHeartbeat
+      +P2pConfig p2p
+      +number serverGraceSecs
+      +boolean syncOnRestore
+    }
+
+    class ConnectionStatus {
+      +ConnState state
+      +boolean isPlayable
+      +number attempt
+      +number maxAttempts
+      +number|null nextRetryInMs
+      +FailReason|null reason
+      +string label
+      +boolean canRetryNow
+      +boolean canLeave
+      +string|null role
+      +string|null room
+      +number|null peerOfflineInMs
+      +string compat
+    }
+
+    class ConnectionManager {
+      +createRoom(code)
+      +joinRoom(code, name)
+      +retryNow()
+      +leave()
+      +setPageVisible(v)
+      +notifyLocalMove()
+      +getStatus() ConnectionStatus
+      +dispose()
+    }
+
+    class SignalTransport {
+      <<interface>>
+      +connect(url, timeoutMs)
+      +close(code)
+      +send(msg) boolean
+      +onEvent(cb)
+      +readyState
+    }
+
+    class P2pTransport {
+      <<interface>>
+      +attach(isInitiator)
+      +restartIce() Promise
+      +rebuild(isInitiator) Promise
+      +applyRemoteSignal(data) Promise
+      +send(msg) boolean
+      +onEvent(cb)
+      +close()
+    }
+
+    class Clock {
+      <<interface>>
+      +now() number
+      +setTimeout(fn, ms) number
+      +clearTimeout(h)
+    }
+
+    class Logger {
+      <<interface>>
+      +log(e LogEvent)
+    }
+
+    class SeatRegistry {
+      +issue(peerId, room, name, role, nowMs) string
+      +markOffline(peerId, nowMs) Seat
+      +verify(peerId, room, token, nowMs) VerifyResult
+      +rotate(peerId, nowMs) string
+      +release(peerId)
+      +sweep(nowMs) Seat[]
+      +size number
+    }
+
+    class Seat {
+      +string peerId
+      +string room
+      +string name
+      +string role
+      +string token
+      +number|null offlineSinceMs
+      +number|null expiresAtMs
+    }
+
+    class RoomRegistry {
+      +create(code, client) EnterResult
+      +join(code, client) EnterResult
+      +leave(clientId) LeaveResult
+      +rebind(clientId, client) boolean
+      +has(clientId) boolean
+      +others(code, clientId) RoomClient[]
+      +roomOf(clientId) string
+    }
+
+    class RoomClient {
+      <<interface>>
+      +string id
+      +send(msg)
+    }
+
+    class HeartbeatState {
+      +number|null pendingSinceMs
+      +number misses
+      +number|null lastPongAtMs
+    }
+
+    class SyncPlan {
+      +boolean authoritative
+      +Move[] adopt
+      +number appended
+      +boolean mismatch
+    }
+
+    ConnectionManager --> SignalTransport : 注入
+    ConnectionManager --> P2pTransport : 注入
+    ConnectionManager --> Clock : 注入
+    ConnectionManager --> Logger : 注入
+    ConnectionManager --> ReconnectPolicy : 读参数
+    ConnectionManager --> ConnSnapshot : reduce()
+    ConnectionManager --> ConnEvent : 消费
+    ConnectionManager --> ConnectionStatus : deriveStatus()
+    ConnectionManager --> HeartbeatState : WS/DC 心跳
+    ConnectionManager --> SyncPlan : planSync()
+    SignalTransport ..> ConnEvent : 事件源
+    P2pTransport ..> ConnEvent : 事件源
+    RoomRegistry --> RoomClient : 持有座位
+    SeatRegistry --> Seat : 持有
+    RoomRegistry --> SeatRegistry : 座位一一对应

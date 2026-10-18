@@ -3,17 +3,25 @@ import os from 'node:os';
 import { WebSocketServer, WebSocket } from 'ws';
 import type {
   ClientSignalingMsg,
+  ServerErrorCode,
   ServerSignalingMsg,
 } from '@webrtc-gomoku/shared';
+import { maskRoom } from '@webrtc-gomoku/shared';
 import { RoomRegistry, type LeaveResult, type RoomClient } from './rooms';
+import { SeatRegistry } from './grace';
 import { createHttpHandler, getCandidateDirs } from './http';
 
 /**
  * 扩展 WebSocket 实例类型，附带连接诊断与身份标识属性
  */
 interface ExtendedWebSocket extends WebSocket {
-  /** 服务器为该物理长连接分配的临时唯一标识 ID */
+  /**
+   * 会话身份标识（**可被 resume 改写**）
+   * 首次连接时随机生成；resume 成功后继承旧 peerId，从而占回原座位。
+   */
   __id?: string;
+  /** 物理连接唯一标识（**永不改写**）：用于识别「旧 socket 迟到 close」 */
+  __connId?: string;
   /** 心跳探针保活状态标记（收到对端 pong 响应时重置为 true） */
   isAlive?: boolean;
 }
@@ -23,11 +31,27 @@ const PORT = Number(process.env.PORT || 3000);
 /** 监听网络主机：缺省 '0.0.0.0'（允许局域网其他设备如手机通过 IP 访问） */
 const HOST = process.env.HOST || '0.0.0.0';
 
+/** 座位宽限期（秒）：与 ws_idle_timeout 60s 对齐 */
+const GRACE_SECS = 60;
+/** 座位宽限期（毫秒） */
+const GRACE_MS = GRACE_SECS * 1000;
+/** 宽限回收扫描周期（毫秒） */
+const SWEEP_INTERVAL_MS = 5000;
+
 /** 全局单例：房间注册中心簿记器 */
 const registry = new RoomRegistry();
+/** 全局单例：座位保持与宽限期簿记器（v1.1） */
+const seats = new SeatRegistry({ graceMs: GRACE_MS });
+
+/**
+ * 座位归属表：peerId → 当前持有该座位的物理连接 id。
+ * 作用：新连接 resume 成功后，旧 socket 迟到的 close/error 不得把刚恢复的座位再次打入宽限。
+ */
+const seatOwner = new Map<string, string>();
 
 /**
  * 带有 ISO 时间戳的控制台格式化日志工具函数
+ * （服务端唯一日志出口；禁止打印 token 与 ws 远端地址，room 一律经 maskRoom）
  */
 function log(...args: unknown[]) {
   console.log(new Date().toISOString(), ...args);
@@ -62,6 +86,30 @@ function logLeave(result: LeaveResult) {
   }
 }
 
+/**
+ * 把 v1 文案映射成 v1.1 机器可读错误码（文案逐字不动，只是**追加** code 字段）。
+ *
+ * 未识别的文案返回 undefined —— 旧客户端只读 message，不受影响；
+ * 新客户端在 code 缺失时回退到文案匹配。
+ */
+function errorCodeFor(message: string): ServerErrorCode | undefined {
+  if (message.includes('房间号需为')) return 'ROOM_FORMAT';
+  if (message.includes('已存在')) return 'ROOM_EXISTS';
+  if (message.includes('不存在')) return 'ROOM_NOT_FOUND';
+  if (message.includes('已满')) return 'ROOM_FULL';
+  return undefined;
+}
+
+/** 发送带错误码的 error（code 缺失时只发 message，保持与 v1 完全一致） */
+function sendError(ws: ExtendedWebSocket, message: string) {
+  const code = errorCodeFor(message);
+  if (code) {
+    send(ws, { t: 'error', message, code });
+    return;
+  }
+  send(ws, { t: 'error', message });
+}
+
 /* ============================================================================
  * 1. HTTP 静态资源服务与健康检查
  * ============================================================================ */
@@ -75,19 +123,34 @@ const server = http.createServer(createHttpHandler({ registry, candidateDirs }))
  * 它的唯一使命是在两台浏览器之间充当「红娘」：
  * 交换双方的 SDP 媒体协商描述（Offer / Answer）以及 ICE 候选地址列表（Candidate）。
  * 一旦双方打洞成功建立 RTCDataChannel，信令服务器就可以功成身退，后续对局完全点对点直连。
+ *
+ * v1.1 增量：新增 `ping` / `resume` 两条上行指令与 `pong` / `resumed` /
+ * `peer-offline` / `peer-online` 四条下行通知。**旧客户端忽略未知 `t`，不崩。**
  */
 const wss = new WebSocketServer({ server, path: '/signal' });
 
 wss.on('connection', (socket: WebSocket) => {
   const ws = socket as ExtendedWebSocket;
-  // 随机生成 8 位字符串作为客户端物理连接的唯一 Peer ID
-  ws.__id = Math.random().toString(36).slice(2, 10);
+  // 随机生成 8 位字符串作为客户端物理连接的唯一标识
+  const connId = Math.random().toString(36).slice(2, 10);
+  ws.__connId = connId;
+  ws.__id = connId;
   ws.isAlive = true;
 
   // 监听客户端返回的心跳 pong 应答，确认连接保持活性
   ws.on('pong', () => {
     ws.isAlive = true;
   });
+
+  /**
+   * 座位登记：create / join 成功后调用，下发凭证并记录归属连接。
+   */
+  function issueSeat(peerId: string, room: string, name: string, role: 'host' | 'guest'): string {
+    const existing = seats.peek(peerId);
+    if (existing && existing.room !== room) seats.release(peerId);
+    seatOwner.set(peerId, connId);
+    return seats.issue(peerId, room, name, role, Date.now());
+  }
 
   // 监听客户端上行的信令指令
   ws.on('message', (raw) => {
@@ -105,8 +168,10 @@ wss.on('connection', (socket: WebSocket) => {
       case 'create': {
         const res = registry.create(String(msg.room || '').toUpperCase(), asClient(ws));
         if (res.ok && res.left) logLeave(res.left);
-        if (!res.ok) return send(ws, { t: 'error', message: res.message });
-        send(ws, { t: 'created', room: res.code, peerId: ws.__id! });
+        if (!res.ok) return sendError(ws, res.message);
+        const name = String(msg.name || '').slice(0, 20);
+        const token = issueSeat(ws.__id!, res.code, name, 'host');
+        send(ws, { t: 'created', room: res.code, peerId: ws.__id!, token });
         log(`房间 ${res.code} 创建 (peer ${ws.__id})`);
         break;
       }
@@ -115,11 +180,12 @@ wss.on('connection', (socket: WebSocket) => {
       case 'join': {
         const res = registry.join(String(msg.room || '').toUpperCase(), asClient(ws));
         if (res.ok && res.left) logLeave(res.left);
-        if (!res.ok) return send(ws, { t: 'error', message: res.message });
-        send(ws, { t: 'joined', room: res.code, peerId: ws.__id! });
-        
-        // 广播通知房间内的对手：有新玩家加入了对局
+        if (!res.ok) return sendError(ws, res.message);
         const name = String(msg.name || '').slice(0, 20);
+        const token = issueSeat(ws.__id!, res.code, name, 'guest');
+        send(ws, { t: 'joined', room: res.code, peerId: ws.__id!, token });
+
+        // 广播通知房间内的对手：有新玩家加入了对局
         for (const peer of registry.others(res.code, ws.__id!)) {
           peer.send({ t: 'peer-joined', peerId: ws.__id!, name });
         }
@@ -138,20 +204,83 @@ wss.on('connection', (socket: WebSocket) => {
         break;
       }
 
-      // ---------------- 指令 ④：主动退出房间 ----------------
-      case 'leave':
+      // ---------------- 指令 ④：主动退出房间（不留座位） ----------------
+      case 'leave': {
+        seats.release(ws.__id!);
+        seatOwner.delete(ws.__id!);
         logLeave(registry.leave(ws.__id!));
         break;
+      }
+
+      // ---------------- 指令 ⑤：应用层心跳（v1.1 增量） ----------------
+      // 任何状态（未入房 / 已入房 / 宽限中）都必须立即回 pong；不校验房间、不碰 registry
+      case 'ping': {
+        send(ws, { t: 'pong', ts: msg.ts });
+        break;
+      }
+
+      // ---------------- 指令 ⑥：占回原座位（v1.1 增量，非幂等：成功后 token 轮换） ----------------
+      case 'resume': {
+        const peerId = String(msg.peerId || '');
+        const reqRoom = String(msg.room || '').toUpperCase();
+        const token = String(msg.token || '');
+        const result = seats.verify(peerId, reqRoom, token, Date.now());
+
+        if (result !== 'ok') {
+          log(`srv.resume.reject room=${maskRoom(reqRoom)} peerId=${peerId} graceMs=${GRACE_MS}`);
+          if (result === 'invalid') {
+            send(ws, { t: 'error', code: 'RESUME_TOKEN_INVALID', message: '座位凭证无效' });
+          } else {
+            send(ws, { t: 'error', code: 'RESUME_REJECTED', message: '房间已失效，请重新加入' });
+          }
+          break;
+        }
+
+        // 顺序不可换：① 新连接继承旧身份 → ② 座位重绑 → ③ 轮换 token → ④ 回 resumed → ⑤ 广播 peer-online
+        ws.__id = peerId;
+        registry.rebind(peerId, asClient(ws));
+        const newToken = seats.rotate(peerId, Date.now()) ?? '';
+        seatOwner.set(peerId, connId);
+        const peers = registry.others(reqRoom, peerId);
+        send(ws, { t: 'resumed', room: reqRoom, peerId, token: newToken, peerPresent: peers.length > 0 });
+        log(`srv.resume.ok room=${maskRoom(reqRoom)} peerId=${peerId} graceMs=${GRACE_MS}`);
+
+        for (const peer of peers) {
+          peer.send({ t: 'peer-online' });
+        }
+        break;
+      }
 
       default:
         send(ws, { t: 'error', message: '未知消息类型' });
     }
   });
 
-  // 当网络断开或发生异常时，自动清理退房并通知房间内的对手
-  const bye = () => logLeave(registry.leave(ws.__id!));
-  ws.on('close', bye);
-  ws.on('error', bye);
+  /**
+   * socket 断开：**不调用** `registry.leave()`（座位原样保留，ADR-7）。
+   *
+   * 只把座位标记为「宽限中」并向对手广播 `peer-offline`；
+   * `peer-left` 只在宽限期**超时后**才由 sweep 发出（Q-A 已回签）。
+   */
+  const onDisconnect = () => {
+    const peerId = ws.__id;
+    if (!peerId) return;
+    // 旧 socket 迟到的事件：座位已归属新连接，直接忽略
+    if (seatOwner.get(peerId) !== connId) return;
+
+    const seat = seats.markOffline(peerId, Date.now());
+    if (!seat) return; // 不在任何房间 / 已在宽限中（幂等，不重复广播）
+
+    const code = registry.roomOf(peerId);
+    if (!code) return;
+
+    for (const peer of registry.others(code, peerId)) {
+      peer.send({ t: 'peer-offline', graceSec: GRACE_SECS });
+    }
+    log(`srv.grace.start room=${maskRoom(code)} peerId=${peerId} graceMs=${GRACE_MS}`);
+  };
+  ws.on('close', onDisconnect);
+  ws.on('error', onDisconnect);
 });
 
 /**
@@ -175,6 +304,22 @@ setInterval(() => {
 }, 30000).unref();
 
 /**
+ * ============================================================================
+ * 4. 座位宽限期回收（v1.1）
+ * ============================================================================
+ * 每 5s 扫一次：宽限超时的座位 → 真正 leave（复用 rooms.ts 的 peer-left 广播）。
+ * .unref() 不可省，否则 Ctrl+C 会挂住。
+ */
+setInterval(() => {
+  const now = Date.now();
+  for (const seat of seats.sweep(now)) {
+    log(`srv.grace.expire room=${maskRoom(seat.room)} peerId=${seat.peerId} graceMs=${GRACE_MS}`);
+    seatOwner.delete(seat.peerId);
+    logLeave(registry.leave(seat.peerId));
+  }
+}, SWEEP_INTERVAL_MS).unref();
+
+/**
  * 扫描本机网卡并提取所有 IPv4 局域网地址
  * 极大提升多设备联机体验：启动时直接打印出局域网 IP，方便手机或好友输入地址
  */
@@ -192,7 +337,7 @@ function lanAddresses(): string[] {
 }
 
 /* ============================================================================
- * 4. 监听端口启动与控制台友好指引
+ * 5. 监听端口启动与控制台友好指引
  * ============================================================================ */
 server.listen(PORT, HOST, () => {
   log(`信令服务器已启动: http://${HOST}:${PORT}`);
@@ -214,4 +359,4 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   });
 }
 
-export { server, wss, registry };
+export { server, wss, registry, seats };

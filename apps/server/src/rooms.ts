@@ -86,6 +86,35 @@ export class RoomRegistry {
   }
 
   /**
+   * 该客户端当前是否仍占着房间座位（v1.1 座位保持用）
+   *
+   * 宽限期内 socket 已断但座位仍在 → 返回 true；真正 leave 后 → false。
+   */
+  has(clientId: string): boolean {
+    return this.membership.has(clientId);
+  }
+
+  /**
+   * 把座位重绑到新的连接对象（v1.1 resume 成功后调用）
+   *
+   * 【为什么不需要动房间结构】：
+   * `rooms` 本身就是「座位表」——断线时不删条目，座位就在；
+   * 恢复时只需把 `send` 目标换成新连接，房间成员数、对手关系全部不变。
+   *
+   * @param clientId 座位主键（= 旧连接的 peerId，重连后由新连接继承）
+   * @param client 新连接适配出的 RoomClient
+   * @returns 座位存在且重绑成功返回 true
+   */
+  rebind(clientId: string, client: RoomClient): boolean {
+    const code = this.membership.get(clientId);
+    if (!code) return false;
+    const room = this.rooms.get(code);
+    if (!room || !room.has(clientId)) return false;
+    room.set(clientId, client);
+    return true;
+  }
+
+  /**
    * 获取同房间内的其他对手成员（用于转发 SDP、ICE 候选及广播对端加入通知）
    * @param code 房间号
    * @param clientId 排除当前客户端自己的 ID

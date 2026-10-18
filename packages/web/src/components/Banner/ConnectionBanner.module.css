@@ -1,0 +1,115 @@
+/* 连接状态条：固定贴顶，不遮挡棋盘交互（pointer-events 只给按钮） */
+
+.banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 9px 18px;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  pointer-events: none;
+  box-shadow: var(--shadow-sm);
+  animation: bannerIn 0.22s ease;
+}
+
+@keyframes bannerIn {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.info {
+  background: var(--accent-soft);
+  color: #92400e;
+  border-bottom: 1px solid #f6d78a;
+}
+
+.warn {
+  background: #fff7ed;
+  color: #9a3412;
+  border-bottom: 1px solid #fdba74;
+}
+
+.bad {
+  background: #fef2f2;
+  color: var(--red);
+  border-bottom: 1px solid #fca5a5;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.text {
+  flex: 0 1 auto;
+  text-align: center;
+}
+
+.action,
+.ghost {
+  pointer-events: auto;
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.action {
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+}
+
+.action:hover {
+  background: currentColor;
+  color: #ffffff;
+}
+
+.ghost {
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.6);
+  color: inherit;
+}
+
+.ghost:hover {
+  background: rgba(255, 255, 255, 0.95);
+}
+
+@media (max-width: 640px) {
+  .banner {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 12px;
+    font-size: 12.5px;
+  }
+}

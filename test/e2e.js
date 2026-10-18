@@ -298,12 +298,20 @@ async function launchBrowser() {
     mine: document.querySelectorAll('#chat-list .msg.mine').length,
     theirs: document.querySelectorAll('#chat-list .msg.theirs').length,
     sys: document.querySelectorAll('#chat-list .msg.sys').length,
+    sysText: Array.from(document.querySelectorAll('#chat-list .msg.sys'))
+      .map((el) => el.textContent || '')
+      .join(' | '),
     status: document.getElementById('room-status').textContent.trim(),
+    state: window.__gomoku.connState,
   }));
   check(`对手离开后 B 保留原房间号 ${afterB.room}`, afterB.room === room);
   check('对手离开后 B 上一局聊天清空（仅剩系统提示）', afterB.mine === 0 && afterB.theirs === 0 && afterB.sys >= 1);
   check('对手离开后 B 对手昵称清空', afterB.peerName === '');
-  check(`对手离开后 B 状态提示「对手已离开」（${afterB.status}）`, afterB.status.includes('对手已离开'));
+  // 契约变更（QA 缺陷 1 修复）：对手真的离开后不再停在「未连接 / FAILED」，
+  // 而是清盘 + 回到同一房间「等待对手加入」；「对手已离开」改由系统消息承载。
+  check(`对手离开后 B 状态提示「等待对手加入」（${afterB.status}）`, afterB.status.includes('等待对手加入'));
+  check(`对手离开后 B 有「对手已离开」系统消息（${afterB.sysText}）`, afterB.sysText.includes('对手已离开'));
+  check(`对手离开后 B 不是 FAILED（${afterB.state}）`, afterB.state === 'ROOM_WAITING');
 
   console.log('== 阶段二·补2：输错房号不会把自己踢出当前房间 ==');
   // A 此时独自在新房间里：若服务端「先退旧房再校验」，这个房间会被销毁 → /healthz 房间数 -1
