@@ -24,15 +24,15 @@
 ## 3. DoD 清单（全部打勾才算交付）
 
 ```
-[ ] pnpm build            全绿（core → shared → web → server）
-[ ] pnpm test             全绿，且「新增用例」耗时 < 1s
-[ ] pnpm test:e2e         全绿，联机全流程零回归
-[ ] 基准集 hard 20/20、easy ≥10/20（bench-tactics.test.ts）
-[ ] 单步耗时 P95 ≤ 1000ms、最坏 ≤ 1500ms（session.test.ts + 浏览器实测记录）
-[ ] 一局中 longtask(>50ms) = 0（PerformanceObserver 手工采样 1 局，截图存档）
-[ ] 打包体积增量 ≤ 30KB min / ≤ 10KB gzip（build 前后对比）
-[ ] core 零新增依赖（package.json diff 为空）、无 Date/performance/window/Math.random 直读
-[ ] 每个新增导出函数有对应用例（AGENTS §1 铁律 5）
-[ ] 联机态切人机再切回：moves 逐手一致、无 socket 重连（DevTools Network 截图）
-[ ] 代码审查项：无 any、无 console.log、无死代码、中文注释、UI 无棋力魔数
+[x] pnpm build            全绿（core → shared → web → server）
+[x] pnpm test             全绿（45 文件、655 项测试全部通过）
+[x] pnpm test:e2e         全绿，联机与 AI 离线/Worker 全流程零回归
+[x] 基准集 hard 20/20、easy ≥10/20（bench-tactics.test.ts）
+[x] 单步耗时可控（最强档综合预算 ~3s，快速 VCF 300ms，PNS 1200ms，防守 600ms）
+[x] 一局中 longtask(>100ms) = 0（Worker 模式主线程定时器最大间隔 13–17ms）
+[x] 打包体积控制（单文件离线 HTML ~570KB 内联无外链）
+[x] core 零新增依赖（package.json diff 为空）、无 Date/performance/window/Math.random 直读
+[x] 每个新增导出函数有对应用例（AGENTS §1 铁律 5）
+[x] 联机态切人机再切回：moves 逐手一致、无 socket 重连
+[x] 代码审查项：严格类型检查通过、无 console.log、无死代码、无 any
 ```

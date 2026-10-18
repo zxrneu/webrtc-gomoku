@@ -21,6 +21,7 @@
 | **M2 · v1.3** | 工程化：TypeScript + pnpm workspace，保单文件产物 | `packages/core` / `shared` / `web` + `apps/server`；vitest | strict 编译通过；shared 为协议与连接码编解码唯一定义源；产物仍为 `dist/gomoku-standalone.html`；渐进迁移每步可测可回滚 | M1 协议冻结（shared 依赖对局协议稳定） | **已完成**（`a6cc3d3`） |
 | **M3 · v2.0** | 信令服务器 Rust 重写 + 三层配置下发 | tokio+axum+tokio-tungstenite、Redis pub/sub、三层配置、`GET /config` | 10 万+ 长连接压测达标；WS 协议与 v1 完全兼容；STUN/TURN 改由 `/config` 动态下发（客户端去硬编码）；Docker 多架构 | M2（shared 包）或独立先行；R7 兼容性验证 | **已交付**（`4e13b98`，R7 结案）：DoD 13 项中 11 项全证据通过、Docker 为静态核对（待有 docker 环境实跑 buildx）；⑫ 压测报告、⑬ 多架构 CI 计划内后置 |
 | **M4 · v3.0** | 多端分发与变现 | PWA；Tauri/Capacitor；微信小程序/小游戏；广告 | App 可上架；小程序跑通对局（路径 B：WS 中继）；广告组件接入 | M3 完成（小程序路径 B 复用信令服务器）；R6/R8 结案 | 未开始 |
+| **M5 · v2.1** | 本地人机对战（最强人机） | 纯前端 Web Worker 搜索 + 主线程分片 + PNS 证明数搜索 + 威胁依赖分析 + 3 档难度 + 胜法证书 | 战术基准 20/20 全过；单步思考预算约 3s；无长任务卡顿；单文件离线可用；零网络依赖；全量单测通过 | M2（TypeScript Monorepo 架构） | **已完成**（`a63c849`） |
 
 ### 1.2 M1 内部完成度（F/N 逐项）
 

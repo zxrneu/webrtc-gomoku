@@ -17,6 +17,9 @@
   NAT 穿透 / TURN 中继）；连不上时给出原因诊断
 - **STUN/TURN 动态下发（v2.0 新增）**：部署信令服务器后，ICE 服务器列表改由
   `GET /config` 下发（`packages/web/src/iceConfig.ts`），失败自动降级到内置同款列表
+- **本地人机对战（v2.1 / M5 新增）**：纯客户端本地运行（Web Worker 独立线程 + 主线程分片降级），
+  零网络依赖、离线单文件直接可用；支持 3 档难度（简单/普通/最强）与先后手选择；最强档采用
+  **证明数搜索（PNS）** 与 **威胁依赖分析**，具备深度连杀攻杀（VCT/VCF）与严密的反杀自检防守。
 
 ## 里程碑
 
@@ -28,6 +31,7 @@
 | **M2 · v1.3** | 全量 TypeScript + pnpm workspace + React 19 + CSS Modules + 单文件打包 | [x] 已完成 |
 | **M3 · v2.0** | 信令服务器 Rust 重写（tokio + axum + Redis，10 万+ 长连接）+ STUN/TURN 动态下发 | [x] 已交付（`4e13b98`；10 万连接压测报告与多架构 CI 为计划内后置） |
 | **M4 · v3.0** | App 打包（PWA → Tauri/Capacitor）、微信小程序/小游戏、广告变现 | 规划中 |
+| **M5 · v2.1** | 本地人机对战（最强人机）：PNS 证明数搜索 + 威胁依赖分析 + 3 档难度 + 胜法证书体系 | [x] 已完成 |
 
 > 公网 IPv4 NAT 穿透（双方在不同家庭宽带后）：代码已内置腾讯/阿里公共 STUN 尽力尝试，
 > 成功率取决于 NAT 类型，**不在当前版本的支持承诺范围内**。
@@ -39,7 +43,7 @@
 ```
 webrtc-gomoku/
 ├── packages/
-│   ├── core/         # @webrtc-gomoku/core: 纯 TypeScript 五子棋引擎（规则、状态、胜负与悔棋算法）
+│   ├── core/         # @webrtc-gomoku/core: 纯 TypeScript 五子棋引擎（规则、状态、AI 搜索、PNS 算杀与胜法证书）
 │   ├── shared/       # @webrtc-gomoku/shared: 共享信令与对局协议、deflate-raw + base64url 压缩编解码
 │   └── web/          # @webrtc-gomoku/web: React 19 + CSS Modules + Canvas 15×15 棋盘 + Vite 单文件打包
 ├── apps/
@@ -100,12 +104,16 @@ PORT=3000 node apps/server/dist/server.js &
 pnpm test:e2e
 # 也可指向 Rust 版信令服务器（协议完全兼容，客户端零改动）：
 BASE=http://127.0.0.1:3000 node test/e2e.js
+
+# 离线求解与复验胜法证书（支持 algorithm: 'dfs' | 'pn'）
+pnpm ai:prove docs/m5-ai/examples/double-three.input.json /tmp/proof.json
+pnpm ai:verify /tmp/proof.json
 ```
 
 - 本机测试：开两个浏览器标签访问 `http://localhost:3000`，一个创建房间、一个加入
 - 手机/其他设备：访问启动日志里打印的局域网地址，如 `http://<你的局域网IP>:3000`
-- 单元测试：`pnpm test`（Vitest，33 项全部通过：五子棋规则 10 · Codec 编解码 4 · ICE 配置 19）；legacy 单文件引擎另跑 `pnpm test:legacy`（11 项）
-- E2E 测试：`pnpm test:e2e`（Playwright 双浏览器模拟对打，全流程覆盖信令链路、落子同步、胜负、聊天、悔棋、重开、手动邀请对局与断线诊断）
+- 单元测试：`pnpm test`（Vitest，45 个测试文件、655 项测试全部通过，含规则、断线重连、信令、AI 战术基准 20 题、PNS 算杀等）
+- E2E 测试：`pnpm test:e2e`（Playwright 覆盖 P2P 双人对局、信令链路、换房/换边、以及 AI Worker/单文件离线模式/分片回退）
 
 ## 架构
 
