@@ -203,3 +203,15 @@
   color: var(--text-light);
   text-align: center;
 }
+
+.hintCard {
+  padding: 12px;
+  border: 1px solid rgba(13, 148, 136, 0.25);
+  border-radius: var(--radius-md);
+  background: rgba(13, 148, 136, 0.05);
+}
+.hintCard > button { width: 100%; color: #0f766e; }
+.hintTitle { margin: 12px 0 8px; font-size: 13px; color: #0f766e; font-weight: 700; }
+.reasons { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.7; color: var(--text-main); }
+.reasons li + li { margin-top: 6px; }
+.hintNote { margin: 8px 0 0; font-size: 12px; line-height: 1.6; color: var(--text-muted); }

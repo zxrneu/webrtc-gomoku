@@ -31,9 +31,10 @@ import {
 import type { AiSettings } from './aiStorage';
 import { loadAiSettings, saveDifficulty, savePlayerColor } from './aiStorage';
 import { runAiSearch } from './aiSearch';
+import { useAiHint } from './useAiHint';
 
 /** 人机模式的对外 API（UI 只允许依赖这个接口） */
-export interface AiGameApi {
+export interface AiGameApi extends ReturnType<typeof useAiHint> {
   /** 当前人机棋局（胜负判定唯一来源是 core） */
   readonly aiGame: GameState;
   /** 玩家执子颜色 */
@@ -73,6 +74,8 @@ export function useAiGame(mode: GameMode): AiGameApi {
   const [game, setGame] = useState<GameState>(createAiGame);
   const [thinking, setThinking] = useState(false);
   const [gameRevision, setGameRevision] = useState(0);
+
+  const hint = useAiHint(game, settings.playerColor, mode === 'ai');
 
   /** 当前搜索的取消函数（卸载 / 切模式 / 悔棋 / 重开必须调用） */
   const cancelRef = useRef<(() => void) | null>(null);
@@ -176,6 +179,7 @@ export function useAiGame(mode: GameMode): AiGameApi {
   }, []);
 
   return {
+    ...hint,
     aiGame: game,
     playerColor: settings.playerColor,
     difficulty: settings.difficulty,

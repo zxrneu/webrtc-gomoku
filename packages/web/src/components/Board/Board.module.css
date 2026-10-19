@@ -392,3 +392,15 @@
   }
 }
 
+
+.hintMarker {
+  position: absolute;
+  width: 5%;
+  aspect-ratio: 1;
+  border: 3px solid #0f766e;
+  background: rgba(204, 251, 241, 0.5);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.75);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}

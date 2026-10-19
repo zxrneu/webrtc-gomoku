@@ -727,6 +727,7 @@ export const App: React.FC = () => {
           myColor={view.myColor}
           canUndo={mode === 'ai' ? ai.canUndo : view.game.moves.length > 0}
           thinking={mode === 'ai' && ai.thinking}
+          hintPoint={mode === 'ai' ? ai.hint?.point : null}
           aiColor={mode === 'ai' ? (ai.playerColor === BLACK ? WHITE : BLACK) : undefined}
           onMove={handleLocalMove}
           onUndo={handleUndo}

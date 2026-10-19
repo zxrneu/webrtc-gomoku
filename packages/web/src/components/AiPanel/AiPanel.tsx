@@ -130,6 +130,27 @@ export const AiPanel: React.FC<AiPanelProps> = ({ api, over }) => {
         </button>
       </div>
 
+      <section className={styles.hintCard} aria-label="AI 落子提示">
+        <button id="ai-hint-btn" type="button" className={`${styles.btn} btn`}
+          disabled={!api.canHint || api.hintThinking} onClick={api.requestHint}>
+          {api.hintThinking ? '正在分析棋局…' : 'AI 提示'}
+        </button>
+        <div aria-live="polite" aria-busy={api.hintThinking}>
+          {api.hint ? (
+            <div id="ai-hint-explanation">
+              <p className={styles.hintTitle}>推荐 {formatPoint(api.hint.point)} · 为什么下这里？</p>
+              <ul className={styles.reasons}>
+                {api.hint.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+              </ul>
+              <p className={styles.hintNote}>棋盘青色圆环为推荐点，点击棋盘自行落子。解释基于当前棋形，不代表已证明必胜。</p>
+            </div>
+          ) : (
+            <p className={styles.hintNote}>{api.hintUnavailable ? '暂时没有可用建议，请重新分析。'
+              : '轮到你时，查看推荐位置和这一步的用意。'}</p>
+          )}
+        </div>
+      </section>
+
       <p id="ai-thinking" className={styles.thinking} aria-live="polite">
         {thinkingText}
       </p>

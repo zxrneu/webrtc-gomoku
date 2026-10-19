@@ -58,6 +58,7 @@ interface BoardProps {
    * 传入后「最后一手」标记改用与玩家不同的描边样式，便于区分谁刚下过
    */
   aiColor?: PlayerColor;
+  hintPoint?: Point | null;
 }
 
 
@@ -113,6 +114,7 @@ export const Board: React.FC<BoardProps> = ({
   onRematch,
   thinking = false,
   aiColor,
+  hintPoint,
 }) => {
 
   /** Canvas DOM 节点的引用，用于获取 2D 渲染上下文 (CanvasRenderingContext2D) */
@@ -464,6 +466,12 @@ export const Board: React.FC<BoardProps> = ({
           onPointerMove={handlePointerMove}
           onPointerLeave={handlePointerLeave}
         />
+
+        {hintPoint && !over && board[hintPoint[1]]?.[hintPoint[0]] === 0 && (
+          <span id="ai-hint-marker" className={styles.hintMarker} aria-label="AI 推荐落子位置"
+            style={{ left: `${(PAD + hintPoint[0] * CELL) / CANVAS_SIZE * 100}%`,
+              top: `${(PAD + hintPoint[1] * CELL) / CANVAS_SIZE * 100}%` }} />
+        )}
 
         {/* AI 思考浮层条（人机模式专用）：thinking=false 时不渲染，联机路径零变化 */}
         {thinking && (
