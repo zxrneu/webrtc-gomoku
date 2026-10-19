@@ -17,10 +17,10 @@
 ### 1.1 单节点（无 Redis）
 
 ```bash
-GOMOKU_HOST=0.0.0.0 GOMOKU_PORT=3000 ./gomoku-signaling
+GOMOKU_REDIS_ENABLED=false GOMOKU_HOST=0.0.0.0 GOMOKU_PORT=3000 ./gomoku-signaling
 ```
 
-未配置可达 Redis 时自动**降级为仅本节点**：`gomoku_redis_connected=0`，本地房间/信令照常工作，仅跨节点能力暂停。进程**不崩溃**，后台订阅任务按 1s→30s 指数退避自动重连。
+显式关闭 Redis 时仅运行本节点，`gomoku_redis_connected=0`，不启动 Redis 重连任务。若启用了 Redis 但暂时不可达，本地房间/信令仍可用、跨节点能力暂停，后台任务按 1s→30s 指数退避重连。
 
 ### 1.2 多节点（Redis 中继）
 
@@ -74,6 +74,8 @@ readinessProbe:
 ```
 
 > `/healthz` 返回 `{ok, rooms, uptime}`，字段与 v1 一致；`rooms` 实时取 `RoomTable::len()`。**不要**用 `/metrics` 做探针（其文本量随指标基数增长）。
+
+`/healthz` 只验证 HTTP 存活，不能代替大厅业务探测。大厅压测曾出现健康检查正常、列表查询因协调锁等待约 27 秒的情况。部署与压测应另外检查 `/signal` 上的列表查询、邀请入座及恢复；修复与对比见[大厅容量复审](../m6-lobby/capacity-review.md)。
 
 ---
 
@@ -189,7 +191,7 @@ net.core.wmem_max = 16777216
 
 容器/进程层面：
 
-- 单进程事件循环（tokio 多线程运行时）即可支撑 100k 连接量级；`limits.max_connections` 默认 100000。
+- `limits.max_connections` 默认 100000，这是通用信令配额与设计目标，尚未通过对应规模压测。大厅另有 2000 会话及 1000 房间的准入边界；按实际出口带宽和业务负载验收，不用连接配置推定承载量。大厅本地实测与复现命令见[容量复审](../m6-lobby/capacity-review.md)。
 - 若采用 `jemalloc` 特性（`--features jemalloc`），可降低长时间运行下的内存碎片。
 
 ---

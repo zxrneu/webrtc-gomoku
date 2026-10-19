@@ -9,7 +9,7 @@
 - **同一局域网直连**：同一 WiFi/内网下 IPv4 host 候选直连，无需任何服务器
 - **可达 IPv6 直连**：双方全球单播 IPv6（`2408:`/`2409:` 等）端到端可达，
   host 候选直连——**无 NAT、无需 STUN**，这是 IPv6 对 P2P 的红利
-- **微信互发邀请**：单文件 HTML（约 228KB 零运行时依赖）+ 连接码互发，交互式引导流程
+- **微信互发邀请**：单文件 HTML（当前构建约 628KB，零运行时依赖）+ 连接码互发，交互式引导流程
 - **扫码配对**：双向二维码 + BarcodeDetector/jsQR 双模识别 + 相册兜底
 - **对局功能**：15×15 棋盘、回合制、悔棋（需对方同意）、重新开始、最后一手标记、
   胜利连线高亮、对局聊天、掉线提示、音效开关、移动端自适应
@@ -27,7 +27,9 @@
 
 **Node `apps/server` 与 Rust `apps/signaling-rust` 均支持大厅**：Node 运行 `pnpm build && pnpm start` 后访问 `/lobby`；本地开发同时启动 `pnpm dev:server` 和 `pnpm dev`。Rust 启动方式见 [Rust 服务说明](apps/signaling-rust/README.md)。初版在线名册、邀请和匹配队列按服务节点维护，Rust 原有 Redis 跨节点房间信令与座位恢复机制继续可用。
 
-`pnpm build` 分别生成在线版本 `packages/web/dist/index.html` 和剔除大厅的单文件 `dist/gomoku-standalone.html`。验证与当前边界见 [大厅实施记录](docs/m6-lobby/implementation.md)。
+`pnpm build` 分别生成在线版本 `packages/web/dist/index.html` 和剔除大厅的单文件 `dist/gomoku-standalone.html`。文档入口见 [服务大厅](docs/m6-lobby/README.md)。
+
+Rust 大厅已改为定向即时通知与每秒合并发布：无状态变化不广播，浏览器仍每 5 秒单独查询。每节点最多 2000 个大厅会话，大厅准入在本节点总房间数达到 1000 时拒绝；这些配额不代表生产容量承诺。本地 2 CPU / 512MiB Linux 实例中，2000 会话、100 个公开房间的消息正文下行从约 208Mbps 降至 48Mbps；频繁变更时仍有全量推送开销。环境、限制和已知问题见[容量复审](docs/m6-lobby/capacity-review.md)，后续工作见[大厅待办](docs/m6-lobby/tasks.md)。
 
 ## 里程碑
 
@@ -37,9 +39,10 @@
 |--------|------|------|
 | **M1 · v1.2** | 扫码配对（双向二维码）/ 文件传输 / 语音 / 视频，零服务器 | [x] 扫码已完成 |
 | **M2 · v1.3** | 全量 TypeScript + pnpm workspace + React 19 + CSS Modules + 单文件打包 | [x] 已完成 |
-| **M3 · v2.0** | 信令服务器 Rust 重写（tokio + axum + Redis，10 万+ 长连接）+ STUN/TURN 动态下发 | [x] 已交付（`4e13b98`；10 万连接压测报告与多架构 CI 为计划内后置） |
+| **M3 · v2.0** | 信令服务器 Rust 重写（tokio + axum + Redis）+ STUN/TURN 动态下发 | [x] 已交付（`4e13b98`；10 万连接为设计目标，压测报告与多架构 CI 后置） |
 | **M4 · v3.0** | App 打包（PWA → Tauri/Capacitor）、微信小程序/小游戏、广告变现 | 规划中 |
 | **M5 · v2.1** | 本地人机对战（最强人机）：PNS 证明数搜索 + 威胁依赖分析 + 3 档难度 + 胜法证书体系 | [x] 已完成 |
+| **M6 · 服务大厅** | 独立页面、在线棋友、邀请/匹配/公开组房、刷新恢复 | [x] 首版与 Rust 广播修复已提交；已知问题与流量优化见[待办](docs/m6-lobby/tasks.md) |
 
 > 公网 IPv4 NAT 穿透（双方在不同家庭宽带后）：代码已内置腾讯/阿里公共 STUN 尽力尝试，
 > 成功率取决于 NAT 类型，**不在当前版本的支持承诺范围内**。
@@ -55,7 +58,8 @@ webrtc-gomoku/
 │   ├── shared/       # @webrtc-gomoku/shared: 共享信令与对局协议、deflate-raw + base64url 压缩编解码
 │   └── web/          # @webrtc-gomoku/web: React 19 + CSS Modules + Canvas 15×15 棋盘 + Vite 单文件打包
 ├── apps/
-│   └── server/       # @webrtc-gomoku/server: TypeScript HTTP 静态托管与 WebSocket 信令中继服务
+│   ├── server/       # @webrtc-gomoku/server: TypeScript HTTP 静态托管与 WebSocket 信令中继服务
+│   └── signaling-rust/ # Rust 信令、单节点大厅、Redis 跨节点房间与静态托管
 ├── dist/
 │   └── gomoku-standalone.html # 构建产物：全内联单文件 HTML（零服务器依赖，可直接微信互发或离线运行）
 ├── test/
@@ -120,8 +124,8 @@ pnpm ai:verify /tmp/proof.json
 
 - 本机测试：开两个浏览器标签访问 `http://localhost:3000`，一个创建房间、一个加入
 - 手机/其他设备：访问启动日志里打印的局域网地址，如 `http://<你的局域网IP>:3000`
-- 单元测试：`pnpm test`（Vitest，45 个测试文件、655 项测试全部通过，含规则、断线重连、信令、AI 战术基准 20 题、PNS 算杀等）
-- E2E 测试：`pnpm test:e2e`（Playwright 覆盖 P2P 双人对局、信令链路、换房/换边、以及 AI Worker/单文件离线模式/分片回退）
+- 单元测试：`pnpm test`（2026-10-20：Vitest 69 个文件、1031 项通过，包含规则、协议、大厅、断线重连与 AI）。Rust 另运行 `cargo test --manifest-path apps/signaling-rust/Cargo.toml`（同日 254 项通过）。
+- E2E 测试：`pnpm test:e2e`（Playwright 覆盖 P2P 对局、信令、换房/换边、AI、聊天与富媒体、大厅邀请/匹配/恢复和分页）。容量与已知问题复现命令见[大厅复审](docs/m6-lobby/capacity-review.md)。
 
 ## 架构
 
