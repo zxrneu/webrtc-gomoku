@@ -33,7 +33,7 @@ pub fn build_ice_servers(ice: &IceConfig) -> Vec<Value> {
 pub async fn config(State(state): State<AppState>) -> Response {
     let cfg = state.cfg.snapshot();
     let servers = build_ice_servers(&cfg.ice);
-    let mut response = Json(json!({ "iceServers": servers })).into_response();
+    let mut response = Json(json!({ "iceServers": servers, "capabilities": {"lobby":true,"invites":true}, "lobby": {"inviteTimeoutMs":30000,"matchTimeoutMs":60000} })).into_response();
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
@@ -43,6 +43,19 @@ pub async fn config(State(state): State<AppState>) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn config_advertises_lobby_and_invitation_capabilities() {
+        let state = crate::http::test_support::state_with(crate::config::Config::default());
+        let response = config(State(state)).await;
+        let bytes = axum::body::to_bytes(response.into_body(), 65536)
+            .await
+            .unwrap();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["capabilities"]["lobby"], true);
+        assert_eq!(value["capabilities"]["invites"], true);
+        assert_eq!(value["lobby"]["inviteTimeoutMs"], 30000);
+    }
 
     fn ice(stun: &[&str], turn: &str, exposed: bool) -> IceConfig {
         IceConfig {

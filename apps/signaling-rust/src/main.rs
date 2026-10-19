@@ -76,6 +76,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 7. 组装全局共享状态 AppState
     let state = AppState {
+        lobby: Arc::new(tokio::sync::Mutex::new(
+            gomoku_signaling::transport::lobby::Lobby::default(),
+        )),
         cfg: snapshot.clone(),
         rooms: rooms.clone(),
         conns: conns.clone(),
@@ -91,6 +94,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 7.1 启动后台座位宽限期过期回收任务
     let _sweeper = spawn_sweeper(state.conn_deps(), shutdown.subscribe());
+    let _lobby_sweeper =
+        gomoku_signaling::transport::lobby::spawn_sweeper(state.conn_deps(), shutdown.subscribe());
 
     tracing::info!(
         node_id = %cfg.cluster.node_id,

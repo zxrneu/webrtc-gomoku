@@ -52,6 +52,7 @@ async function exercise(browser, url, supportsWorker) {
   }, supportsWorker);
   try {
     await page.goto(url);
+    if (await page.locator('#lobby-page').count()) await page.getByRole('button', { name: /返回棋盘/ }).click();
     await page.waitForFunction(() => !!window.__gomoku);
     await context.setOffline(true);
     const beforeRequests = requests.length;
@@ -151,6 +152,7 @@ async function exerciseHintRaces(browser) {
   const noHint = async () => assert.equal(await page.locator('#ai-hint-marker').count(), 0, '旧响应不能显示提示');
   try {
     await page.goto(BASE);
+    if (await page.locator('#lobby-page').count()) await page.getByRole('button', { name: /返回棋盘/ }).click();
     await page.click('#mode-ai-btn');
     await page.click('#ai-hint-btn');
     await pending(1);

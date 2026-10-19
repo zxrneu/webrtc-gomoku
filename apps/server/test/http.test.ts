@@ -198,3 +198,15 @@ describe('HTTP 静态服务与健康检查 - P0 / P1 / P2 安全与回归测试'
     });
   });
 });
+
+describe('大厅能力发现', () => {
+  it('未接入大厅的处理器明确不声明大厅能力', async () => {
+    const result = await dispatchRequest(createHttpHandler({ registry: { roomCount: 0 } }), { url: '/config' });
+    expect(JSON.parse(result.body)).toMatchObject({ capabilities: { lobby: false, invites: false } });
+  });
+  it('接入大厅后提供可验证的能力和期限', async () => {
+    const result = await dispatchRequest(createHttpHandler({ registry: { roomCount: 0 }, lobby: true }), { url: '/config' });
+    expect(JSON.parse(result.body)).toMatchObject({ capabilities: { lobby: true, invites: true },
+      lobby: { inviteTimeoutSec: 30, matchTimeoutSec: 60 } });
+  });
+});

@@ -165,6 +165,11 @@ pub async fn run_connection(
 /// 4. the room is **not** left — that is what makes resume cheap (ADR-7).
 pub async fn on_disconnect(deps: &ConnDeps, ctx: &ConnCtx) {
     let peer = ctx.peer_id();
+    {
+        let mut lobby = deps.lobby.lock().await;
+        lobby.disconnect(ctx);
+        lobby.flush(deps);
+    }
     if !deps.seats.is_owner(&peer, ctx.conn_id) {
         return;
     }

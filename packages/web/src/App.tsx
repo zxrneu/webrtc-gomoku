@@ -136,6 +136,8 @@ export const App: React.FC = () => {
     });
   }, []);
   const conn = useConnection({
+    ...(__LOBBY_ENABLED__ ? { getLocalColor: () => myColorRef.current,
+      onColorRestored: (color: PlayerColor) => { myColorRef.current = color; setMyColor(color); } } : {}),
     onGameMessage: (msg) => handleGameMessageRef.current(msg),
     onEvent: (e) => handleConnEventRef.current(e),
     getLocalMoves: () => gameRef.current.moves,

@@ -11,3 +11,7 @@ dist/
 .agents/
 apps/signaling-rust/target/
 crates/*/target/
+
+# 本地 UI 检查与单文件构建中间产物
+.playwright-cli/
+packages/web/dist-standalone/

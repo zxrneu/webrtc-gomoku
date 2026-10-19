@@ -14,6 +14,8 @@ export interface HttpHandlerOptions {
   publicDir?: string;
   /** 获取服务运行时间函数（支持测试时注入固定时间） */
   uptime?: () => number;
+  /** 已接入的大厅能力；不配置时兼容旧服务。 */
+  lobby?: boolean;
 }
 
 /**
@@ -74,6 +76,15 @@ export function createHttpHandler(options: HttpHandlerOptions): http.RequestList
       // 安全防护 P0：恶意畸形 URI 编码（如 /% 或 /%zz）返回 400，防止未捕获异常导致 Node.js 进程崩溃
       res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
       res.end('Bad Request');
+      return;
+    }
+
+    if (pathname === '/config') {
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(JSON.stringify({ capabilities: { lobby: options.lobby === true, invites: options.lobby === true },
+        lobby: { inviteTimeoutSec: 30, matchTimeoutSec: 60 },
+        iceServers: [{ urls: ['stun:stun.qq.com:3478', 'stun:stun.aliyun.com:3478'] },
+          { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }] }));
       return;
     }
 

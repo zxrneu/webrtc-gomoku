@@ -9,6 +9,7 @@ const BASE = process.env.BASE || 'http://localhost:3000';
     for (const width of [1440, 1024, 768, 375]) {
       const page = await browser.newPage({ viewport: { width, height: 900 } });
       await page.goto(BASE);
+      if (await page.locator('#lobby-page').count()) await page.getByRole('button', { name: /返回棋盘/ }).click();
       await page.waitForFunction(() => !!window.__gomoku);
       const gameTab = page.getByRole('tab', { name: '对局', exact: true });
       const chatTab = page.getByRole('tab', { name: /聊天/ });

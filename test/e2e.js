@@ -85,6 +85,8 @@ async function launchBrowser() {
       };
     }, REQUIRE_RELAY);
     await page.goto(BASE);
+    if (await page.locator('#lobby-page').count()) await page.getByRole('button', { name: /返回棋盘/ }).click();
+    if (await page.locator('[data-online-tab="room"]').count()) await page.locator('[data-online-tab="room"]').click();
     return page;
   }
 
@@ -586,8 +588,8 @@ async function launchBrowser() {
   const pageD = await newPlayerPage('D');
   await pageC.fill('#name-input', '小刚');
   await pageD.fill('#name-input', '小美');
-  await pageC.click('.tab[data-tab="manual"]');
-  await pageD.click('.tab[data-tab="manual"]');
+  await pageC.click('[data-online-tab="manual"]');
+  await pageD.click('[data-online-tab="manual"]');
 
   // C 创建房间（邀请方）→ 生成邀请码
   await pageC.click('#flow-host-btn');

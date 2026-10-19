@@ -21,6 +21,14 @@
   零网络依赖、离线单文件直接可用；支持 3 档难度（简单/普通/最强）与先后手选择；最强档采用
   **证明数搜索（PNS）** 与 **威胁依赖分析**，具备深度连杀攻杀（VCT/VCF）与严密的反杀自检防守。
 
+## 服务大厅（初版）
+
+在线构建新增独立 `/lobby` 页面：查看在线棋友、按昵称搜索、定向邀请组房、快速匹配、公开建房与加入。组房成功自动进入棋盘，落子与聊天继续走 P2P。当前窗口刷新可在服务端宽限期内恢复房间和棋谱。
+
+**Node `apps/server` 与 Rust `apps/signaling-rust` 均支持大厅**：Node 运行 `pnpm build && pnpm start` 后访问 `/lobby`；本地开发同时启动 `pnpm dev:server` 和 `pnpm dev`。Rust 启动方式见 [Rust 服务说明](apps/signaling-rust/README.md)。初版在线名册、邀请和匹配队列按服务节点维护，Rust 原有 Redis 跨节点房间信令与座位恢复机制继续可用。
+
+`pnpm build` 分别生成在线版本 `packages/web/dist/index.html` 和剔除大厅的单文件 `dist/gomoku-standalone.html`。验证与当前边界见 [大厅实施记录](docs/m6-lobby/implementation.md)。
+
 ## 里程碑
 
 详细路线图见 **[ROADMAP.md](ROADMAP.md)**，当前进度：

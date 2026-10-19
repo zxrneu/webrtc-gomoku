@@ -4,14 +4,16 @@ import { viteSingleFile } from 'vite-plugin-singlefile';
 import path from 'node:path';
 import fs from 'node:fs';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  define: { __LOBBY_ENABLED__: mode !== 'standalone' },
   plugins: [
     react(),
     viteSingleFile(),
     {
       name: 'copy-standalone-html',
       closeBundle() {
-        const outDir = path.resolve(__dirname, 'dist');
+        if (mode !== 'standalone') return;
+        const outDir = path.resolve(__dirname, 'dist-standalone');
         const srcFile = path.join(outDir, 'index.html');
         const rootDistDir = path.resolve(__dirname, '../../dist');
         const targetFile = path.join(rootDistDir, 'gomoku-standalone.html');
@@ -37,14 +39,16 @@ export default defineConfig({
         target: 'ws://localhost:3000',
         ws: true,
       },
+      '/config': 'http://localhost:3000',
       '/healthz': 'http://localhost:3000',
     },
   },
   build: {
+    outDir: mode === 'standalone' ? 'dist-standalone' : 'dist',
     target: 'esnext',
     assetsInlineLimit: 100000000,
     chunkSizeWarningLimit: 10000,
     cssCodeSplit: false,
     emptyOutDir: true,
   },
-});
+}));

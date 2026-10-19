@@ -1,4 +1,6 @@
 import http from 'node:http';
+import { randomUUID } from 'node:crypto';
+import { LobbyService } from './lobby/service';
 import os from 'node:os';
 import { WebSocketServer, WebSocket } from 'ws';
 import type {
@@ -48,6 +50,8 @@ const seats = new SeatRegistry({ graceMs: GRACE_MS });
  * 作用：新连接 resume 成功后，旧 socket 迟到的 close/error 不得把刚恢复的座位再次打入宽限。
  */
 const seatOwner = new Map<string, string>();
+const lobby = new LobbyService({ rooms: registry, now: Date.now, id: randomUUID });
+const connectionsByIp = new Map<string, number>();
 
 /**
  * 带有 ISO 时间戳的控制台格式化日志工具函数
@@ -114,7 +118,7 @@ function sendError(ws: ExtendedWebSocket, message: string) {
  * 1. HTTP 静态资源服务与健康检查
  * ============================================================================ */
 const candidateDirs = getCandidateDirs();
-const server = http.createServer(createHttpHandler({ registry, candidateDirs }));
+const server = http.createServer(createHttpHandler({ registry, candidateDirs, lobby: true }));
 
 /* ============================================================================
  * 2. WebSocket WebRTC 信令中继转发管道 (/signal)
@@ -127,12 +131,20 @@ const server = http.createServer(createHttpHandler({ registry, candidateDirs }))
  * v1.1 增量：新增 `ping` / `resume` 两条上行指令与 `pong` / `resumed` /
  * `peer-offline` / `peer-online` 四条下行通知。**旧客户端忽略未知 `t`，不崩。**
  */
-const wss = new WebSocketServer({ server, path: '/signal' });
+const wss = new WebSocketServer({ server, path: '/signal', maxPayload: 65536 });
 
-wss.on('connection', (socket: WebSocket) => {
+wss.on('connection', (socket: WebSocket, request) => {
+  const ip = request.socket.remoteAddress ?? 'unknown';
+  const total = connectionsByIp.get(ip) ?? 0;
+  if (total >= 10) { socket.close(1008, '连接过多'); return; }
+  connectionsByIp.set(ip, total + 1);
+  socket.once('close', () => {
+    const remaining = (connectionsByIp.get(ip) ?? 1) - 1;
+    if (remaining <= 0) connectionsByIp.delete(ip); else connectionsByIp.set(ip, remaining);
+  });
   const ws = socket as ExtendedWebSocket;
   // 随机生成 8 位字符串作为客户端物理连接的唯一标识
-  const connId = Math.random().toString(36).slice(2, 10);
+  const connId = randomUUID();
   ws.__connId = connId;
   ws.__id = connId;
   ws.isAlive = true;
@@ -163,6 +175,11 @@ wss.on('connection', (socket: WebSocket) => {
     }
     if (!msg || typeof msg.t !== 'string') return;
 
+    if (msg.t.startsWith('lobby-')) {
+      lobby.handle({ ...asClient(ws), issueSeat: (room, name, role) => issueSeat(ws.__id!, room, name, role) }, msg);
+      return;
+    }
+
     switch (msg.t) {
       // ---------------- 指令 ①：创建房间 ----------------
       case 'create': {
@@ -171,6 +188,7 @@ wss.on('connection', (socket: WebSocket) => {
         if (!res.ok) return sendError(ws, res.message);
         const name = String(msg.name || '').slice(0, 20);
         const token = issueSeat(ws.__id!, res.code, name, 'host');
+        lobby.syncRoom(ws.__id!, name);
         send(ws, { t: 'created', room: res.code, peerId: ws.__id!, token });
         log(`房间 ${res.code} 创建 (peer ${ws.__id})`);
         break;
@@ -183,6 +201,7 @@ wss.on('connection', (socket: WebSocket) => {
         if (!res.ok) return sendError(ws, res.message);
         const name = String(msg.name || '').slice(0, 20);
         const token = issueSeat(ws.__id!, res.code, name, 'guest');
+        lobby.syncRoom(ws.__id!, name);
         send(ws, { t: 'joined', room: res.code, peerId: ws.__id!, token });
 
         // 广播通知房间内的对手：有新玩家加入了对局
@@ -209,6 +228,7 @@ wss.on('connection', (socket: WebSocket) => {
         seats.release(ws.__id!);
         seatOwner.delete(ws.__id!);
         logLeave(registry.leave(ws.__id!));
+        lobby.syncRoom(ws.__id!);
         break;
       }
 
@@ -237,6 +257,7 @@ wss.on('connection', (socket: WebSocket) => {
         }
 
         // 顺序不可换：① 新连接继承旧身份 → ② 座位重绑 → ③ 轮换 token → ④ 回 resumed → ⑤ 广播 peer-online
+        lobby.rebind(ws.__id!, peerId);
         ws.__id = peerId;
         registry.rebind(peerId, asClient(ws));
         const newToken = seats.rotate(peerId, Date.now()) ?? '';
@@ -266,7 +287,9 @@ wss.on('connection', (socket: WebSocket) => {
     const peerId = ws.__id;
     if (!peerId) return;
     // 旧 socket 迟到的事件：座位已归属新连接，直接忽略
-    if (seatOwner.get(peerId) !== connId) return;
+    const owner = seatOwner.get(peerId);
+    if (owner && owner !== connId) return;
+    lobby.disconnect(peerId);
 
     const seat = seats.markOffline(peerId, Date.now());
     if (!seat) return; // 不在任何房间 / 已在宽限中（幂等，不重复广播）
@@ -310,6 +333,8 @@ setInterval(() => {
  * 每 5s 扫一次：宽限超时的座位 → 真正 leave（复用 rooms.ts 的 peer-left 广播）。
  * .unref() 不可省，否则 Ctrl+C 会挂住。
  */
+setInterval(() => lobby.flush(), 1000).unref();
+
 setInterval(() => {
   const now = Date.now();
   for (const seat of seats.sweep(now)) {

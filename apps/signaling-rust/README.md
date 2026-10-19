@@ -3,6 +3,40 @@
 > 高性能 WebRTC 五子棋房间信令与单页客户端托管服务（M3 v2.0，Rust 重写版）。  
 > 基于 **Rust 2021 + Tokio 异步多线程运行时 + Axum 0.7 + Hyper 1.0** 构建，专为**高并发对局（10万+连接）**、**极低延迟**与**分布式多节点集群**设计。
 
+## 服务大厅（首版）
+
+Rust 服务现在支持与 Node 版相同的大厅协议：在线棋友、2–12 字昵称与重名处理、搜索/每页 20 人、公开房间、定向邀请、快速匹配，以及刷新后的原房间恢复。`/config` 返回 `capabilities.lobby=true` 和 `capabilities.invites=true`，前端无需切换实现。
+
+大厅在线名册、邀请和匹配队列当前按**单个 Rust 节点**维护。每个浏览器最多 2 个大厅标签会话，每节点最多 2,000 个大厅在线会话；大厅新建/匹配在本节点房间总数达到 1,000 时拒绝准入，传统房号联机仍使用 `limits.max_rooms` 配额。公开房间最多返回 100 条，空闲房间优先展示。邀请 30 秒过期，拒绝/过期后同组冷却 60 秒，匹配等待 60 秒超时。邀请及建房操作有 3 秒间隔，大厅突发请求每会话每秒最多 30 次；这些限制与既有全局/单 IP WebSocket 连接配额同时生效。
+
+所有大厅入座都复用既有 `RoomTable`、`SeatRegistry` 和 Redis 房间准入路径；两人都成功入座后才发出 `lobby-seat`，失败时回滚，避免留下半个房间。座位凭证只发给本人，公开名册不含凭证、IP 或信令内容。落子、聊天、悔棋仍通过 P2P 数据通道传输。
+
+大厅每次发布只构建一次公共用户/房间投影，排序与公共状态由所有会话共享；查询在下次发布或状态变更前复用该投影，个人筛选、分页和座位信息仍独立生成。房间准入期间保持协调锁以保证邀请、取消与回滚的事务顺序。恢复接管后，旧物理连接永久失去写入权限，即使它先发送 `leave` 或 `ping` 清空本地房间，也不能再次创建或加入房间。
+
+**无需 Redis 的本地大厅**（仓库根目录）：
+
+```bash
+pnpm --filter @webrtc-gomoku/web build
+GOMOKU_REDIS_ENABLED=false GOMOKU_HOST=127.0.0.1 GOMOKU_PORT=3110 \
+  GOMOKU_PUBLIC_DIR=packages/web/dist \
+  cargo run --manifest-path apps/signaling-rust/Cargo.toml
+# 打开 http://127.0.0.1:3110/lobby
+```
+
+**启用现有 Redis 跨节点房间信令/恢复**：先启动 Redis，再设 `GOMOKU_REDIS_ENABLED=true GOMOKU_REDIS_URL=redis://127.0.0.1:6379`。每个节点设置独立 `GOMOKU_NODE_ID`。这会启用传统房间准入、跨节点中继和座位恢复；**不会把大厅名册/邀请/匹配队列合并为跨节点全局大厅**。如要让在线棋友互相发现，首版应将大厅流量路由到同一节点。
+
+验证命令（仓库根目录）：
+
+```bash
+cargo test --manifest-path apps/signaling-rust/Cargo.toml
+cargo build --manifest-path apps/signaling-rust/Cargo.toml
+cargo fmt --manifest-path apps/signaling-rust/Cargo.toml --check
+cargo clippy --manifest-path apps/signaling-rust/Cargo.toml --all-targets -- -D warnings
+# 已启动上面的 Rust 服务时：
+BASE=http://127.0.0.1:3110 node test/lobby-e2e.js
+BASE=http://127.0.0.1:3110 node test/e2e.js
+```
+
 ---
 
 ## 💡 架构核心认知：信令服务器是干什么的？
@@ -259,7 +293,7 @@ enabled = false
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | `GET` | `/healthz` | 存活探针：`{ok:true, rooms, uptime}`（字段/类型与 v1 一致） |
-| `GET` | `/config` | 下发 `{iceServers:[...]}`（`Cache-Control: no-cache`） |
+| `GET` | `/config` | 下发 ICE、`capabilities` 和大厅超时时间（`Cache-Control: no-cache`） |
 | `GET` | `/metrics` | Prometheus 文本指标（`gomoku_*`） |
 | `GET` | `/signal` | WebSocket 升级入口（信令中继通道） |
 | `GET/POST`| `/admin/config` | 管理面：读脱敏配置 / 内存态补丁热更新（需 Bearer Token） |
@@ -331,7 +365,7 @@ enabled = false
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 
-# 运行全量 189 个测试用例
+# 运行全量 Rust 单元与集成测试
 cargo test
 ```
 

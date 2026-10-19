@@ -34,6 +34,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
 prometheus = "0.13"
 rand = "0.8"
+regex-automata = { version = "0.4", default-features = false, features = ["std", "meta", "unicode-gencat"] }
 futures-util = "0.3"
 bytes = "1.7"
 subtle = "2.6"

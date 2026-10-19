@@ -28,6 +28,8 @@ pub type LogLevelSetter = Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
 /// 全局共享状态结构体（跨线程廉价克隆 Clone，内部各字段均为 Arc 引用计数指针）
 #[derive(Clone)]
 pub struct AppState {
+    /// Node-local service lobby. Room admission still uses RoomTable and Relay.
+    pub lobby: Arc<tokio::sync::Mutex<crate::transport::lobby::Lobby>>,
     /// 原子化配置快照（基于 ArcSwap，支持多线程高并发只读与原子热替换）
     pub cfg: Arc<ConfigSnapshot>,
     /// 64 分片并发房间注册表
@@ -57,6 +59,7 @@ impl AppState {
     /// 避免在每个长连接任务中暴露不必要的关机/静态目录等管理能力（遵循接口隔离原则 ISP）
     pub fn conn_deps(&self) -> ConnDeps {
         ConnDeps {
+            lobby: self.lobby.clone(),
             cfg: self.cfg.clone(),
             rooms: self.rooms.clone(),
             conns: self.conns.clone(),

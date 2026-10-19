@@ -31,6 +31,9 @@ pub(crate) mod test_support {
     /// Build an [`AppState`] from a configuration with sensible test defaults.
     pub fn state_with(cfg: Config) -> AppState {
         AppState {
+            lobby: Arc::new(tokio::sync::Mutex::new(
+                crate::transport::lobby::Lobby::default(),
+            )),
             cfg: Arc::new(ConfigSnapshot::new(cfg)),
             rooms: Arc::new(RoomTable::default()),
             conns: Arc::new(ConnectionRegistry::new(100, 10)),

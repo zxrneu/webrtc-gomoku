@@ -496,6 +496,7 @@ dependencies = [
  "prometheus",
  "rand",
  "redis",
+ "regex-automata",
  "reqwest",
  "serde",
  "serde_json",

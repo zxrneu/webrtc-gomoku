@@ -3,6 +3,7 @@
 
 pub mod connection;
 pub mod heartbeat;
+pub mod lobby;
 pub mod queue;
 pub mod registry;
 pub mod router;
@@ -38,6 +39,8 @@ pub struct ConnState {
     pub handle: ConnHandle,
     /// Room the connection currently belongs to, if any.
     pub current_room: Option<RoomCode>,
+    /// Once another socket takes this identity, it must reconnect with a fresh id.
+    pub superseded: bool,
 }
 
 /// Per-connection context shared by the reader task, the router and the RAII
@@ -64,6 +67,7 @@ impl ConnCtx {
                 peer_id,
                 handle,
                 current_room: None,
+                superseded: false,
             })),
         }
     }
@@ -91,6 +95,18 @@ impl ConnCtx {
     /// Take the current room, clearing it.
     pub fn take_room(&self) -> Option<RoomCode> {
         self.lock().current_room.take()
+    }
+
+    /// Whether this physical socket has permanently lost its identity.
+    pub fn is_superseded(&self) -> bool {
+        self.lock().superseded
+    }
+
+    /// Revoke this socket without leaving the replacement socket's room.
+    pub fn mark_superseded(&self) {
+        let mut state = self.lock();
+        state.superseded = true;
+        state.current_room = None;
     }
 
     /// Adopt the identity of a seat during `resume`.
@@ -124,6 +140,8 @@ impl ConnCtx {
 /// Dependencies shared by every connection.
 #[derive(Clone)]
 pub struct ConnDeps {
+    /// Node-local discovery and invitation coordinator.
+    pub lobby: Arc<tokio::sync::Mutex<lobby::Lobby>>,
     /// Configuration snapshot.
     pub cfg: Arc<ConfigSnapshot>,
     /// Room table.

@@ -7,13 +7,14 @@
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { LobbyProvider } from './lobby/LobbyProvider';
 import { App } from './App';
 import './styles/global.css';
 
 // 获取 index.html 中的 #root 容器并渲染主应用组件
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    {__LOBBY_ENABLED__ ? <LobbyProvider><App /></LobbyProvider> : <App />}
   </React.StrictMode>
 );
 

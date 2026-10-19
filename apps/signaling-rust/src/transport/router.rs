@@ -30,6 +30,12 @@ pub fn member_id(node_id: &str, peer: &PeerId) -> String {
     format!("{node_id}:{peer}")
 }
 
+struct JoinRequest<'a> {
+    room: &'a str,
+    name: &'a str,
+    lobby: bool,
+}
+
 /// The router: turns classified frames into room/relay actions.
 pub struct Router {
     deps: ConnDeps,
@@ -43,24 +49,68 @@ impl Router {
 
     /// Handle one raw inbound text frame.
     pub async fn handle(&self, ctx: &ConnCtx, raw: &str) {
-        // [P1] Superseded connection check: if this connection previously had a room,
-        // but its seat was taken over by another connection via resume, clear the room
-        // and reject stateful operations (Issue 4).
-        if ctx.current_room().is_some() && !self.deps.seats.is_owner(&ctx.peer_id(), ctx.conn_id) {
-            ctx.take_room();
-            if !matches!(protocol::classify(raw), Classification::Ping { .. }) {
-                return;
-            }
+        let command = protocol::classify(raw);
+        if self.superseded(ctx, &command) {
+            return;
         }
+        let lobby = serde_json::from_str::<serde_json::Value>(raw)
+            .ok()
+            .and_then(|v| {
+                v.get("t")
+                    .and_then(|t| t.as_str())
+                    .map(|t| t.starts_with("lobby-"))
+            })
+            .unwrap_or(false);
+        if lobby {
+            super::lobby::handle(&self.deps, ctx, raw).await;
+            return;
+        }
+        let previous = ctx.peer_id();
+        let stateful = matches!(
+            command,
+            Classification::Create { .. }
+                | Classification::Join { .. }
+                | Classification::Leave
+                | Classification::Resume { .. }
+        );
+        self.dispatch(ctx, command).await;
+        if stateful {
+            let mut lobby = self.deps.lobby.lock().await;
+            lobby.rebind(&previous, ctx);
+            lobby.sync(ctx, &self.deps);
+            lobby.flush(&self.deps);
+        }
+    }
 
-        match protocol::classify(raw) {
+    fn superseded(&self, ctx: &ConnCtx, command: &Classification) -> bool {
+        if !ctx.is_superseded()
+            && ctx.current_room().is_some()
+            && !self.deps.seats.is_owner(&ctx.peer_id(), ctx.conn_id)
+        {
+            ctx.mark_superseded();
+        }
+        ctx.is_superseded() && !matches!(command, Classification::Ping { .. })
+    }
+
+    async fn dispatch(&self, ctx: &ConnCtx, command: Classification) {
+        match command {
             Classification::Ignore => {}
             Classification::UnknownType => {
                 self.deps.metrics.inc_error(names::err_kind::UNKNOWN_TYPE);
                 ctx.send(messages::error(messages::ERR_UNKNOWN_TYPE));
             }
             Classification::Create { room } => self.handle_create(ctx, room).await,
-            Classification::Join { room, name } => self.handle_join(ctx, &room, &name).await,
+            Classification::Join { room, name } => {
+                self.handle_join(
+                    ctx,
+                    JoinRequest {
+                        room: &room,
+                        name: &name,
+                        lobby: false,
+                    },
+                )
+                .await
+            }
             Classification::Signal { data } => self.handle_signal(ctx, data).await,
             Classification::Leave => self.leave_current(ctx).await,
             // v1.1: `ping` never touches room/connection state — reply and move
@@ -77,10 +127,40 @@ impl Router {
         }
     }
 
+    /// Lobby admission uses the exact same Redis/room/seat transaction as legacy rooms.
+    pub(super) async fn lobby_create(&self, ctx: &ConnCtx, name: &str) -> Option<RoomCode> {
+        for _ in 0..MAX_GENERATE_RETRIES {
+            let code = generate_room_code();
+            match self.attempt_create(ctx, &code, Some(name)).await {
+                CreateOutcome::Created => return Some(code),
+                CreateOutcome::Exists => continue,
+                _ => return None,
+            }
+        }
+        None
+    }
+
+    pub(super) async fn lobby_join(&self, ctx: &ConnCtx, code: &RoomCode, name: &str) -> bool {
+        self.handle_join(
+            ctx,
+            JoinRequest {
+                room: code.as_str(),
+                name,
+                lobby: true,
+            },
+        )
+        .await;
+        ctx.current_room().as_ref() == Some(code)
+    }
+
+    pub(super) async fn lobby_leave(&self, ctx: &ConnCtx) {
+        self.leave_current(ctx).await;
+    }
+
     async fn handle_create(&self, ctx: &ConnCtx, room: Option<String>) {
         match room {
             Some(raw) => match RoomCode::new(&raw) {
-                Ok(code) => match self.attempt_create(ctx, &code).await {
+                Ok(code) => match self.attempt_create(ctx, &code, None).await {
                     CreateOutcome::Created => {}
                     CreateOutcome::Exists => {
                         self.deps.metrics.inc_error(names::err_kind::ROOM_EXISTS);
@@ -103,7 +183,7 @@ impl Router {
     async fn create_with_generated_code(&self, ctx: &ConnCtx) {
         for _ in 0..MAX_GENERATE_RETRIES {
             let code = generate_room_code();
-            match self.attempt_create(ctx, &code).await {
+            match self.attempt_create(ctx, &code, None).await {
                 CreateOutcome::Created => return,
                 CreateOutcome::Exists => continue,
                 CreateOutcome::Capacity | CreateOutcome::Internal => {
@@ -117,7 +197,12 @@ impl Router {
         ctx.send(messages::error(messages::ERR_SERVER_BUSY));
     }
 
-    async fn attempt_create(&self, ctx: &ConnCtx, code: &RoomCode) -> CreateOutcome {
+    async fn attempt_create(
+        &self,
+        ctx: &ConnCtx,
+        code: &RoomCode,
+        lobby_name: Option<&str>,
+    ) -> CreateOutcome {
         let ttl = self.deps.cfg.snapshot().redis.room_ttl_secs;
         let peer = ctx.peer_id();
         let member = member_id(&self.deps.node_id, &peer);
@@ -142,7 +227,7 @@ impl Router {
                 let token = self.deps.seats.issue(
                     &peer,
                     code,
-                    "",
+                    lobby_name.unwrap_or(""),
                     SeatRole::Host,
                     ctx.conn_id,
                     heartbeat::now_ms(),
@@ -150,13 +235,23 @@ impl Router {
                 let _ = self
                     .deps
                     .relay
-                    .registry_issue_seat(code, &peer, &token, "", "host", &self.deps.node_id, ttl)
+                    .registry_issue_seat(
+                        code,
+                        &peer,
+                        &token,
+                        lobby_name.unwrap_or(""),
+                        "host",
+                        &self.deps.node_id,
+                        ttl,
+                    )
                     .await;
-                ctx.send(messages::created_with_token(
-                    code.as_str(),
-                    peer.as_str(),
-                    &token,
-                ));
+                if lobby_name.is_none() {
+                    ctx.send(messages::created_with_token(
+                        code.as_str(),
+                        peer.as_str(),
+                        &token,
+                    ));
+                }
                 self.deps.relay.subscribe_room(code).await;
                 self.deps.metrics.inc_message(names::msg_type::CREATE);
                 tracing::info!(
@@ -182,7 +277,8 @@ impl Router {
         }
     }
 
-    async fn handle_join(&self, ctx: &ConnCtx, room: &str, name: &str) {
+    async fn handle_join(&self, ctx: &ConnCtx, request: JoinRequest<'_>) {
+        let JoinRequest { room, name, lobby } = request;
         // v1 does not format-validate `join`; an invalid code is simply "not found".
         let code = match RoomCode::new(room) {
             Ok(c) => c,
@@ -296,14 +392,18 @@ impl Router {
             .await;
 
         ctx.set_room(code.clone());
-        ctx.send(messages::joined_with_token(
-            code.as_str(),
-            peer.as_str(),
-            &token,
-        ));
+        if !lobby {
+            ctx.send(messages::joined_with_token(
+                code.as_str(),
+                peer.as_str(),
+                &token,
+            ));
+        }
         self.deps.metrics.inc_message(names::msg_type::JOIN);
 
-        if existing.is_empty() {
+        if lobby {
+            // The lobby publishes both credentials only after the pair has committed.
+        } else if existing.is_empty() {
             // The existing peer lives on another node: notify it via the channel.
             let msg = CrossNodeMsg::new(CrossKind::PeerJoined, &code, &self.deps.node_id, &peer)
                 .with_name(&name);

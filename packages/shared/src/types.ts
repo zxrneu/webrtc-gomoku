@@ -1,3 +1,4 @@
+import type { ClientLobbyMsg, ServerLobbyMsg } from './lobby/types';
 import type { Move, PlayerColor } from '@webrtc-gomoku/core';
 
 /**
@@ -311,7 +312,8 @@ export type ClientSignalingMsg =
   | ClientSignalMsg
   | ClientLeaveMsg
   | ClientPingMsg
-  | ClientResumeMsg;
+  | ClientResumeMsg
+  | ClientLobbyMsg;
 
 // ----------------------------------------------------
 // B. 信令服务器推给客户端的消息 (Server -> Client)
@@ -422,7 +424,8 @@ export type ServerSignalingMsg =
   | ServerPongMsg
   | ServerPeerOfflineMsg
   | ServerPeerOnlineMsg
-  | ServerResumedMsg;
+  | ServerResumedMsg
+  | ServerLobbyMsg;
 
 /**
  * ============================================================================

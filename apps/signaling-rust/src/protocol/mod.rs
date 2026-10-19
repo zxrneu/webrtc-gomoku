@@ -26,6 +26,21 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "kebab-case")]
 pub enum ServerMsg {
+    /// Validated lobby snapshot (no credentials or signaling payloads).
+    LobbyState {
+        #[serde(flatten)]
+        state: serde_json::Map<String, serde_json::Value>,
+    },
+    /// Real room admission, issued by the existing seat registry.
+    LobbySeat {
+        room: String,
+        role: String,
+        #[serde(rename = "peerId")]
+        peer_id: String,
+        token: String,
+    },
+    /// Recoverable lobby action feedback.
+    LobbyNotice { code: String, message: String },
     /// `{t:'created', room, peerId, token}`
     Created {
         /// 4-char upper-case room code.

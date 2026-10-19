@@ -18,8 +18,8 @@
  * - 日志只有一个出口（`logger.ts`），本文件不打印任何东西。
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Move } from '@webrtc-gomoku/core';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { BLACK, type Move, type PlayerColor } from '@webrtc-gomoku/core';
 import type {
   Clock,
   ConnSideEffect,
@@ -37,6 +37,7 @@ import {
   initialSnapshot,
 } from '@webrtc-gomoku/shared';
 
+import { LobbyContext } from '../lobby/LobbyProvider';
 import { DEFAULT_ICE_SERVERS, fetchIceServers } from '../iceConfig';
 import { WebRTCClient } from '../webrtc';
 
@@ -74,6 +75,8 @@ function readOnline(): boolean {
 
 /** `useConnection` 的入参：全部是「业务层关心的事」，不含连接细节 */
 export interface UseConnectionOptions {
+  getLocalColor?: () => PlayerColor;
+  onColorRestored?: (color: PlayerColor) => void;
   /** 收到一条非控制类局内消息（落子 / 聊天 / 悔棋…） */
   onGameMessage: (msg: GameMessage) => void;
   /** 编排器副作用（toast / 系统消息 / 按钮） */
@@ -126,6 +129,9 @@ export interface ConnectionApi {
  * @returns 稳定的连接 API
  */
 export function useConnection(options: UseConnectionOptions): ConnectionApi {
+  const lobby = __LOBBY_ENABLED__ ? useContext(LobbyContext) : null;
+  const lobbyRef = __LOBBY_ENABLED__ ? useRef(lobby) : null;
+  if (lobbyRef) lobbyRef.current = lobby;
   const [status, setStatus] = useState<ConnectionStatus>(() => {
     const now = Date.now();
     return deriveStatus(initialSnapshot(now), DEFAULT_POLICY, now);
@@ -139,6 +145,7 @@ export function useConnection(options: UseConnectionOptions): ConnectionApi {
   // 每次渲染同步最新回调：编排器在定时器里调用时也能拿到最新闭包
   useEffect(() => {
     optionsRef.current = options;
+    lobbyRef?.current?.persist(options.getLocalMoves(), options.getLocalColor?.() ?? BLACK);
   });
 
   useEffect(() => {
@@ -162,7 +169,8 @@ export function useConnection(options: UseConnectionOptions): ConnectionApi {
       onDiagnostic: createDiagnosticSink(),
     });
 
-    const signal = createWsTransport({ clock, policy: DEFAULT_POLICY });
+    const rawSignal = createWsTransport({ clock, policy: DEFAULT_POLICY });
+    const signal = lobbyRef?.current?.runtime.attach(rawSignal) ?? rawSignal;
     const p2p = createP2pTransport({
       clock,
       policy: DEFAULT_POLICY,
@@ -189,6 +197,10 @@ export function useConnection(options: UseConnectionOptions): ConnectionApi {
       isOnline: readOnline,
     });
 
+    lobbyRef?.current?.bind(manager, (moves, color) => {
+      optionsRef.current.onMovesReplaced(moves);
+      optionsRef.current.onColorRestored?.(color);
+    });
     managerRef.current = manager;
     p2pRef.current = p2p;
     setClient(webrtc);
@@ -220,6 +232,7 @@ export function useConnection(options: UseConnectionOptions): ConnectionApi {
       cancelled = true;
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('online', onOnline);
+      lobbyRef?.current?.runtime.dispose();
       manager.dispose();
       managerRef.current = null;
       p2pRef.current = null;

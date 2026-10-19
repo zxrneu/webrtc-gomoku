@@ -1,3 +1,4 @@
+import { OnlineConnectionPanel } from '../../lobby/OnlineConnectionPanel';
 import React, { useRef, useEffect, useState } from 'react';
 import { BLACK, type PlayerColor } from '@webrtc-gomoku/core';
 import type { FlowState, ScannerTarget } from '../../types';
@@ -7,7 +8,7 @@ import styles from './ConnectionPanel.module.css';
 /**
  * 连接配置控制面板入参属性接口
  */
-interface ConnectionPanelProps {
+export interface ConnectionPanelProps {
   /** 本端玩家执子颜色 */
   myColor: PlayerColor;
   /** 是否为房主/发起方 */
@@ -89,7 +90,7 @@ interface ConnectionPanelProps {
  *    - 「邀请对局」：彻底无服务器的 WebRTC Vanilla ICE 离线信令交换（支持面对面二维码扫码与微信长文本互发）
  * 3. 动态三步指引 (fstep 1 -> 2 -> 3)，平滑引导非技术用户完成复杂的 P2P 握手
  */
-export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
+export const LegacyConnectionPanel: React.FC<ConnectionPanelProps> = ({
   myColor,
   isHost: _isHost,
   connected,
@@ -592,3 +593,5 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
     </div>
   );
 };
+
+export const ConnectionPanel = __LOBBY_ENABLED__ ? OnlineConnectionPanel : LegacyConnectionPanel;

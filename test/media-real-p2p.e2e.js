@@ -85,6 +85,10 @@ async function waitForServer(url, timeoutMs = 15000) {
     console.log('--- 打开客户端并建立房间连接 ---');
     await pageA.goto(BASE);
     await pageB.goto(BASE);
+    for (const page of [pageA, pageB]) {
+      if (await page.locator('#lobby-page').count()) await page.getByRole('button', { name: /返回棋盘/ }).click();
+      if (await page.locator('[data-online-tab="room"]').count()) await page.locator('[data-online-tab="room"]').click();
+    }
 
     await pageA.waitForFunction(() => !!window.__gomoku);
     await pageB.waitForFunction(() => !!window.__gomoku);

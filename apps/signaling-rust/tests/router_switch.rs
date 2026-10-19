@@ -18,6 +18,9 @@ fn context(id: u64) -> (ConnCtx, mpsc::Receiver<ServerMsg>) {
 
 fn dependencies() -> ConnDeps {
     ConnDeps {
+        lobby: Arc::new(tokio::sync::Mutex::new(
+            gomoku_signaling::transport::lobby::Lobby::default(),
+        )),
         cfg: Arc::new(ConfigSnapshot::new(Config::default())),
         rooms: Arc::new(RoomTable::default()),
         conns: Arc::new(ConnectionRegistry::new(100, 100)),
@@ -112,5 +115,50 @@ async fn successful_join_leaves_previous_room_and_installs_target_seat() {
     assert_eq!(
         deps.seats.peek(&a.peer_id()).unwrap().room,
         RoomCode::new("CD34").unwrap()
+    );
+}
+
+async fn restored_pair() -> (ConnDeps, Router, ConnCtx, ConnCtx) {
+    let deps = dependencies();
+    let router = Router::new(deps.clone());
+    let (old, _old_rx) = context(1);
+    let (restored, _restored_rx) = context(2);
+    router.handle(&old, r#"{"t":"create","room":"AB12"}"#).await;
+    let seat = deps.seats.peek(&old.peer_id()).unwrap();
+    let resume = serde_json::json!({"t":"resume","room":"AB12","peerId":seat.peer_id.as_str(),"token":seat.token});
+    router.handle(&restored, &resume.to_string()).await;
+    assert!(deps.seats.is_owner(&restored.peer_id(), restored.conn_id));
+    (deps, router, old, restored)
+}
+
+#[tokio::test]
+async fn superseded_socket_cannot_create_after_its_room_was_cleared() {
+    let (deps, router, old, restored) = restored_pair().await;
+    let token = deps.seats.peek(&restored.peer_id()).unwrap().token;
+    router.handle(&old, r#"{"t":"leave"}"#).await;
+    for _ in 0..2 {
+        router.handle(&old, r#"{"t":"create","room":"CD34"}"#).await;
+    }
+    assert!(!deps.rooms.contains(&RoomCode::new("CD34").unwrap()));
+    assert!(deps.seats.is_owner(&restored.peer_id(), restored.conn_id));
+    assert_eq!(deps.seats.peek(&restored.peer_id()).unwrap().token, token);
+}
+
+#[tokio::test]
+async fn superseded_socket_cannot_join_after_a_ping_cleared_its_room() {
+    let (deps, router, old, restored) = restored_pair().await;
+    let (target, _target_rx) = context(3);
+    router
+        .handle(&target, r#"{"t":"create","room":"CD34"}"#)
+        .await;
+    router.handle(&old, r#"{"t":"ping","ts":1}"#).await;
+    for _ in 0..2 {
+        router.handle(&old, r#"{"t":"join","room":"CD34"}"#).await;
+    }
+    assert_eq!(deps.rooms.len_of(&RoomCode::new("CD34").unwrap()), 1);
+    assert!(deps.seats.is_owner(&restored.peer_id(), restored.conn_id));
+    assert_eq!(
+        restored.current_room(),
+        Some(RoomCode::new("AB12").unwrap())
     );
 }
