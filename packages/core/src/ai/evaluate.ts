@@ -21,7 +21,7 @@ import {
   xOf,
   yOf,
 } from './types';
-import { combineScores, windowScoreAt } from './pattern';
+import { combineScores, pointScore, windowScoreAt } from './pattern';
 import { DEFENSE_WEIGHT } from './config';
 
 /** 终局分值：任何五连都远超普通棋型，保证搜索优先取胜 */
@@ -45,7 +45,7 @@ const AFFECT_DIRS = AFFECT.dirs;
 /** 邻域索引表：给定格子，列出切比雪夫 ≤2 的 24 个邻居 */
 const NEIGHBOR_IDXS = buildNeighbors();
 
-/** 增量评估状态：棋盘 + 缓存 + 双方总分 */
+/** 增量评估状态：棋盘 + 缓存 + 双方总分 + 候选位掩码 + 假设点分缓存 */
 export interface PositionState {
   /** 内部棋盘 */
   readonly cells: AiBoard;
@@ -59,13 +59,40 @@ export interface PositionState {
   readonly totals: Float64Array;
   /** 每格切比雪夫 ≤2 范围内的棋子数，用于快速筛候选 */
   readonly neighbor: Uint8Array;
+  /** 候选位掩码：8 个 uint32 (256 bits)，bit i 置 1 当且仅当 cells[i] === 0 && neighbor[i] > 0 */
+  readonly candidateMask: Uint32Array;
+  /** 假设点分缓存：每格按 2 种颜色分别缓存，长度 225 * 2 = 450，索引为 (cell << 1) | (color - 1) */
+  readonly hypoScore: Int32Array;
+  /** 假设点分有效标记：0 = dirty, 1 = valid，长度 450 */
+  readonly hypoValid: Uint8Array;
+  /** 会话私有临时 scratchpad（多会话并发零污染零重入风险） */
+  readonly scratch?: PositionScratchpad;
   /** 已落子数 */
   stoneCount: number;
 }
 
+/** 实例级独享临时缓冲区集合，保证多会话/并发零状态交叉污染 */
+export interface PositionScratchpad {
+  readonly candIdx: Int16Array;
+  readonly candScore: Int32Array;
+  readonly ownFive: Int16Array;
+  readonly oppFive: Int16Array;
+  readonly candCells: Int16Array;
+  readonly wins: Int16Array;
+  readonly candAt: Int16Array;
+  readonly candPri: Int32Array;
+  readonly candScoreDep: Int32Array;
+  readonly seenMask: Uint8Array;
+  genTag: number;
+  readonly attackAt: Int16Array;
+  readonly attackScore: Int32Array;
+  readonly defenseAt: Int16Array;
+  readonly defenseScore: Int32Array;
+}
+
 function buildAffect(): { idxs: Int16Array; dirs: Int8Array } {
-  const idxs = new Int16Array(AI_CELLS * AFFECT_SPAN);
-  const dirs = new Int8Array(AI_CELLS * AFFECT_SPAN);
+  const idxs = new Int16Array(AI_CELLS * AFFECT_SPAN).fill(-1);
+  const dirs = new Int8Array(AI_CELLS * AFFECT_SPAN).fill(-1);
   for (let cell = 0; cell < AI_CELLS; cell += 1) {
     const x = xOf(cell);
     const y = yOf(cell);
@@ -92,7 +119,7 @@ function buildAffect(): { idxs: Int16Array; dirs: Int8Array } {
 }
 
 function buildNeighbors(): Int16Array {
-  const out = new Int16Array(AI_CELLS * NEIGHBOR_SPAN);
+  const out = new Int16Array(AI_CELLS * NEIGHBOR_SPAN).fill(-1);
   for (let cell = 0; cell < AI_CELLS; cell += 1) {
     const x = xOf(cell);
     const y = yOf(cell);
@@ -144,12 +171,18 @@ function syncPointScore(st: PositionState, cell: number): void {
   st.pointOwner[cell] = owner;
 }
 
-/** 重算落子点影响域内所有格子的分值 */
+/** 重算落子点影响域内所有格子的分值，并脏化假设点分缓存 */
 function refreshAround(st: PositionState, cell: number): void {
   const base = cell * AFFECT_SPAN;
   for (let slot = 0; slot < AFFECT_SPAN; slot += 1) {
     const p = AFFECT_IDXS[base + slot] ?? -1;
-    if (p < 0) continue;
+    if (p < 0) break;
+
+    // 脏化受影响格子的假设点分缓存
+    const hBase = p << 1;
+    st.hypoValid[hBase] = 0;
+    st.hypoValid[hBase + 1] = 0;
+
     const owner = cellAtIdx(st.cells, p);
     if (owner === 0) {
       syncPointScore(st, p);
@@ -165,13 +198,23 @@ function refreshAround(st: PositionState, cell: number): void {
   }
 }
 
-/** 维护切比雪夫 ≤2 的邻居计数 */
+/** 维护切比雪夫 ≤2 的邻居计数与 candidateMask */
 function bumpNeighbor(st: PositionState, cell: number, delta: number): void {
   const base = cell * NEIGHBOR_SPAN;
   for (let k = 0; k < NEIGHBOR_SPAN; k += 1) {
     const n = NEIGHBOR_IDXS[base + k] ?? -1;
-    if (n < 0) continue;
-    st.neighbor[n] = Math.max(0, (st.neighbor[n] ?? 0) + delta);
+    if (n < 0) break;
+    const count = Math.max(0, (st.neighbor[n] ?? 0) + delta);
+    st.neighbor[n] = count;
+    if (cellAtIdx(st.cells, n) === 0) {
+      const word = n >>> 5;
+      const bit = 1 << (n & 31);
+      if (count > 0) {
+        st.candidateMask[word]! |= bit;
+      } else {
+        st.candidateMask[word]! &= ~bit;
+      }
+    }
   }
 }
 
@@ -188,6 +231,26 @@ export function createPositionState(board: AiBoard): PositionState {
     pointOwner: new Int8Array(AI_CELLS),
     totals: new Float64Array(3),
     neighbor: new Uint8Array(AI_CELLS),
+    candidateMask: new Uint32Array(8),
+    hypoScore: new Int32Array(AI_CELLS * 2),
+    hypoValid: new Uint8Array(AI_CELLS * 2),
+    scratch: {
+      candIdx: new Int16Array(AI_CELLS),
+      candScore: new Int32Array(AI_CELLS),
+      ownFive: new Int16Array(16),
+      oppFive: new Int16Array(16),
+      candCells: new Int16Array(AI_CELLS),
+      wins: new Int16Array(16),
+      candAt: new Int16Array(AI_CELLS),
+      candPri: new Int32Array(AI_CELLS),
+      candScoreDep: new Int32Array(AI_CELLS),
+      seenMask: new Uint8Array(AI_CELLS),
+      genTag: 1,
+      attackAt: new Int16Array(AI_CELLS),
+      attackScore: new Int32Array(AI_CELLS),
+      defenseAt: new Int16Array(AI_CELLS),
+      defenseScore: new Int32Array(AI_CELLS),
+    },
     stoneCount: 0,
   };
   for (let cell = 0; cell < AI_CELLS; cell += 1) {
@@ -204,6 +267,7 @@ export function createPositionState(board: AiBoard): PositionState {
 /** 落子（原地修改；调用方必须成对调用 removeStone） */
 export function placeStone(st: PositionState, cell: number, color: PlayerColor): void {
   setCellAtIdx(st.cells, cell, color);
+  st.candidateMask[cell >>> 5]! &= ~(1 << (cell & 31));
   st.stoneCount += 1;
   bumpNeighbor(st, cell, 1);
   refreshAround(st, cell);
@@ -212,6 +276,9 @@ export function placeStone(st: PositionState, cell: number, color: PlayerColor):
 /** 撤子（原地修改） */
 export function removeStone(st: PositionState, cell: number): void {
   setCellAtIdx(st.cells, cell, 0);
+  if ((st.neighbor[cell] ?? 0) > 0) {
+    st.candidateMask[cell >>> 5]! |= (1 << (cell & 31));
+  }
   st.stoneCount -= 1;
   bumpNeighbor(st, cell, -1);
   refreshAround(st, cell);
@@ -220,6 +287,21 @@ export function removeStone(st: PositionState, cell: number): void {
 /** 某格当前的点分（已按 owner 计算） */
 export function pointScoreOf(st: PositionState, cell: number): number {
   return st.pointScore[cell] ?? 0;
+}
+
+/**
+ * 获取某格的假设点分（带 O(1) 增量缓存）。
+ * 若该点在受影响域外，直接返回缓存；否则即时计算并写入缓存。
+ */
+export function getHypoPointScore(st: PositionState, cell: number, color: PlayerColor): number {
+  const key = (cell << 1) | (color - 1);
+  if (st.hypoValid[key] === 1) {
+    return st.hypoScore[key] ?? 0;
+  }
+  const score = pointScore(st.cells, cell, color);
+  st.hypoScore[key] = score;
+  st.hypoValid[key] = 1;
+  return score;
 }
 
 /** 局面分：me 视角，正数=me 优；防守权重 1.1 略偏堵 */

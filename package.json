@@ -10,6 +10,7 @@
     "build:shared": "pnpm --filter @webrtc-gomoku/shared build",
     "build:web": "pnpm --filter @webrtc-gomoku/web build",
     "build:server": "pnpm --filter @webrtc-gomoku/server build",
+    "build:wasm": "node scripts/build-wasm.mjs",
     "build": "pnpm run build:core && pnpm run build:shared && pnpm run build:web && pnpm run build:server",
     "start": "node apps/server/dist/server.js",
     "test": "vitest run",
@@ -17,7 +18,9 @@
     "test:qr": "node test/qr-scan.test.js",
     "test:e2e": "node test/e2e.js && node test/ai-e2e.js",
     "ai:prove": "pnpm build:core && node scripts/ai-proof.mjs solve",
-    "ai:verify": "pnpm build:core && node scripts/ai-proof.mjs verify"
+    "ai:verify": "pnpm build:core && node scripts/ai-proof.mjs verify",
+    "ai:bench": "pnpm build:core && node scripts/ai-bench.mjs",
+    "bench:differential": "pnpm build:core && node --import tsx scripts/ai-differential-bench.mjs"
   },
   "devDependencies": {
     "@vitest/ui": "3.2.7",

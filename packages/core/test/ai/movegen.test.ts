@@ -20,6 +20,7 @@ import {
   yOf,
   type PositionState,
 } from '../../src/index';
+import { generateMovesInto } from '../../src/ai/movegen';
 import { buildAlternating, buildGame } from './helpers';
 
 function stateOf(g: Parameters<typeof fromGameState>[0]): PositionState {
@@ -223,4 +224,35 @@ describe('分支上限', () => {
     const st = stateOf(buildGame([[7, 7, BLACK]]));
     expect(generateMoves(st, WHITE, 1).length).toBe(1);
   });
+
+  it('generateMovesInto 严格防御超大 branchLimit，单层绝不超过 16 个槽位', () => {
+    const st = stateOf(
+      buildAlternating(
+        [
+          [7, 7],
+          [8, 8],
+        ],
+        [
+          [7, 8],
+          [8, 7],
+        ],
+      ),
+    );
+    const buf = new Int16Array(32).fill(-1);
+    const count = generateMovesInto(st, BLACK, 999, buf, 0);
+    expect(count).toBeLessThanOrEqual(16);
+    expect(buf[16]).toBe(-1); // 确认第 16 个索引之后未被写穿
+  });
+
+  it('candidateMask 防御：即使位图第 225~255 位被意外置位，也不会生成非法坐标', () => {
+    const st = stateOf(buildGame([[7, 7, BLACK]]));
+    // 强制将第 7 个 word (涵盖 224~255) 的高位置 1
+    st.candidateMask[7] = 0xffffffff;
+    const cand = collectCandidates(st);
+    for (const cell of cand) {
+      expect(cell).toBeLessThan(225);
+      expect(cell).toBeGreaterThanOrEqual(0);
+    }
+  });
 });
+

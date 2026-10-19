@@ -56,6 +56,27 @@ function attackBranchingPosition(): GameState {
 }
 
 describe('证明数搜索（PNS）算法与证明边界', () => {
+  it('复杂活三胜法覆盖超过二十个防守应手且不丢失可验证证明', () => {
+    const coordinates = [
+      [8, 10], [4, 5], [6, 11], [10, 9], [3, 4], [5, 7], [8, 5], [9, 8],
+      [5, 6], [3, 9], [8, 4], [7, 9], [11, 4], [8, 9], [6, 9], [9, 5],
+      [4, 8], [11, 9], [4, 6], [3, 11], [9, 10], [3, 6], [6, 8], [3, 3],
+      [4, 11], [11, 11],
+    ] as const;
+    const game = create();
+    coordinates.forEach(([x, y], i) => expect(applyMove(game, x, y, i % 2 === 0 ? BLACK : WHITE).ok).toBe(true));
+    const session = createProofSession(game, BLACK, {
+      algorithm: 'pn', maxAttacks: 5, maxNodes: 5000, mode: 'threats',
+    });
+    while (session.step()) { /* 跑完 */ }
+    const result = session.result();
+    expect(result.status).toBe('win');
+    if (result.status !== 'win') return;
+    expect(verifyWinningProof(game, BLACK, result.proof)).toBe(true);
+    expect(result.proof.kind).toBe('branch');
+    if (result.proof.kind === 'branch') expect(result.proof.replies).toHaveLength(198);
+  });
+
   it('一步成五能直接证明并生成 five 证书', () => {
     const game = simpleFivePosition();
     const session = createProofSession(game, BLACK, { algorithm: 'pn', maxNodes: 100 });

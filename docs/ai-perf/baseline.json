@@ -1,0 +1,91 @@
+{
+  "options": {
+    "positions": 5,
+    "seed": 7,
+    "budget": 3000,
+    "difficulty": "hard",
+    "json": true
+  },
+  "results": [
+    {
+      "seed": 7,
+      "stones": 20,
+      "bestMove": [
+        6,
+        3
+      ],
+      "depth": 0,
+      "nodes": 1,
+      "elapsedMs": 3,
+      "wallMs": 3,
+      "budgetUtilization": 0.001,
+      "nps": 384,
+      "cutoff": "depth",
+      "bestScore": 9999999
+    },
+    {
+      "seed": 38,
+      "stones": 20,
+      "bestMove": [
+        7,
+        9
+      ],
+      "depth": 12,
+      "nodes": 54839,
+      "elapsedMs": 1017,
+      "wallMs": 1018,
+      "budgetUtilization": 0.339,
+      "nps": 53902,
+      "cutoff": "depth",
+      "bestScore": -4353586
+    },
+    {
+      "seed": 69,
+      "stones": 20,
+      "bestMove": [
+        11,
+        11
+      ],
+      "depth": 10,
+      "nodes": 70498,
+      "elapsedMs": 2630,
+      "wallMs": 2630,
+      "budgetUtilization": 0.877,
+      "nps": 26810,
+      "cutoff": "nodes",
+      "bestScore": -84198
+    },
+    {
+      "seed": 100,
+      "stones": 20,
+      "bestMove": [
+        3,
+        4
+      ],
+      "depth": 0,
+      "nodes": 1,
+      "elapsedMs": 0,
+      "wallMs": 0,
+      "budgetUtilization": 0,
+      "nps": 3301,
+      "cutoff": "depth",
+      "bestScore": 9999999
+    },
+    {
+      "seed": 131,
+      "stones": 20,
+      "bestMove": [
+        8,
+        9
+      ],
+      "depth": 0,
+      "nodes": 1,
+      "elapsedMs": 0,
+      "wallMs": 0,
+      "budgetUtilization": 0,
+      "nps": 10801,
+      "cutoff": "depth",
+      "bestScore": 9999999
+    }
+  ]
+}

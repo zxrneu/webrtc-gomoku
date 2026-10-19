@@ -1,0 +1,790 @@
+{
+  "generatedAt": "2026-10-19T04:06:00.902Z",
+  "platform": "v26.3.0 darwin/arm64",
+  "tiers": [
+    {
+      "name": "棋型真值表",
+      "samples": 19683,
+      "discrepancies": 0
+    },
+    {
+      "name": "全盘点分（空盘与合法中局，黑白双方）",
+      "samples": 4950,
+      "discrepancies": 0
+    },
+    {
+      "name": "独立战术断言（可防冲四、唯一堵点、双成五）",
+      "samples": 6,
+      "discrepancies": 0
+    },
+    {
+      "name": "生产 TS 合法落子",
+      "samples": 10,
+      "discrepancies": 0
+    }
+  ],
+  "comparisons": [
+    {
+      "name": "position-1/color-1",
+      "depth": 2,
+      "ts": {
+        "bestMove": 126,
+        "bestScore": -354,
+        "nodes": 40,
+        "elapsedMs": 3.8623750000000143
+      },
+      "wasm": {
+        "bestMove": 126,
+        "bestScore": -354,
+        "nodes": 40,
+        "elapsedMs": 1.909041000000002
+      }
+    },
+    {
+      "name": "position-1/color-1",
+      "depth": 4,
+      "ts": {
+        "bestMove": 157,
+        "bestScore": 502,
+        "nodes": 180,
+        "elapsedMs": 12.926166000000023
+      },
+      "wasm": {
+        "bestMove": 157,
+        "bestScore": 502,
+        "nodes": 180,
+        "elapsedMs": 7.756625000000014
+      }
+    },
+    {
+      "name": "position-1/color-2",
+      "depth": 2,
+      "ts": {
+        "bestMove": 157,
+        "bestScore": -934,
+        "nodes": 31,
+        "elapsedMs": 1.7738339999999937
+      },
+      "wasm": {
+        "bestMove": 157,
+        "bestScore": -934,
+        "nodes": 31,
+        "elapsedMs": 1.2030829999999924
+      }
+    },
+    {
+      "name": "position-1/color-2",
+      "depth": 4,
+      "ts": {
+        "bestMove": 98,
+        "bestScore": -3244,
+        "nodes": 150,
+        "elapsedMs": 8.585208000000023
+      },
+      "wasm": {
+        "bestMove": 98,
+        "bestScore": -3244,
+        "nodes": 150,
+        "elapsedMs": 6.527999999999992
+      }
+    },
+    {
+      "name": "position-2/color-1",
+      "depth": 2,
+      "ts": {
+        "bestMove": 95,
+        "bestScore": -266,
+        "nodes": 21,
+        "elapsedMs": 1.2024159999999995
+      },
+      "wasm": {
+        "bestMove": 95,
+        "bestScore": -266,
+        "nodes": 21,
+        "elapsedMs": 0.8900000000000148
+      }
+    },
+    {
+      "name": "position-2/color-1",
+      "depth": 4,
+      "ts": {
+        "bestMove": 95,
+        "bestScore": -816,
+        "nodes": 207,
+        "elapsedMs": 11.723916000000003
+      },
+      "wasm": {
+        "bestMove": 95,
+        "bestScore": -816,
+        "nodes": 207,
+        "elapsedMs": 8.128374999999977
+      }
+    },
+    {
+      "name": "position-2/color-2",
+      "depth": 2,
+      "ts": {
+        "bestMove": 95,
+        "bestScore": -6884,
+        "nodes": 24,
+        "elapsedMs": 1.4149579999999844
+      },
+      "wasm": {
+        "bestMove": 95,
+        "bestScore": -6884,
+        "nodes": 24,
+        "elapsedMs": 0.96712500000001
+      }
+    },
+    {
+      "name": "position-2/color-2",
+      "depth": 4,
+      "ts": {
+        "bestMove": 95,
+        "bestScore": -2608,
+        "nodes": 121,
+        "elapsedMs": 6.263791999999995
+      },
+      "wasm": {
+        "bestMove": 95,
+        "bestScore": -2608,
+        "nodes": 121,
+        "elapsedMs": 5.028041999999999
+      }
+    },
+    {
+      "name": "position-3/color-1",
+      "depth": 2,
+      "ts": {
+        "bestMove": 49,
+        "bestScore": -68,
+        "nodes": 27,
+        "elapsedMs": 1.2233750000000043
+      },
+      "wasm": {
+        "bestMove": 49,
+        "bestScore": -68,
+        "nodes": 27,
+        "elapsedMs": 1.1297079999999937
+      }
+    },
+    {
+      "name": "position-3/color-1",
+      "depth": 4,
+      "ts": {
+        "bestMove": 49,
+        "bestScore": 632,
+        "nodes": 344,
+        "elapsedMs": 15.085709000000008
+      },
+      "wasm": {
+        "bestMove": 49,
+        "bestScore": 632,
+        "nodes": 344,
+        "elapsedMs": 13.886916000000014
+      }
+    },
+    {
+      "name": "position-3/color-2",
+      "depth": 2,
+      "ts": {
+        "bestMove": 20,
+        "bestScore": -1838,
+        "nodes": 19,
+        "elapsedMs": 0.9282499999999914
+      },
+      "wasm": {
+        "bestMove": 20,
+        "bestScore": -1838,
+        "nodes": 19,
+        "elapsedMs": 0.8642919999999776
+      }
+    },
+    {
+      "name": "position-3/color-2",
+      "depth": 4,
+      "ts": {
+        "bestMove": 52,
+        "bestScore": -6944,
+        "nodes": 206,
+        "elapsedMs": 9.475292000000024
+      },
+      "wasm": {
+        "bestMove": 52,
+        "bestScore": -6944,
+        "nodes": 206,
+        "elapsedMs": 8.803165999999976
+      }
+    },
+    {
+      "name": "position-4/color-1",
+      "depth": 2,
+      "ts": {
+        "bestMove": 93,
+        "bestScore": 722,
+        "nodes": 31,
+        "elapsedMs": 1.3328329999999937
+      },
+      "wasm": {
+        "bestMove": 93,
+        "bestScore": 722,
+        "nodes": 31,
+        "elapsedMs": 1.2494159999999965
+      }
+    },
+    {
+      "name": "position-4/color-1",
+      "depth": 4,
+      "ts": {
+        "bestMove": 101,
+        "bestScore": 14100,
+        "nodes": 183,
+        "elapsedMs": 8.108416999999974
+      },
+      "wasm": {
+        "bestMove": 101,
+        "bestScore": 14100,
+        "nodes": 183,
+        "elapsedMs": 7.5009580000000255
+      }
+    },
+    {
+      "name": "position-4/color-2",
+      "depth": 2,
+      "ts": {
+        "bestMove": 93,
+        "bestScore": -7106,
+        "nodes": 19,
+        "elapsedMs": 0.9366249999999923
+      },
+      "wasm": {
+        "bestMove": 93,
+        "bestScore": -7106,
+        "nodes": 19,
+        "elapsedMs": 0.8622920000000249
+      }
+    },
+    {
+      "name": "position-4/color-2",
+      "depth": 4,
+      "ts": {
+        "bestMove": 93,
+        "bestScore": -4436,
+        "nodes": 100,
+        "elapsedMs": 4.73720800000001
+      },
+      "wasm": {
+        "bestMove": 93,
+        "bestScore": -4436,
+        "nodes": 100,
+        "elapsedMs": 4.599667000000011
+      }
+    },
+    {
+      "name": "position-5/color-1",
+      "depth": 2,
+      "ts": {
+        "bestMove": 158,
+        "bestScore": -65056,
+        "nodes": 34,
+        "elapsedMs": 1.434665999999993
+      },
+      "wasm": {
+        "bestMove": 158,
+        "bestScore": -65056,
+        "nodes": 34,
+        "elapsedMs": 1.3497089999999616
+      }
+    },
+    {
+      "name": "position-5/color-1",
+      "depth": 4,
+      "ts": {
+        "bestMove": 80,
+        "bestScore": -66752,
+        "nodes": 329,
+        "elapsedMs": 14.874041999999974
+      },
+      "wasm": {
+        "bestMove": 80,
+        "bestScore": -66752,
+        "nodes": 329,
+        "elapsedMs": 14.074457999999993
+      }
+    },
+    {
+      "name": "position-5/color-2",
+      "depth": 2,
+      "ts": {
+        "bestMove": 80,
+        "bestScore": 15110,
+        "nodes": 28,
+        "elapsedMs": 1.2780839999999785
+      },
+      "wasm": {
+        "bestMove": 80,
+        "bestScore": 15110,
+        "nodes": 28,
+        "elapsedMs": 1.1713340000000017
+      }
+    },
+    {
+      "name": "position-5/color-2",
+      "depth": 4,
+      "ts": {
+        "bestMove": 67,
+        "bestScore": 14518,
+        "nodes": 156,
+        "elapsedMs": 7.090208999999959
+      },
+      "wasm": {
+        "bestMove": 67,
+        "bestScore": 14518,
+        "nodes": 156,
+        "elapsedMs": 6.6054169999999885
+      }
+    },
+    {
+      "name": "position-6/color-1",
+      "depth": 2,
+      "ts": {
+        "bestMove": 79,
+        "bestScore": 9999999,
+        "nodes": 12,
+        "elapsedMs": 0.5812909999999647
+      },
+      "wasm": {
+        "bestMove": 79,
+        "bestScore": 9999999,
+        "nodes": 12,
+        "elapsedMs": 0.5735419999999749
+      }
+    },
+    {
+      "name": "position-6/color-1",
+      "depth": 4,
+      "ts": {
+        "bestMove": 79,
+        "bestScore": 9999999,
+        "nodes": 70,
+        "elapsedMs": 3.2484999999999786
+      },
+      "wasm": {
+        "bestMove": 79,
+        "bestScore": 9999999,
+        "nodes": 70,
+        "elapsedMs": 3.149833000000001
+      }
+    },
+    {
+      "name": "position-6/color-2",
+      "depth": 2,
+      "ts": {
+        "bestMove": 79,
+        "bestScore": -63818,
+        "nodes": 20,
+        "elapsedMs": 0.9372079999999983
+      },
+      "wasm": {
+        "bestMove": 79,
+        "bestScore": -63818,
+        "nodes": 20,
+        "elapsedMs": 0.9043330000000083
+      }
+    },
+    {
+      "name": "position-6/color-2",
+      "depth": 4,
+      "ts": {
+        "bestMove": 79,
+        "bestScore": -63788,
+        "nodes": 131,
+        "elapsedMs": 5.726292000000001
+      },
+      "wasm": {
+        "bestMove": 79,
+        "bestScore": -63788,
+        "nodes": 131,
+        "elapsedMs": 5.403624999999977
+      }
+    },
+    {
+      "name": "position-7/color-1",
+      "depth": 2,
+      "ts": {
+        "bestMove": 142,
+        "bestScore": 10578,
+        "nodes": 14,
+        "elapsedMs": 0.704832999999951
+      },
+      "wasm": {
+        "bestMove": 142,
+        "bestScore": 10578,
+        "nodes": 14,
+        "elapsedMs": 0.6790840000000458
+      }
+    },
+    {
+      "name": "position-7/color-1",
+      "depth": 4,
+      "ts": {
+        "bestMove": 98,
+        "bestScore": 9818,
+        "nodes": 206,
+        "elapsedMs": 8.750875000000008
+      },
+      "wasm": {
+        "bestMove": 98,
+        "bestScore": 9818,
+        "nodes": 206,
+        "elapsedMs": 8.258166000000017
+      }
+    },
+    {
+      "name": "position-7/color-2",
+      "depth": 2,
+      "ts": {
+        "bestMove": 142,
+        "bestScore": -63064,
+        "nodes": 26,
+        "elapsedMs": 1.1881250000000136
+      },
+      "wasm": {
+        "bestMove": 142,
+        "bestScore": -63064,
+        "nodes": 26,
+        "elapsedMs": 1.1212079999999673
+      }
+    },
+    {
+      "name": "position-7/color-2",
+      "depth": 4,
+      "ts": {
+        "bestMove": 86,
+        "bestScore": -64604,
+        "nodes": 345,
+        "elapsedMs": 14.941624999999988
+      },
+      "wasm": {
+        "bestMove": 86,
+        "bestScore": -64604,
+        "nodes": 345,
+        "elapsedMs": 13.448582999999985
+      }
+    },
+    {
+      "name": "position-8/color-1",
+      "depth": 2,
+      "ts": {
+        "bestMove": 127,
+        "bestScore": -380992,
+        "nodes": 23,
+        "elapsedMs": 1.0150830000000042
+      },
+      "wasm": {
+        "bestMove": 127,
+        "bestScore": -380992,
+        "nodes": 23,
+        "elapsedMs": 0.9895420000000286
+      }
+    },
+    {
+      "name": "position-8/color-1",
+      "depth": 4,
+      "ts": {
+        "bestMove": 67,
+        "bestScore": -58748,
+        "nodes": 64,
+        "elapsedMs": 2.817208999999991
+      },
+      "wasm": {
+        "bestMove": 67,
+        "bestScore": -58748,
+        "nodes": 64,
+        "elapsedMs": 2.704084000000023
+      }
+    },
+    {
+      "name": "position-8/color-2",
+      "depth": 2,
+      "ts": {
+        "bestMove": 67,
+        "bestScore": 9999999,
+        "nodes": 11,
+        "elapsedMs": 0.49220900000000256
+      },
+      "wasm": {
+        "bestMove": 67,
+        "bestScore": 9999999,
+        "nodes": 11,
+        "elapsedMs": 0.4926659999999856
+      }
+    },
+    {
+      "name": "position-8/color-2",
+      "depth": 4,
+      "ts": {
+        "bestMove": 67,
+        "bestScore": 9999999,
+        "nodes": 56,
+        "elapsedMs": 2.289958000000013
+      },
+      "wasm": {
+        "bestMove": 67,
+        "bestScore": 9999999,
+        "nodes": 56,
+        "elapsedMs": 2.3011660000000234
+      }
+    },
+    {
+      "name": "position-9/color-1",
+      "depth": 2,
+      "ts": {
+        "bestMove": 65,
+        "bestScore": -2436,
+        "nodes": 40,
+        "elapsedMs": 1.649249999999995
+      },
+      "wasm": {
+        "bestMove": 65,
+        "bestScore": -2436,
+        "nodes": 40,
+        "elapsedMs": 1.518792000000019
+      }
+    },
+    {
+      "name": "position-9/color-1",
+      "depth": 4,
+      "ts": {
+        "bestMove": 62,
+        "bestScore": 24724,
+        "nodes": 137,
+        "elapsedMs": 6.366417000000013
+      },
+      "wasm": {
+        "bestMove": 62,
+        "bestScore": 24724,
+        "nodes": 137,
+        "elapsedMs": 5.915458000000001
+      }
+    },
+    {
+      "name": "position-9/color-2",
+      "depth": 2,
+      "ts": {
+        "bestMove": 77,
+        "bestScore": -49286,
+        "nodes": 32,
+        "elapsedMs": 1.382249999999999
+      },
+      "wasm": {
+        "bestMove": 77,
+        "bestScore": -49286,
+        "nodes": 32,
+        "elapsedMs": 1.291041000000007
+      }
+    },
+    {
+      "name": "position-9/color-2",
+      "depth": 4,
+      "ts": {
+        "bestMove": 79,
+        "bestScore": -2994,
+        "nodes": 246,
+        "elapsedMs": 11.194082999999978
+      },
+      "wasm": {
+        "bestMove": 79,
+        "bestScore": -2994,
+        "nodes": 246,
+        "elapsedMs": 11.027083000000005
+      }
+    },
+    {
+      "name": "position-10/color-1",
+      "depth": 2,
+      "ts": {
+        "bestMove": 158,
+        "bestScore": -3148,
+        "nodes": 27,
+        "elapsedMs": 1.2875000000000227
+      },
+      "wasm": {
+        "bestMove": 158,
+        "bestScore": -3148,
+        "nodes": 27,
+        "elapsedMs": 1.131750000000011
+      }
+    },
+    {
+      "name": "position-10/color-1",
+      "depth": 4,
+      "ts": {
+        "bestMove": 158,
+        "bestScore": 10120,
+        "nodes": 164,
+        "elapsedMs": 7.111707999999965
+      },
+      "wasm": {
+        "bestMove": 158,
+        "bestScore": 10120,
+        "nodes": 164,
+        "elapsedMs": 6.66904100000005
+      }
+    },
+    {
+      "name": "position-10/color-2",
+      "depth": 2,
+      "ts": {
+        "bestMove": 130,
+        "bestScore": -7826,
+        "nodes": 23,
+        "elapsedMs": 1.0849589999999694
+      },
+      "wasm": {
+        "bestMove": 130,
+        "bestScore": -7826,
+        "nodes": 23,
+        "elapsedMs": 0.9329999999999927
+      }
+    },
+    {
+      "name": "position-10/color-2",
+      "depth": 4,
+      "ts": {
+        "bestMove": 96,
+        "bestScore": -1212,
+        "nodes": 122,
+        "elapsedMs": 5.526083000000028
+      },
+      "wasm": {
+        "bestMove": 96,
+        "bestScore": -1212,
+        "nodes": 122,
+        "elapsedMs": 5.224333999999999
+      }
+    }
+  ],
+  "production": [
+    {
+      "name": "position-1",
+      "move": [
+        6,
+        8
+      ],
+      "depth": 10,
+      "nodes": 272126,
+      "elapsedMs": 2999.771375,
+      "cutoff": "time",
+      "budgetMs": 3000
+    },
+    {
+      "name": "position-2",
+      "move": [
+        5,
+        6
+      ],
+      "depth": 12,
+      "nodes": 299536,
+      "elapsedMs": 2999.9936250000005,
+      "cutoff": "time",
+      "budgetMs": 3000
+    },
+    {
+      "name": "position-3",
+      "move": [
+        4,
+        3
+      ],
+      "depth": 10,
+      "nodes": 280272,
+      "elapsedMs": 3000.082209000001,
+      "cutoff": "time",
+      "budgetMs": 3000
+    },
+    {
+      "name": "position-4",
+      "move": [
+        3,
+        6
+      ],
+      "depth": 12,
+      "nodes": 273828,
+      "elapsedMs": 3000.1663750000007,
+      "cutoff": "time",
+      "budgetMs": 3000
+    },
+    {
+      "name": "position-5",
+      "move": [
+        11,
+        6
+      ],
+      "depth": 10,
+      "nodes": 285906,
+      "elapsedMs": 2999.9632920000004,
+      "cutoff": "time",
+      "budgetMs": 3000
+    },
+    {
+      "name": "position-6",
+      "move": [
+        4,
+        5
+      ],
+      "depth": 12,
+      "nodes": 167952,
+      "elapsedMs": 3000.1658750000024,
+      "cutoff": "time",
+      "budgetMs": 3000
+    },
+    {
+      "name": "position-7",
+      "move": [
+        7,
+        9
+      ],
+      "depth": 0,
+      "nodes": 7054,
+      "elapsedMs": 542.0303330000024,
+      "cutoff": "depth",
+      "budgetMs": 3000
+    },
+    {
+      "name": "position-8",
+      "move": [
+        7,
+        4
+      ],
+      "depth": 0,
+      "nodes": 1,
+      "elapsedMs": 0.2947500000009313,
+      "cutoff": "depth",
+      "budgetMs": 3000
+    },
+    {
+      "name": "position-9",
+      "move": [
+        6,
+        4
+      ],
+      "depth": 10,
+      "nodes": 92057,
+      "elapsedMs": 2999.938957999999,
+      "cutoff": "time",
+      "budgetMs": 3000
+    },
+    {
+      "name": "position-10",
+      "move": [
+        10,
+        8
+      ],
+      "depth": 10,
+      "nodes": 88510,
+      "elapsedMs": 3000.0547499999993,
+      "cutoff": "time",
+      "budgetMs": 3000
+    }
+  ]
+}

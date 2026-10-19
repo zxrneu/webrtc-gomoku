@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { BLACK, WHITE, create, applyMove, currentColor, verifyWinningProof } from '@webrtc-gomoku/core';
 import type { AiSearchStats } from '@webrtc-gomoku/core';
 import { createWorkerSearchDriver, type SearchWorker } from '../src/ai/workerClient';
-import { createSearchWorkerHandler } from '../src/ai/workerRuntime';
+import { createSearchWorkerHandler, DEFAULT_WORKER_SLICE_MS } from '../src/ai/workerRuntime';
 import { isWorkerRequest, isWorkerResponse, type WorkerRequest } from '../src/ai/workerProtocol';
 
 const stats: AiSearchStats = { depth: 0, nodes: 0, elapsedMs: 0, cutoff: 'depth', bestScore: 0, fromOpening: true };
@@ -128,6 +128,10 @@ describe('Worker 内的真实搜索', () => {
     receive({ t: 'cancel', id: 2 });
     while (queue.length) queue.shift()?.();
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it('默认采用 DEFAULT_WORKER_SLICE_MS（250ms）分片，避免频繁 setTimeout 空转（PRD P0-3）', () => {
+    expect(DEFAULT_WORKER_SLICE_MS).toBe(250);
   });
 });
 

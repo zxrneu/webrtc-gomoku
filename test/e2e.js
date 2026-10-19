@@ -54,9 +54,17 @@ async function launchBrowser() {
     await page.addInitScript(() => {
       const send = RTCDataChannel.prototype.send;
       const create = RTCPeerConnection.prototype.createDataChannel;
-      window.__gameplayTest = { hold: false, holdColor: false, queue: [], channels: [] };
+      const NativePeer = RTCPeerConnection;
+      window.__gameplayTest = { hold: false, holdColor: false, queue: [], channels: [], peers: [], protocolOnly: false };
+      window.RTCPeerConnection = class extends NativePeer {
+        constructor(...args) {
+          super(...args);
+          window.__gameplayTest.peers.push(this);
+        }
+      };
       RTCDataChannel.prototype.send = function (raw) {
         const message = typeof raw === 'string' ? JSON.parse(raw) : null;
+        if (window.__gameplayTest.protocolOnly) return;
         if ((window.__gameplayTest.hold && ['swap-ok', 'move'].includes(message?.t)) ||
             (window.__gameplayTest.holdColor && message?.t === 'color')) {
           window.__gameplayTest.queue.push({ channel: this, raw });
@@ -166,9 +174,25 @@ async function launchBrowser() {
     check('双方 SDP 协商完成（stable）', sa.signalingState === 'stable' && sb.signalingState === 'stable');
     // 信令链路已通：候选无残留积压
     check('ICE 候选无残留积压', sa.pendingIce === 0 && sb.pendingIce === 0);
-    // 模拟“已连接”，让后续点击走真实落子路径（deliver 仿真对端收件）
-    await pageA.evaluate(() => window.__gomoku.forceConnected(true));
-    await pageB.evaluate(() => window.__gomoku.forceConnected(true));
+    // 协议仿真也必须具备发送成功的通道；只修改 UI 状态会让换边发送守卫拒绝请求。
+    for (const page of [pageA, pageB]) {
+      await page.evaluate(() => {
+        const test = window.__gameplayTest;
+        test.protocolOnly = true;
+        for (const peer of test.peers) {
+          peer.onconnectionstatechange = null;
+          peer.oniceconnectionstatechange = null;
+          if (peer.ondatachannel) {
+            const channel = { readyState: 'open', send() {}, close() {} };
+            peer.ondatachannel({ channel });
+          }
+        }
+        for (const channel of test.channels) {
+          Object.defineProperty(channel, 'readyState', { configurable: true, get: () => 'open' });
+        }
+        window.__gomoku.forceConnected(true);
+      });
+    }
   }
 
   /* ---------- 对局测试 ---------- */
@@ -219,8 +243,8 @@ async function launchBrowser() {
     await pageA.click('#chat-send-btn');
     await pageB.evaluate(() => window.__gomoku.deliver({ t: 'chat', text: '你好呀' }));
     await pageB.waitForSelector('.msg.theirs:has-text("你好呀")', { timeout: 5000 });
-    await pageB.evaluate(() => window.__gomoku.deliver({ t: 'hello', name: '小红' }));
-    await pageA.evaluate(() => window.__gomoku.deliver({ t: 'hello', name: '小明' }));
+    await pageB.evaluate(() => window.__gomoku.deliver({ t: 'hello', name: '小明' }));
+    await pageA.evaluate(() => window.__gomoku.deliver({ t: 'hello', name: '小红' }));
   }
   check('聊天消息送达对端', true);
 

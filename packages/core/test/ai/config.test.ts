@@ -11,6 +11,7 @@ import {
   SEED_HI,
   SEED_LO,
   VCF_DEPTH,
+  VCF_NODE_LIMIT,
   FAST_VCF_TIME_BUDGET_MS,
   PNS_TIME_BUDGET_MS,
   PNS_ATTACK_LIMIT,
@@ -30,13 +31,14 @@ import {
 import { create, applyMove, BLACK, WHITE } from '../../src/index';
 
 describe('DIFFICULTY_PRESETS（唯一参数来源）', () => {
-  it('三档预算/深度与设计文档一致：200/2、500/4、3000/12', () => {
+  it('三档预算/深度与设计文档一致：200/2、500/4、3000/16', () => {
     expect(DIFFICULTY_PRESETS.easy.timeBudgetMs).toBe(200);
     expect(DIFFICULTY_PRESETS.easy.maxDepth).toBe(2);
     expect(DIFFICULTY_PRESETS.normal.timeBudgetMs).toBe(500);
     expect(DIFFICULTY_PRESETS.normal.maxDepth).toBe(4);
     expect(DIFFICULTY_PRESETS.hard.timeBudgetMs).toBe(3000);
-    expect(DIFFICULTY_PRESETS.hard.maxDepth).toBe(12);
+    expect(DIFFICULTY_PRESETS.hard.maxDepth).toBe(16);
+    expect(DIFFICULTY_PRESETS.hard.maxNodes).toBe(500000);
   });
 
   it('每档都带 maxNodes 兜底，且随档位递增', () => {
@@ -59,9 +61,10 @@ describe('DIFFICULTY_PRESETS（唯一参数来源）', () => {
 
   it('最强档算杀与反杀预算常量配置正确', () => {
     expect(FAST_VCF_TIME_BUDGET_MS).toBe(300);
-    expect(PNS_TIME_BUDGET_MS).toBe(1200);
+    expect(VCF_NODE_LIMIT).toBe(24000);
+    expect(PNS_TIME_BUDGET_MS).toBe(2000);
     expect(PNS_ATTACK_LIMIT).toBe(8);
-    expect(PNS_NODE_LIMIT).toBe(20000);
+    expect(PNS_NODE_LIMIT).toBe(80000);
     expect(DEFENSE_CHECK_TIME_BUDGET_MS).toBe(600);
     expect(DEFENSE_ATTACK_LIMIT).toBe(6);
     expect(DEFENSE_NODE_LIMIT).toBe(512);
@@ -75,15 +78,25 @@ describe('resolveOptions / branchLimitFor', () => {
     expect(r.timeBudgetMs).toBe(DIFFICULTY_PRESETS.hard.timeBudgetMs);
     expect(r.maxDepth).toBe(DIFFICULTY_PRESETS.hard.maxDepth);
     expect(r.maxNodes).toBe(DIFFICULTY_PRESETS.hard.maxNodes);
+    expect(r.vcfMaxNodes).toBe(24000);
+    expect(r.pnsMaxNodes).toBe(80000);
     expect(r.now).toBeNull();
   });
 
   it('显式字段覆盖档位默认值，now 原样透传', () => {
     const clock = (): number => 42;
-    const r = resolveOptions({ difficulty: 'easy', maxDepth: 6, now: clock });
+    const r = resolveOptions({
+      difficulty: 'easy',
+      maxDepth: 6,
+      vcfMaxNodes: 1234,
+      pnsMaxNodes: 5678,
+      now: clock,
+    });
     expect(r.difficulty).toBe('easy');
     expect(r.maxDepth).toBe(6);
     expect(r.timeBudgetMs).toBe(DIFFICULTY_PRESETS.easy.timeBudgetMs);
+    expect(r.vcfMaxNodes).toBe(1234);
+    expect(r.pnsMaxNodes).toBe(5678);
     expect(r.now).toBe(clock);
   });
 

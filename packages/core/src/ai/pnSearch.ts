@@ -3,17 +3,20 @@
  * 攻击方为 OR 节点，防守方为 AND 节点，按证明数选择最易证明的路径展开。
  * 防守节点覆盖全部合法应手，仅在强制堵四等规则认可时压缩分支。
  */
-import { oppositeOf } from './types';
+import { AI_CELLS, oppositeOf } from './types';
 import type { PositionState } from './evaluate';
-import { placeStone, removeStone } from './evaluate';
+import { getHypoPointScore, placeStone, removeStone } from './evaluate';
 import { findFivePoints } from './movegen';
 import type { WinningProof } from './proof';
-import { emptyCells, winsAt } from './proofRules';
+import { winsAt } from './proofRules';
 import { orderAttackCandidates, type Threat, analyzeThreats, threatDependsOn } from './dependency';
-import { pointScore } from './pattern';
 import type { ThreatContext } from './threatSearch';
 
 const INF = 1_000_000_000;
+
+/** 防守候选排序与去重静态缓冲（长度 225，零堆分配） */
+const scratchDefenseAt = new Int16Array(AI_CELLS);
+const scratchDefensePri = new Int32Array(AI_CELLS);
 
 interface OrNode {
   type: 'or';
@@ -183,28 +186,56 @@ function evaluateAndNode(
       return { type: 'and', at, priority: 0, attacks, pn: INF, dn: 0, isTerminal: true };
     }
 
-    // 6. 防守方全盘合法应手分支展开
-    const legal = emptyCells(st.cells);
-    if (legal.length === 0) {
+    // 非强制防守必须覆盖全部合法空点；威胁点分仅用于排序，不能省略应手。
+    let candidateCount = 0;
+    for (let cell = 0; cell < AI_CELLS; cell += 1) {
+      if (st.cells[cell] === 0) scratchDefenseAt[candidateCount++] = cell;
+    }
+
+    if (candidateCount === 0) {
       return { type: 'and', at, priority: 0, attacks, pn: INF, dn: 0, isTerminal: true };
     }
 
-    let priority = 20000;
-    if (parentThreat && threat && (parentThreat.cost.includes(at) || threatDependsOn(parentThreat, threat))) {
-      priority = 25000;
-    }
-
-    // 防守优先级排序：直接堵三应对点最高，其次高价值威胁点，相同优先级按坐标稳定排序
-    const replies = legal.map((r) => {
-      let rPriority = pointScore(st.cells, r, defender) + pointScore(st.cells, r, ctx.attacker);
+    // 6.3 优先级计算：直接堵三/冲四点权值最高，其次双方点分之和
+    for (let i = 0; i < candidateCount; i += 1) {
+      const r = scratchDefenseAt[i]!;
+      let rPriority = getHypoPointScore(st, r, defender) + getHypoPointScore(st, r, ctx.attacker);
       if (threat?.cost.includes(r)) {
         rPriority += 100_000_000;
       } else if (threat?.rest.includes(r)) {
         rPriority += 10_000_000;
       }
-      return {
-        at: r,
-        priority: rPriority,
+      scratchDefensePri[i] = rPriority;
+    }
+
+    // 6.4 原地插入排序（降序优先级，升序 idx 稳定 tie-break）
+    for (let i = 1; i < candidateCount; i += 1) {
+      const curAt = scratchDefenseAt[i]!;
+      const curPri = scratchDefensePri[i]!;
+      let j = i - 1;
+      while (j >= 0) {
+        const prevPri = scratchDefensePri[j]!;
+        const prevAt = scratchDefenseAt[j]!;
+        if (prevPri < curPri || (prevPri === curPri && prevAt > curAt)) {
+          scratchDefenseAt[j + 1] = prevAt;
+          scratchDefensePri[j + 1] = prevPri;
+          j -= 1;
+        } else {
+          break;
+        }
+      }
+      scratchDefenseAt[j + 1] = curAt;
+      scratchDefensePri[j + 1] = curPri;
+    }
+
+    const branchCount = candidateCount;
+    const replies = new Array<{ at: number; priority: number; orChild: OrNode }>(branchCount);
+    for (let i = 0; i < branchCount; i += 1) {
+      const rAt = scratchDefenseAt[i]!;
+      const rPri = scratchDefensePri[i]!;
+      replies[i] = {
+        at: rAt,
+        priority: rPri,
         orChild: {
           type: 'or' as const,
           attacks: attacks - 1,
@@ -215,9 +246,12 @@ function evaluateAndNode(
           parentThreat: threat,
         },
       };
-    });
+    }
 
-    replies.sort((a, b) => b.priority - a.priority || a.at - b.at);
+    let priority = 20000;
+    if (parentThreat && threat && (parentThreat.cost.includes(at) || threatDependsOn(parentThreat, threat))) {
+      priority = 25000;
+    }
 
     return {
       type: 'and',
@@ -278,7 +312,7 @@ function* selectAndExpandOr(
       return;
     }
 
-    const candidates = orderAttackCandidates(st.cells, ctx.attacker, ctx.mode, node.parentThreat);
+    const candidates = orderAttackCandidates(st, ctx.attacker, ctx.mode, node.parentThreat);
     if (candidates.length === 0) {
       node.pn = INF;
       node.dn = 0;

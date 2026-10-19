@@ -9,6 +9,7 @@ import {
   applyMove,
   createSearchSession,
   findBestMove,
+  resolveOptions,
   winLineAt,
   type GameState,
   type PlayerColor,
@@ -190,5 +191,39 @@ describe('主搜索集成可验证的威胁证明', () => {
     expect(session.stats().depth).toBe(0);
     expect(session.stats().proofStatus).toBe('unknown');
     expect(session.stats().winningProof).toBeUndefined();
+  });
+});
+
+describe('战术算杀算力解耦（R2）', () => {
+  it('设置浅层 maxNodes: 500 不会夹取 runVcf 中的 vcfMaxNodes 或 pnsMaxNodes', () => {
+    // 1. 参数层断言：常规 maxNodes: 500 不会向下夹取 vcfMaxNodes 与 pnsMaxNodes
+    const resolved = resolveOptions({ difficulty: 'hard', maxNodes: 500 });
+    expect(resolved.maxNodes).toBe(500);
+    expect(resolved.vcfMaxNodes).toBe(24000);
+    expect(resolved.pnsMaxNodes).toBe(80000);
+
+    // 2. 算杀搜索行为断言：双活三局面需要 ~38 个 PNS 节点完成证明
+    const game = buildAlternating(
+      [[5, 7], [6, 7], [7, 5], [7, 6]],
+      [[0, 0], [0, 2], [14, 14], [14, 12]],
+    );
+
+    // 当设置极浅常规 maxNodes: 10 时，因算杀容量未被夹取（维持 pnsMaxNodes: 80000），PNS 依然完整证明获胜
+    const unchokedSession = createSearchSession(game, BLACK, { difficulty: 'hard', maxNodes: 10 });
+    while (unchokedSession.step()) {}
+    expect(unchokedSession.stats().proofStatus).toBe('win');
+    expect(unchokedSession.stats().nodes).toBeGreaterThan(10);
+    expect(unchokedSession.result()).toEqual([7, 7]);
+
+    // 反向验证：若显式将 pnsMaxNodes 夹取为 10，则 PNS 证明无法完成
+    const chokedSession = createSearchSession(game, BLACK, { difficulty: 'hard', maxNodes: 10, pnsMaxNodes: 10 });
+    while (chokedSession.step()) {}
+    expect(chokedSession.stats().proofStatus).toBe('unknown');
+
+    // 3. 浅层 maxNodes: 500 下完整搜索正常完成且算杀先验命中
+    const session500 = createSearchSession(game, BLACK, { difficulty: 'hard', maxNodes: 500 });
+    while (session500.step()) {}
+    expect(session500.stats().proofStatus).toBe('win');
+    expect(session500.result()).toEqual([7, 7]);
   });
 });

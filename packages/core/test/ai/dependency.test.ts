@@ -1,11 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { analyzeThreats, orderAttackCandidates, threatDependsOn, type Threat } from '../../src/ai/dependency';
+import { analyzeThreats, analyzeThreatsInto, createThreatBuffer, orderAttackCandidates, threatDependsOn, type Threat } from '../../src/ai/dependency';
 import { BLACK, WHITE, fromGameState, idxOf, xOf, yOf, AI_SIZE } from '../../src/index';
 import { buildAlternating } from './helpers';
 
 const cell = (x: number) => idxOf(x, 7);
 
 describe('威胁的进攻、应对与依赖空点', () => {
+  it('复用输出缓冲分析威胁且不保留上次结果或修改输入', () => {
+    const board = fromGameState(buildAlternating([[4, 7], [5, 7], [6, 7]], [[0, 0], [0, 2], [0, 4]]));
+    const before = board.slice();
+    const output = createThreatBuffer();
+    const entry = output.entries[0]!;
+    const cost = entry.cost;
+    expect(analyzeThreatsInto(board, cell(7), BLACK, output)).toBe(1);
+    expect(entry.kind).toBe('four');
+    expect(Array.from(cost).filter((at) => at >= 0)).toEqual([cell(3), cell(8)]);
+    expect(analyzeThreatsInto(board, cell(8), BLACK, output)).toBeGreaterThanOrEqual(0);
+    expect(output.entries[0]).toBe(entry);
+    expect(entry.cost).toBe(cost);
+    expect(analyzeThreatsInto(board, -1, BLACK, output)).toBe(0);
+    expect(output.count).toBe(0);
+    expect(board).toEqual(before);
+  });
+
   it('直活三保留两侧应对点及继续成形需要的空点', () => {
     const board = fromGameState(buildAlternating([[5, 7], [6, 7]], [[0, 0], [0, 2]]));
     const threats = analyzeThreats(board, cell(7), BLACK);
@@ -134,5 +151,29 @@ describe('威胁的进攻、应对与依赖空点', () => {
     singleThreatBoard[idxOf(3, 9)] = BLACK; // 堵住一头
     const candidates = orderAttackCandidates(singleThreatBoard, BLACK, 'threats');
     expect(candidates).toEqual([idxOf(8, 9)]); // 唯一必须堵的点
+  });
+
+  it('orderAttackCandidates: 候选点只在棋子邻域内检索，远端孤立空格不被遍历（PRD P1-2）', () => {
+    const board = fromGameState(buildAlternating([[7, 7], [8, 7]], [[7, 8], [8, 8]]));
+    const candidates = orderAttackCandidates(board, BLACK, 'threats');
+    for (const at of candidates) {
+      const x = xOf(at);
+      const y = yOf(at);
+      const dist = Math.min(
+        Math.max(Math.abs(x - 7), Math.abs(y - 7)),
+        Math.max(Math.abs(x - 8), Math.abs(y - 8)),
+      );
+      expect(dist).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it('orderAttackCandidates: 边界成五和冲四依然准确识别', () => {
+    const board = new Int8Array(225);
+    board[idxOf(0, 0)] = BLACK;
+    board[idxOf(0, 1)] = BLACK;
+    board[idxOf(0, 2)] = BLACK;
+    board[idxOf(0, 3)] = BLACK;
+    const wins = orderAttackCandidates(board, BLACK, 'fours');
+    expect(wins).toContain(idxOf(0, 4));
   });
 });

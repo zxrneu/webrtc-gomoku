@@ -10,3 +10,4 @@ dist/
 .workbuddy-ai/
 .agents/
 apps/signaling-rust/target/
+crates/*/target/

@@ -25,11 +25,9 @@ import {
   DEFAULT_SLICE_MS,
   ROOT_BRANCH_LIMIT,
   VCF_DEPTH,
-  VCF_NODE_LIMIT,
   FAST_VCF_TIME_BUDGET_MS,
   PNS_TIME_BUDGET_MS,
   PNS_ATTACK_LIMIT,
-  PNS_NODE_LIMIT,
   DEFENSE_CHECK_TIME_BUDGET_MS,
   DEFENSE_ATTACK_LIMIT,
   DEFENSE_NODE_LIMIT,
@@ -39,7 +37,7 @@ import {
 import { PATTERN_SCORES } from './pattern';
 import type { PositionState } from './evaluate';
 import { MATE_SCORE, createPositionState, evalFor, placeStone, removeStone } from './evaluate';
-import { generateMoves } from './movegen';
+import { generateMoves, generateMovesInto } from './movegen';
 import { verifyProofSteps, type WinningProof } from './proof';
 import { readProofBoard } from './proofRules';
 import { searchThreatProof, type ThreatContext } from './threatSearch';
@@ -130,6 +128,10 @@ export class SearchSession implements AiSession {
   private rootBestScore = -INF;
   private fromOpening = false;
   private work: Generator<void, void, void> | null = null;
+  /** 最大搜索层数支持（最大 ply=32，每层分支上限 16，共 512 个槽位） */
+  private static readonly MAX_PLY = 32;
+  private static readonly PLY_STRIDE = 16;
+  private readonly plyMoves = new Int16Array(SearchSession.MAX_PLY * SearchSession.PLY_STRIDE);
 
   constructor(g: GameState, color: PlayerColor, resolved: ResolvedOptions) {
     this.resolved = resolved;
@@ -375,14 +377,27 @@ export class SearchSession implements AiSession {
       }
     }
 
-    const moves = generateMoves(this.st, color, branchLimitFor(depth));
-    if (moves.length === 0) return evalFor(this.st, color);
-    // TT 走法必须复核：它只能来自本次候选集（候选集本身只含空点），否则丢弃
+    if (ply >= SearchSession.MAX_PLY) return evalFor(this.st, color);
+
+    const plyOffset = ply * SearchSession.PLY_STRIDE;
+    const count = generateMovesInto(this.st, color, branchLimitFor(depth), this.plyMoves, plyOffset);
+    if (count === 0) return evalFor(this.st, color);
+
+    // TT 走法复核与置顶：直接在 this.plyMoves 局部切片内右移置顶，零数组分配与零 splice/unshift
     if (ttMove >= 0) {
-      const at = moves.indexOf(ttMove);
-      if (at > 0) {
-        moves.splice(at, 1);
-        moves.unshift(ttMove);
+      let ttIdx = -1;
+      for (let i = 0; i < count; i += 1) {
+        if (this.plyMoves[plyOffset + i] === ttMove) {
+          ttIdx = i;
+          break;
+        }
+      }
+      if (ttIdx > 0) {
+        const saved = this.plyMoves[plyOffset + ttIdx]!;
+        for (let j = ttIdx; j > 0; j -= 1) {
+          this.plyMoves[plyOffset + j] = this.plyMoves[plyOffset + j - 1]!;
+        }
+        this.plyMoves[plyOffset] = saved;
       }
     }
 
@@ -390,7 +405,8 @@ export class SearchSession implements AiSession {
     const opp = oppositeOf(color);
     let best = -INF;
     let bestMove = -1;
-    for (const move of moves) {
+    for (let i = 0; i < count; i += 1) {
+      const move = this.plyMoves[plyOffset + i]!;
       this.doPlace(move, color);
       let score: number;
       try {
@@ -431,7 +447,7 @@ export class SearchSession implements AiSession {
   private *excludeCounterKills(): Generator<void, void, void> {
     if (this.difficulty !== 'hard') return;
     const opponent = oppositeOf(this.me);
-    if (orderAttackCandidates(this.st.cells, opponent, 'threats').length === 0) {
+    if (orderAttackCandidates(this.st, opponent, 'threats').length === 0) {
       return;
     }
     const moves = generateMoves(this.st, this.me, ROOT_BRANCH_LIMIT);
@@ -452,10 +468,10 @@ export class SearchSession implements AiSession {
       let proof: WinningProof | null = null;
       let nodesUsed = 0;
       try {
-        if (orderAttackCandidates(this.st.cells, opponent, 'threats').length === 0) {
+        if (orderAttackCandidates(this.st, opponent, 'threats').length === 0) {
           continue;
         }
-        const fastFours = orderAttackCandidates(this.st.cells, opponent, 'fours');
+        const fastFours = orderAttackCandidates(this.st, opponent, 'fours');
         if (fastFours.length > 0) {
           const fastContext: ThreatContext = {
             attacker: opponent,
@@ -525,18 +541,18 @@ export class SearchSession implements AiSession {
 
   /** 执行算杀：
    * 1. 快速连续冲四（最多 300ms，mode: 'fours'）
-   * 2. 最强档执行 PNS 求胜（最多 1200ms，mode: 'threats'，PNS_ATTACK_LIMIT=8, PNS_NODE_LIMIT=20000）
+   * 2. 最强档执行 PNS 求胜（最多 2000ms / 动态剩余 70%，mode: 'threats'，PNS_ATTACK_LIMIT=8, pnsMaxNodes）
    * 返回获胜首着，无杀返回 -1
    */
   private *runVcf(): Generator<void, number, void> {
-    const threats = orderAttackCandidates(this.st.cells, this.me, 'threats');
+    const threats = orderAttackCandidates(this.st, this.me, 'threats');
     if (threats.length === 0) return -1;
 
     const now = this.resolved.now;
     const current = now !== null ? now() : 0;
 
     // 阶段 1: 快速连续冲四（仅在有冲四/成五候选时执行）
-    const fours = orderAttackCandidates(this.st.cells, this.me, 'fours');
+    const fours = orderAttackCandidates(this.st, this.me, 'fours');
     if (fours.length > 0) {
       const fastLimitMs = now !== null
         ? Math.min(FAST_VCF_TIME_BUDGET_MS, Math.max(0, (this.totalDeadline ?? 0) - current))
@@ -548,7 +564,7 @@ export class SearchSession implements AiSession {
         mode: 'fours',
         nodes: 0,
         exhausted: false,
-        maxNodes: Math.min(VCF_NODE_LIMIT, this.resolved.maxNodes),
+        maxNodes: this.resolved.vcfMaxNodes,
         now: now ?? undefined,
         deadline: fastDeadline ?? undefined,
       };
@@ -572,8 +588,9 @@ export class SearchSession implements AiSession {
     if (now !== null && current2 >= (this.totalDeadline ?? 0)) return -1;
 
     // 阶段 2: PNS 求胜（最强档）
+    const remainingMs = now !== null ? Math.max(0, (this.totalDeadline ?? 0) - current2) : 0;
     const pnsLimitMs = now !== null
-      ? Math.min(PNS_TIME_BUDGET_MS, Math.max(0, (this.totalDeadline ?? 0) - current2))
+      ? Math.min(this.resolved.pnsTimeBudgetMs ?? PNS_TIME_BUDGET_MS, Math.floor(remainingMs * 0.7))
       : null;
     const pnsDeadline = (now !== null && pnsLimitMs !== null) ? current2 + pnsLimitMs : null;
 
@@ -582,7 +599,7 @@ export class SearchSession implements AiSession {
       mode: 'threats',
       nodes: 0,
       exhausted: false,
-      maxNodes: Math.min(PNS_NODE_LIMIT, this.resolved.maxNodes),
+      maxNodes: now !== null ? this.resolved.pnsMaxNodes : Math.min(this.resolved.pnsMaxNodes, 20000),
       now: now ?? undefined,
       deadline: pnsDeadline ?? undefined,
     };

@@ -3,10 +3,11 @@
  * 调用点与 UI 只允许传 Difficulty，禁止出现魔数。
  */
 
-import type { AiOptions, Difficulty } from './types';
+import type { AiOptions, Difficulty, ResolvedOptions } from './types';
+export type { ResolvedOptions } from './types';
 
 /** 一档难度的完整参数（不含 difficulty / now 本身） */
-export type AiPreset = Readonly<Required<Omit<AiOptions, 'difficulty' | 'now'>>>;
+export type AiPreset = Readonly<Required<Pick<AiOptions, 'timeBudgetMs' | 'maxDepth' | 'maxNodes'>>>;
 
 /**
  * 三档参数表。
@@ -16,7 +17,7 @@ export type AiPreset = Readonly<Required<Omit<AiOptions, 'difficulty' | 'now'>>>
 export const DIFFICULTY_PRESETS: Readonly<Record<Difficulty, AiPreset>> = Object.freeze({
   easy: Object.freeze({ timeBudgetMs: 200, maxDepth: 2, maxNodes: 4000 }),
   normal: Object.freeze({ timeBudgetMs: 500, maxDepth: 4, maxNodes: 20000 }),
-  hard: Object.freeze({ timeBudgetMs: 3000, maxDepth: 12, maxNodes: 60000 }),
+  hard: Object.freeze({ timeBudgetMs: 3000, maxDepth: 16, maxNodes: 500000 }),
 });
 
 /** 根节点分支上限 */
@@ -42,7 +43,7 @@ export const DEFAULT_SLICE_MS = 32;
 
 /** 快速冲四算杀时间预算（毫秒）与节点上限 */
 export const FAST_VCF_TIME_BUDGET_MS = 300;
-export const VCF_NODE_LIMIT = 6000;
+export const VCF_NODE_LIMIT = 24000;
 
 /** 各档位的 VCF 深度（以「我方冲四次数」计） */
 export const VCF_DEPTH: Readonly<Record<Difficulty, number>> = Object.freeze({
@@ -52,9 +53,9 @@ export const VCF_DEPTH: Readonly<Record<Difficulty, number>> = Object.freeze({
 });
 
 /** PNS 求胜时间预算（毫秒）与节点/进攻上限 */
-export const PNS_TIME_BUDGET_MS = 1200;
+export const PNS_TIME_BUDGET_MS = 2000;
 export const PNS_ATTACK_LIMIT = 8;
-export const PNS_NODE_LIMIT = 20000;
+export const PNS_NODE_LIMIT = 80000;
 
 /** 困难档连续威胁搜索（兼容别名） */
 export const THREAT_NODE_LIMIT = PNS_NODE_LIMIT;
@@ -77,15 +78,6 @@ export function branchLimitFor(depth: number): number {
   return depth <= SHALLOW_DEPTH ? SHALLOW_BRANCH_LIMIT : DEEP_BRANCH_LIMIT;
 }
 
-/** 归一化后的搜索参数 */
-export interface ResolvedOptions {
-  readonly difficulty: Difficulty;
-  readonly timeBudgetMs: number;
-  readonly maxDepth: number;
-  readonly maxNodes: number;
-  readonly now: (() => number) | null;
-}
-
 /** 合并调用方参数与档位默认值 */
 export function resolveOptions(opts: AiOptions = {}): ResolvedOptions {
   const difficulty = opts.difficulty ?? 'hard';
@@ -95,6 +87,9 @@ export function resolveOptions(opts: AiOptions = {}): ResolvedOptions {
     timeBudgetMs: opts.timeBudgetMs ?? preset.timeBudgetMs,
     maxDepth: opts.maxDepth ?? preset.maxDepth,
     maxNodes: opts.maxNodes ?? preset.maxNodes,
+    vcfMaxNodes: opts.vcfMaxNodes ?? VCF_NODE_LIMIT,
+    pnsMaxNodes: opts.pnsMaxNodes ?? PNS_NODE_LIMIT,
+    pnsTimeBudgetMs: opts.pnsTimeBudgetMs,
     now: opts.now ?? null,
   };
 }

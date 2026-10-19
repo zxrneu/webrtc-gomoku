@@ -54,8 +54,26 @@ export interface AiOptions {
   maxDepth?: number;
   /** 节点预算。未传 now 时用此值兜底，保证无时间源也能终止 */
   maxNodes?: number;
+  /** VCF 冲四算杀节点上限（解耦于常规 maxNodes） */
+  vcfMaxNodes?: number;
+  /** PNS 威胁算杀节点上限（解耦于常规 maxNodes） */
+  pnsMaxNodes?: number;
+  /** PNS 威胁算杀时间预算（毫秒） */
+  pnsTimeBudgetMs?: number;
   /** 时间源注入。core 禁止直读 Date/performance；不传 = 纯节点预算模式 */
   now?: () => number;
+}
+
+/** 归一化后的搜索参数（架构 R2：战术算杀算力解耦） */
+export interface ResolvedOptions {
+  readonly difficulty: Difficulty;
+  readonly timeBudgetMs: number;
+  readonly maxDepth: number;
+  readonly maxNodes: number;
+  readonly vcfMaxNodes: number;
+  readonly pnsMaxNodes: number;
+  readonly pnsTimeBudgetMs?: number;
+  readonly now: (() => number) | null;
 }
 
 /** 搜索终止原因 */

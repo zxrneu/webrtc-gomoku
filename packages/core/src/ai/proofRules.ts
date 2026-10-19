@@ -7,6 +7,69 @@ export function emptyCells(board: AiBoard): number[] {
   for (let at = 0; at < AI_CELLS; at += 1) if (board[at] === 0) cells.push(at);
   return cells;
 }
+
+/**
+ * 邻域空格枚举（用于威胁搜索热路径）：
+ * 仅返回切比雪夫 <= 2 范围内有棋子的空格，跳过远端无威胁空格。
+ */
+export function neighborEmptyCells(st: { cells: AiBoard; neighbor: Uint8Array | Int8Array; candidateMask?: Uint32Array }): number[] {
+  const cells: number[] = [];
+  const { cells: board, neighbor, candidateMask } = st;
+  if (candidateMask) {
+    for (let w = 0; w < 8; w += 1) {
+      let word = candidateMask[w] ?? 0;
+      while (word !== 0) {
+        const lsb = word & -word;
+        const bit = 31 - Math.clz32(lsb);
+        const cell = (w << 5) | bit;
+        if (cell < AI_CELLS) {
+          cells.push(cell);
+        }
+        word ^= lsb;
+      }
+    }
+    return cells;
+  }
+  for (let at = 0; at < AI_CELLS; at += 1) {
+    if (board[at] === 0 && (neighbor[at] ?? 0) > 0) {
+      cells.push(at);
+    }
+  }
+  return cells;
+}
+
+/** 零分配写入 caller 提供的 Int16Array */
+export function neighborEmptyCellsInto(
+  st: { cells: AiBoard; neighbor: Uint8Array | Int8Array; candidateMask?: Uint32Array },
+  outBuf: Int16Array,
+  offset = 0,
+): number {
+  let count = 0;
+  const { cells: board, neighbor, candidateMask } = st;
+  if (candidateMask) {
+    for (let w = 0; w < 8; w += 1) {
+      let word = candidateMask[w] ?? 0;
+      while (word !== 0) {
+        const lsb = word & -word;
+        const bit = 31 - Math.clz32(lsb);
+        const cell = (w << 5) | bit;
+        if (cell < AI_CELLS) {
+          outBuf[offset + count] = cell;
+          count += 1;
+        }
+        word ^= lsb;
+      }
+    }
+    return count;
+  }
+  for (let at = 0; at < AI_CELLS; at += 1) {
+    if (board[at] === 0 && (neighbor[at] ?? 0) > 0) {
+      outBuf[offset + count] = at;
+      count += 1;
+    }
+  }
+  return count;
+}
 export function winsAt(board: AiBoard, at: number, color: PlayerColor): boolean {
   if (board[at] !== color) return false;
   const x = at % AI_SIZE;

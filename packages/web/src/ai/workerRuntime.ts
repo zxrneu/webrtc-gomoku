@@ -4,6 +4,9 @@ import type { DriverOptions } from './searchDriver';
 import { runSearchSharded } from './searchDriver';
 import { isWorkerRequest, type WorkerResponse } from './workerProtocol';
 
+/** Worker 内默认分片时长（毫秒）：独立线程无 UI 阻塞，250ms 可消除频繁 setTimeout 宏任务空转（PRD P0-3） */
+export const DEFAULT_WORKER_SLICE_MS = 250;
+
 export function createSearchWorkerHandler(
   send: (reply: WorkerResponse) => void,
   driver: DriverOptions = {},
@@ -34,7 +37,11 @@ export function createSearchWorkerHandler(
       });
       return;
     }
-    cancel = runSearchSharded(data.game, data.color, data.options, driver, (move, stats) => {
+    const effectiveDriver: DriverOptions = {
+      sliceMs: driver.sliceMs ?? DEFAULT_WORKER_SLICE_MS,
+      ...driver,
+    };
+    cancel = runSearchSharded(data.game, data.color, data.options, effectiveDriver, (move, stats) => {
       cancel = null;
       if (stats.proofStatus === 'win') strategy = loadWinningStrategy({
         format: 'gomoku-proof-v1', rules: 'freestyle-15', game: data.game,
