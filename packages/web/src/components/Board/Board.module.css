@@ -33,10 +33,16 @@
   }
 }
 
-/* 画布定位容器：为蒙层和结算横幅提供 position: absolute 的参考原点 */
+/**
+ * 画布定位容器：为蒙层和结算横幅提供 position: absolute 的参考原点
+ *
+ * 注意：这里**不能**写 line-height: 0。虽然它能消除内联元素底部的基线留白，
+ * 但 line-height 会沿继承链传给所有绝对定位子元素（结算横幅、等待蒙层），
+ * 导致这些子元素的行盒高度坍缩为 0，多行文字全部叠印在同一基线上（文字重叠 bug）。
+ * 画布本身已是 display: block，天然没有基线留白，无需该 hack。
+ */
 .boardWrap {
   position: relative;
-  line-height: 0; /* 消除内联元素底部默认的 3~4px 基线留白缝隙 */
   max-width: 100%;
 }
 
@@ -93,6 +99,7 @@
   flex-direction: column;
   align-items: center;
   gap: 12px;
+  line-height: 1.5;
 }
 
 /* 等待指示灯（三颗金黄色弹跳呼吸圆点） */
@@ -123,12 +130,18 @@
 
 /**
  * 结算横幅（对局分出胜负时由中心微弹出来的毛玻璃浮卡）
+ *
+ * 宽度策略：left: 50% 会让绝对定位元素的可用宽度只剩「右半盘」，
+ * 若依赖 shrink-to-fit，长文案会被压窄并在窄屏上折成多行。
+ * 因此显式 width: max-content + max-width 兜底，保证文案按整行排版、又不溢出棋盘。
  */
 .resultBanner {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
+  width: max-content;
+  max-width: calc(100% - 24px);
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -140,6 +153,9 @@
   align-items: center;
   gap: 14px;
   box-shadow: var(--shadow-lg);
+  text-align: center;
+  /* 行高显式声明：浮层脱离文档流，避免继承外层任何行高设置导致文字叠印 */
+  line-height: 1.4;
   /* 弹性轻微超冲动效 (cubic-bezier 模拟物理回弹) */
   animation: popIn 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   z-index: 20;
@@ -154,9 +170,11 @@
 
 .resultText {
   font-size: 22px;
+  line-height: 1.35;
   font-weight: 800;
   color: var(--text-main);
   letter-spacing: -0.3px;
+  max-width: 100%;
 }
 
 /* 棋盘下方按钮操作与提示行 */
@@ -355,6 +373,22 @@
   50% {
     opacity: 1;
     transform: scale(1.15);
+  }
+}
+
+/**
+ * 窄屏结算横幅：缩小字号与内边距，保证「你赢了，再来一局？」这类长文案
+ * 在 320px 级小屏上仍能单行显示，不出现孤立单字换行
+ * （此块必须位于 .resultBanner / .resultText 基础规则之后，同权重才能覆盖）
+ */
+@media (max-width: 640px) {
+  .resultBanner {
+    padding: 18px 22px;
+    gap: 12px;
+  }
+
+  .resultText {
+    font-size: 18px;
   }
 }
 
