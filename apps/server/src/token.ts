@@ -16,6 +16,18 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 /** 凭证最小熵（字节）。24 字节 → base64url 32 字符 */
 const MIN_BYTES = 24;
 
+/** 随机字节源：`n` 为所需字节数。单测注入确定性实现即可复现输出 */
+export type Rand = (n: number) => Uint8Array;
+
+/**
+ * 默认随机源。
+ *
+ * 提成模块级常量而不是写在默认参数里：默认参数每次调用都会新建一个闭包，
+ * 函数身份不稳定（无法复用 / 无法比较）。`randomBytes(size)` 返回的 `Buffer`
+ * 是 `Uint8Array` 子类，签名天然兼容，直接引用即可，不必再包一层。
+ */
+const defaultRand: Rand = randomBytes;
+
 /**
  * 生成一个座位凭证（base64url）。
  *
@@ -23,7 +35,7 @@ const MIN_BYTES = 24;
  * @param bytes 熵长度，低于 24 会被钳制到 24
  * @returns base64url 字符串（不含 `=` 补位）
  */
-export function createToken(rand: (n: number) => Uint8Array = (n) => randomBytes(n), bytes = MIN_BYTES): string {
+export function createToken(rand: Rand = defaultRand, bytes = MIN_BYTES): string {
   const size = Math.max(MIN_BYTES, Math.floor(bytes));
   return Buffer.from(rand(size)).toString('base64url');
 }
