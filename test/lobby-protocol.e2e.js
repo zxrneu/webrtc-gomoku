@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { performance } = require('node:perf_hooks');
 const { LobbyClient, delay } = require('./support/lobby-client');
-const BASE = process.env.BASE || 'http://127.0.0.1:3115';
+const BASE = process.env.BASE || 'http://localhost:3000';
 const OUT = process.env.OUT || 'output/lobby-protocol.json';
 const outcomes = []; let nextId = 30000; let active = [];
 const isState = m => m.t === 'lobby-state';
@@ -97,6 +97,17 @@ async function scenario(name, fn) {
     const reply = await verify.request({ t: 'resume', room: seat.room, peerId: seat.peerId, token: resumed.token },
       m => m.t === 'resumed' || m.t === 'error');
     assert.equal(reply.t, 'resumed', '旧连接 leave 导致新连接座位被销毁');
+    verify.send({ t: 'leave' }); await verify.ping(10004);
+    const nextRoom = (nextId++).toString(36).toUpperCase().padStart(4, '0');
+    await old.ping(10005, { t: 'create', room: nextRoom });
+    const inspector = await client(false);
+    const rejected = await inspector.request({ t: 'join', room: nextRoom }, m => m.t === 'joined' || m.t === 'error');
+    assert.equal(rejected.t, 'error', '已撤权连接不能在座位释放后重新创建房间');
+    await verify.request({ t: 'create', room: nextRoom }, m => m.t === 'created');
+    await old.ping(10006, { t: 'join', room: nextRoom });
+    const guest = await client(false);
+    const joined = await guest.request({ t: 'join', room: nextRoom }, m => m.t === 'joined' || m.t === 'error');
+    assert.equal(joined.t, 'joined', '已撤权连接不能抢占新房间的来宾座位');
   });
   if (process.env.LONG_TESTS === '1') {
     await scenario('邀请30秒过期，匹配60秒超时且不建房', async () => {

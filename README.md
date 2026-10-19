@@ -124,7 +124,7 @@ pnpm ai:verify /tmp/proof.json
 
 - 本机测试：开两个浏览器标签访问 `http://localhost:3000`，一个创建房间、一个加入
 - 手机/其他设备：访问启动日志里打印的局域网地址，如 `http://<你的局域网IP>:3000`
-- 单元测试：`pnpm test`（2026-10-20：Vitest 69 个文件、1031 项通过，包含规则、协议、大厅、断线重连与 AI）。Rust 另运行 `cargo test --manifest-path apps/signaling-rust/Cargo.toml`（同日 254 项通过）。
+- 单元测试：`pnpm test`（2026-10-20：Vitest 70 个文件、1042 项通过，包含规则、协议、大厅、断线重连与 AI）。Rust 另运行 `cargo test --manifest-path apps/signaling-rust/Cargo.toml`（同日 254 项通过）。
 - E2E 测试：`pnpm test:e2e`（Playwright 覆盖 P2P 对局、信令、换房/换边、AI、聊天与富媒体、大厅邀请/匹配/恢复和分页）。容量与已知问题复现命令见[大厅复审](docs/m6-lobby/capacity-review.md)。
 
 ## 架构

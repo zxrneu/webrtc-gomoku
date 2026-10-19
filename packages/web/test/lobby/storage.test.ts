@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createLobbyId, lobbyIdentity, readLobbySession, saveLobbySession } from '../../src/lobby/storage';
+import { createLobbyId, lobbyIdentity, prepareLobbyWindow, readLobbySession, saveLobbySession } from '../../src/lobby/storage';
 
 function store() { const values = new Map<string, string>(); return {
   getItem: (key: string) => values.get(key) ?? null,
@@ -10,6 +10,26 @@ const session = { seat: { t: 'lobby-seat' as const, room: 'A1B2', role: 'host' a
   moves: [{ x: 7, y: 7, c: 1 as const }], name: '小明' };
 
 describe('大厅本地会话隔离', () => {
+  it('新弹窗清除复制的窗口身份和座位，保留浏览器共享身份', () => {
+    const local = store(); const source = store(); const cloned = store(); let n = 0;
+    const original = lobbyIdentity(local, source, () => `id-${++n}`);
+    cloned.setItem('gomoku:lobby-tab', original.tabId); saveLobbySession(cloned, session);
+    prepareLobbyWindow(cloned, { hasOpener: true, navigationType: 'navigate' });
+    const popup = lobbyIdentity(local, cloned, () => `id-${++n}`);
+    expect(popup.browserId).toBe(original.browserId); expect(popup.tabId).not.toBe(original.tabId);
+    expect(readLobbySession(cloned)).toBeNull();
+    expect(lobbyIdentity(local, source, () => 'unexpected')).toEqual(original);
+  });
+  it.each(['reload', 'back_forward'])('弹窗真正%s保留本窗口身份和座位', navigationType => {
+    const s = store(); s.setItem('gomoku:lobby-tab', 'popup'); saveLobbySession(s, session);
+    prepareLobbyWindow(s, { hasOpener: true, navigationType });
+    expect(s.getItem('gomoku:lobby-tab')).toBe('popup'); expect(readLobbySession(s)).toEqual(session);
+  });
+  it('无opener的正常窗口不清除刷新凭证', () => {
+    const s = store(); saveLobbySession(s, session);
+    prepareLobbyWindow(s, { hasOpener: false, navigationType: 'navigate' });
+    expect(readLobbySession(s)).toEqual(session);
+  });
   it('会话保存换边后的执色，刷新时不会回到默认黑方', () => {
     const s = store(); s.setItem('gomoku:lobby-session', JSON.stringify({ ...session, myColor: 2 }));
     expect(readLobbySession(s)).toMatchObject({ myColor: 2 });

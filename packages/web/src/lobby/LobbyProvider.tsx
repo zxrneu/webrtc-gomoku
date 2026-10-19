@@ -2,7 +2,7 @@ import React, { createContext, useEffect, useRef, useState, useSyncExternalStore
 import { BLACK, WHITE, type Move, type PlayerColor } from '@webrtc-gomoku/core';
 import type { ConnectionManager, LobbySeat } from '@webrtc-gomoku/shared';
 import { createLobbyRuntime, type LobbyRuntime, type LobbyView } from './runtime';
-import { createLobbyId, lobbyIdentity, readLobbySession, saveLobbySession } from './storage';
+import { createLobbyId, lobbyIdentity, prepareLobbyWindow, readLobbySession, saveLobbySession } from './storage';
 import { isLobbyName } from '@webrtc-gomoku/shared';
 import { LobbyPage } from './LobbyPage';
 import styles from './Lobby.module.css';
@@ -30,7 +30,12 @@ function safeStore(kind: 'localStorage' | 'sessionStorage'): Storage {
 export function LobbyProvider({ children }: { children: React.ReactNode }) {
   const manager = useRef<ConnectionManager | null>(null);
   const restore = useRef<(moves: readonly Move[], color: PlayerColor) => void>(() => {});
-  const [session] = useState(() => safeStore('sessionStorage'));
+  const [session] = useState(() => {
+    const store = safeStore('sessionStorage');
+    const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+    prepareLobbyWindow(store, { hasOpener: !!window.opener, navigationType: navigation?.type });
+    return store;
+  });
   const [local] = useState(() => safeStore('localStorage'));
   const [saved] = useState(() => readLobbySession(session));
   const seat = useRef<LobbySeat | null>(saved?.seat ?? null);

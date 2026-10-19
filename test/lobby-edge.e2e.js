@@ -2,7 +2,8 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { chromium } = require('playwright');
-const BASE = process.env.BASE || 'http://127.0.0.1:3115';
+const BASE = process.env.BASE || 'http://localhost:3000';
+const OUT = process.env.OUT || 'output/lobby-edge-browser.json';
 const outcomes = [];
 async function scenario(name, fn) {
   try { const detail = await fn(); outcomes.push({ name, passed: true, detail }); console.log('PASS', name, detail || ''); }
@@ -38,6 +39,8 @@ async function scenario(name, fn) {
         const b = await popup; await b.waitForLoadState();
         await b.locator('#quick-match:enabled').waitFor();
         const ids = await Promise.all([a, b].map(p => p.evaluate(() => sessionStorage.getItem('gomoku:lobby-tab'))));
+        await b.reload(); await b.locator('#quick-match:enabled').waitFor();
+        assert.equal(await b.evaluate(() => sessionStorage.getItem('gomoku:lobby-tab')), ids[1], '弹窗刷新应保留自己的身份');
         await a.getByRole('button', { name: '刷新大厅', exact: true }).click();
         await a.waitForTimeout(200);
         const oldText = await a.locator('#lobby-panel').innerText();
@@ -59,6 +62,13 @@ async function scenario(name, fn) {
         await b.locator('#board').click({ position: { x: 280, y: 280 } });
         await a.waitForFunction(() => window.__gomoku.moves.length === 1);
         const expected = await a.evaluate(() => window.__gomoku.moves);
+        const popupEvent = contexts[0].waitForEvent('page');
+        await a.evaluate(() => window.open(location.href, '_blank'));
+        const popup = await popupEvent; await popup.waitForLoadState();
+        await popup.locator('#quick-match:enabled').waitFor();
+        assert.equal(await popup.evaluate(() => sessionStorage.getItem('gomoku:lobby-session')), null, '新弹窗不能继承并接管原局座位');
+        assert.equal(await a.evaluate(() => window.__gomoku.connected), true);
+        await popup.close();
         const check = async () => {
           await Promise.all([connected(a), connected(b)]);
           await Promise.all([a, b].map(p => p.waitForFunction(() => window.__gomoku.moves.length === 1)));
@@ -72,8 +82,8 @@ async function scenario(name, fn) {
       } finally { await Promise.all(contexts.map(c => c.close())); }
     });
   } finally {
-    await browser.close(); fs.mkdirSync('output', { recursive: true });
-    fs.writeFileSync('output/lobby-edge-browser.json', JSON.stringify(outcomes, null, 2) + '\n');
+    await browser.close(); fs.mkdirSync(require('node:path').dirname(OUT), { recursive: true });
+    fs.writeFileSync(OUT, JSON.stringify(outcomes, null, 2) + '\n');
     if (outcomes.some(result => !result.passed)) process.exitCode = 1;
   }
 })().catch(e => { console.error(e); process.exitCode = 1; });

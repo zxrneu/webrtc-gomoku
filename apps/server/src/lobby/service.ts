@@ -17,6 +17,8 @@ interface Presence {
   offset: number;
   lastInvite: number;
   lastRoomAction: number;
+  requestSince: number;
+  requests: number;
 }
 interface Invitation { id: string; from: string; to: string; expiresAt: number }
 interface RoomInfo { host: string; name: string; public: boolean; createdAt: number }
@@ -37,6 +39,8 @@ export class LobbyService {
   handle(client: LobbyClient, input: unknown): void {
     const msg = decodeLobbyClient(input);
     if (!msg) { this.notice(client, 'INVALID_NAME', '昵称需 2–12 个字符，不能含特殊符号'); return; }
+    const presence = this.people.get(client.id);
+    if (presence && !this.allowRequest(presence)) return;
     this.expire();
     if (msg.t === 'lobby-enter') this.enter(client, msg);
     else {
@@ -58,7 +62,17 @@ export class LobbyService {
     if (this.people.size >= 2000) { this.notice(client, 'LIMIT', '大厅已满，稍后再试'); return; }
     this.people.set(client.id, { client, publicId: this.options.id(), name: this.uniqueName(msg.name),
       browserId: msg.browserId, tabId: msg.tabId, ready: false, query: '', onlyAvailable: false,
-      offset: 0, lastInvite: -Infinity, lastRoomAction: -Infinity });
+      offset: 0, lastInvite: -Infinity, lastRoomAction: -Infinity, requestSince: this.options.now(), requests: 0 });
+  }
+
+  private allowRequest(p: Presence): boolean {
+    const now = this.options.now();
+    if (now - p.requestSince >= 1000) { p.requestSince = now; p.requests = 0; }
+    if (p.requests >= 30) {
+      this.notice(p.client, 'RATE_LIMITED', '操作太快，请稍后再试'); return false;
+    }
+    p.requests++;
+    return true;
   }
 
   private uniqueName(wanted: string, ownId?: string): string {

@@ -11,6 +11,7 @@ import type {
 import { maskRoom } from '@webrtc-gomoku/shared';
 import { RoomRegistry, type LeaveResult, type RoomClient } from './rooms';
 import { SeatRegistry } from './grace';
+import { SeatOwners } from './seat-owners';
 import { createHttpHandler, getCandidateDirs } from './http';
 
 /**
@@ -22,8 +23,6 @@ interface ExtendedWebSocket extends WebSocket {
    * 首次连接时随机生成；resume 成功后继承旧 peerId，从而占回原座位。
    */
   __id?: string;
-  /** 物理连接唯一标识（**永不改写**）：用于识别「旧 socket 迟到 close」 */
-  __connId?: string;
   /** 心跳探针保活状态标记（收到对端 pong 响应时重置为 true） */
   isAlive?: boolean;
 }
@@ -46,10 +45,9 @@ const registry = new RoomRegistry();
 const seats = new SeatRegistry({ graceMs: GRACE_MS });
 
 /**
- * 座位归属表：peerId → 当前持有该座位的物理连接 id。
- * 作用：新连接 resume 成功后，旧 socket 迟到的 close/error 不得把刚恢复的座位再次打入宽限。
+ * 座位归属：接管时永久撤销旧物理连接，阻止迟到的写操作和 close/error。
  */
-const seatOwner = new Map<string, string>();
+const seatOwners = new SeatOwners();
 const lobby = new LobbyService({ rooms: registry, now: Date.now, id: randomUUID });
 const connectionsByIp = new Map<string, number>();
 
@@ -143,9 +141,9 @@ wss.on('connection', (socket: WebSocket, request) => {
     if (remaining <= 0) connectionsByIp.delete(ip); else connectionsByIp.set(ip, remaining);
   });
   const ws = socket as ExtendedWebSocket;
-  // 随机生成 8 位字符串作为客户端物理连接的唯一标识
+  // 初始身份使用随机 UUID，座位接管后 ws.__id 可变，owner 始终属于原物理连接。
   const connId = randomUUID();
-  ws.__connId = connId;
+  const owner = { isRevoked: false };
   ws.__id = connId;
   ws.isAlive = true;
 
@@ -160,7 +158,7 @@ wss.on('connection', (socket: WebSocket, request) => {
   function issueSeat(peerId: string, room: string, name: string, role: 'host' | 'guest'): string {
     const existing = seats.peek(peerId);
     if (existing && existing.room !== room) seats.release(peerId);
-    seatOwner.set(peerId, connId);
+    seatOwners.claim(peerId, owner);
     return seats.issue(peerId, room, name, role, Date.now());
   }
 
@@ -174,6 +172,7 @@ wss.on('connection', (socket: WebSocket, request) => {
       return;
     }
     if (!msg || typeof msg.t !== 'string') return;
+    if (owner.isRevoked && msg.t !== 'ping') return;
 
     if (msg.t.startsWith('lobby-')) {
       lobby.handle({ ...asClient(ws), issueSeat: (room, name, role) => issueSeat(ws.__id!, room, name, role) }, msg);
@@ -226,7 +225,7 @@ wss.on('connection', (socket: WebSocket, request) => {
       // ---------------- 指令 ④：主动退出房间（不留座位） ----------------
       case 'leave': {
         seats.release(ws.__id!);
-        seatOwner.delete(ws.__id!);
+        seatOwners.release(ws.__id!);
         logLeave(registry.leave(ws.__id!));
         lobby.syncRoom(ws.__id!);
         break;
@@ -261,7 +260,7 @@ wss.on('connection', (socket: WebSocket, request) => {
         ws.__id = peerId;
         registry.rebind(peerId, asClient(ws));
         const newToken = seats.rotate(peerId, Date.now()) ?? '';
-        seatOwner.set(peerId, connId);
+        seatOwners.claim(peerId, owner);
         const peers = registry.others(reqRoom, peerId);
         send(ws, { t: 'resumed', room: reqRoom, peerId, token: newToken, peerPresent: peers.length > 0 });
         log(`srv.resume.ok room=${maskRoom(reqRoom)} peerId=${peerId} graceMs=${GRACE_MS}`);
@@ -287,8 +286,7 @@ wss.on('connection', (socket: WebSocket, request) => {
     const peerId = ws.__id;
     if (!peerId) return;
     // 旧 socket 迟到的事件：座位已归属新连接，直接忽略
-    const owner = seatOwner.get(peerId);
-    if (owner && owner !== connId) return;
+    if (owner.isRevoked) return;
     lobby.disconnect(peerId);
 
     const seat = seats.markOffline(peerId, Date.now());
@@ -339,7 +337,7 @@ setInterval(() => {
   const now = Date.now();
   for (const seat of seats.sweep(now)) {
     log(`srv.grace.expire room=${maskRoom(seat.room)} peerId=${seat.peerId} graceMs=${GRACE_MS}`);
-    seatOwner.delete(seat.peerId);
+    seatOwners.release(seat.peerId);
     logLeave(registry.leave(seat.peerId));
   }
 }, SWEEP_INTERVAL_MS).unref();

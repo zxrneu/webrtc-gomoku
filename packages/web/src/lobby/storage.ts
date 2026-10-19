@@ -5,6 +5,12 @@ interface Store { getItem(key: string): string | null; setItem(key: string, valu
 export interface LobbySession { seat: LobbySeat; moves: Move[]; name: string; myColor?: PlayerColor }
 const KEY = 'gomoku:lobby-session';
 
+/** 弹窗首次导航会复制 sessionStorage；刷新和历史返回则保留本窗口座位。 */
+export function prepareLobbyWindow(store: Store, navigation: { hasOpener: boolean; navigationType?: string }): void {
+  if (!navigation.hasOpener || navigation.navigationType === 'reload' || navigation.navigationType === 'back_forward') return;
+  try { store.removeItem('gomoku:lobby-tab'); store.removeItem(KEY); } catch { /* 无存储时使用临时身份。 */ }
+}
+
 /** 使用 getRandomValues 而非仅安全上下文可用的 randomUUID，支持局域网 HTTP。 */
 export function createLobbyId(randomBytes: (bytes: Uint8Array) => Uint8Array): string {
   return Array.from(randomBytes(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');

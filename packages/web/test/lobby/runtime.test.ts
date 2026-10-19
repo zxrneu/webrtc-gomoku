@@ -98,6 +98,20 @@ describe('大厅与现有连接编排接线', () => {
     expect(t.runtime.getSnapshot().phase).toBe('offline');
     expect(t.runtime.getSnapshot().notice).toContain('最多');
   });
+  it('进入被拒绝后不再查询，不让NOT_ENTERED覆盖配额原因，重试成功才恢复查询', () => {
+    const t = setup(); t.runtime.enable(true);
+    t.raw.server({ t: 'lobby-notice', code: 'SESSION_LIMIT', message: '同一浏览器最多 2 桌' });
+    const count = t.raw.sent.length;
+    t.clock.advance(15000);
+    expect(t.raw.sent).toHaveLength(count);
+    expect(t.runtime.send({ t: 'lobby-list' })).toBe(false);
+    expect(t.runtime.getSnapshot().notice).toBe('同一浏览器最多 2 桌');
+    t.runtime.retry();
+    expect(t.runtime.getSnapshot().phase).toBe('loading');
+    t.raw.server({ ...t.state, revision: 10 }); t.clock.advance(5000);
+    expect(t.raw.sent.at(-1)).toEqual({ t: 'lobby-list' });
+    expect(t.runtime.getSnapshot().notice).toBe('');
+  });
   it('无响应请求会恢复按钮并显示错误，不能无限等待', () => {
     const t = setup(); t.runtime.send({ t: 'lobby-invite', target: 'public-b' });
     t.clock.advance(8000); expect(t.runtime.getSnapshot().pending).toBe(false);

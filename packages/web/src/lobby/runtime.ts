@@ -45,7 +45,10 @@ export function createLobbyRuntime(options: Options) {
   }
   function settle(): void { pendingTimer = clear(pendingTimer); update({ pending: false }); }
   function enter(): void {
-    if (enabled) raw?.send({ t: 'lobby-enter', name: view.name, browserId: options.browserId, tabId: options.tabId });
+    if (!enabled) return;
+    pollTimer = clear(pollTimer);
+    update({ phase: 'loading', state: null });
+    raw?.send({ t: 'lobby-enter', name: view.name, browserId: options.browserId, tabId: options.tabId });
   }
   function connect(): void {
     if (!raw || disposed || !enabled) return;
@@ -55,10 +58,10 @@ export function createLobbyRuntime(options: Options) {
   }
   function poll(): void {
     pollTimer = clear(pollTimer);
-    if (!enabled || disposed) return;
+    if (!enabled || disposed || view.phase !== 'ready') return;
     pollTimer = clock.setTimeout(() => {
       pollTimer = null;
-      if (raw?.readyState === 'open') raw.send(query);
+      if (view.phase === 'ready' && raw?.readyState === 'open') raw.send(query);
       poll();
     }, 5000);
   }
@@ -88,7 +91,7 @@ export function createLobbyRuntime(options: Options) {
       case 'lobby-state':
         if (view.state && msg.revision < view.state.revision) return true;
         settle(); update({ phase: 'ready', state: msg, name: msg.name,
-          ...(view.phase === 'offline' || view.phase === 'loading' ? { notice: '' } : {}) }); break;
+          ...(view.phase === 'offline' || view.phase === 'loading' ? { notice: '' } : {}) }); poll(); break;
       case 'lobby-notice': settle(); update({ notice: msg.message,
         phase: view.phase === 'loading' ? 'offline' : view.phase }); break;
       case 'lobby-seat': adopt(msg); break;
@@ -124,7 +127,7 @@ export function createLobbyRuntime(options: Options) {
     gameEvent?.(e);
   }
   function send(msg: ClientLobbyMsg): boolean {
-    if (!enabled || raw?.readyState !== 'open') return false;
+    if (!enabled || raw?.readyState !== 'open' || view.phase !== 'ready') return false;
     if (msg.t === 'lobby-list') { query = msg; return raw.send(msg); }
     if (msg.t === 'lobby-ready') return raw.send(msg);
     if (view.pending) return false;

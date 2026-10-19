@@ -26,6 +26,29 @@ function setup() {
 }
 
 describe('大厅名册与房间', () => {
+  it('每会话一秒内仅接受30个请求，其他会话仍可查询', () => {
+    const t = setup(); const a = t.enter('a'); const b = t.enter('b');
+    t.messages.get('a')!.length = 0;
+    for (let i = 0; i < 100; i++) t.act(a, { t: 'lobby-list' });
+    expect(t.messages.get('a')!.filter(m => m.t === 'lobby-state')).toHaveLength(30);
+    expect(t.notice('a', 'RATE_LIMITED')).toBe(true);
+    t.act(b, { t: 'lobby-list' }); expect(t.notice('b', 'RATE_LIMITED')).toBe(false);
+  });
+  it('限流窗口满一秒后可恢复查询', () => {
+    const t = setup(); const a = t.enter('a');
+    for (let i = 0; i < 31; i++) t.act(a, { t: 'lobby-list' });
+    t.advance(1000); t.messages.get('a')!.length = 0;
+    t.act(a, { t: 'lobby-list' });
+    expect(t.messages.get('a')).toHaveLength(1);
+    expect(t.messages.get('a')![0]?.t).toBe('lobby-state');
+  });
+  it('被限流的改名请求不改变名册', () => {
+    const t = setup(); const a = t.enter('a');
+    for (let i = 0; i < 30; i++) t.act(a, { t: 'lobby-list' });
+    t.act(a, { t: 'lobby-name', name: '不应改名' });
+    expect(t.state('a').name).toBe('棋友a');
+    expect(t.notice('a', 'RATE_LIMITED')).toBe(true);
+  });
   it('同窗口刷新先替换旧登记，再判断浏览器会话上限', () => {
     const t = setup(); t.enter('old', '棋友甲', 'browser'); t.enter('other', '棋友乙', 'browser');
     const refreshed = t.enter('new', '棋友甲', 'new-browser');
