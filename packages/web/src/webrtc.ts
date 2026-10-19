@@ -20,7 +20,7 @@ import type {
   P2pEvent,
   TransportInfo,
 } from '@webrtc-gomoku/shared';
-import { pack, unpack, encodeGameMessage, decodeGameMessage } from '@webrtc-gomoku/shared';
+import { pack, unpack, encodeGameMessage, decodeGameMessageSafe } from '@webrtc-gomoku/shared';
 
 
 import { DEFAULT_ICE_SERVERS } from './iceConfig';
@@ -250,15 +250,14 @@ export class WebRTCClient {
     // 核心：接收对端发来的数据包
     dc.onmessage = (e) => {
       const raw: unknown = e.data;
-      let msg: GameMessage;
-      try {
-        msg = decodeGameMessage(typeof raw === 'string' ? raw : '');
-      } catch {
+      // 安全解码：未知类型/坏 JSON 一律返回可忽略结果（旧端不崩，R-P0-5）
+      const decoded = decodeGameMessageSafe(typeof raw === 'string' ? raw : '');
+      if (!decoded.ok) {
         this.options.onDiagnostic?.({ kind: 'dc-parse-failed' });
         return;
       }
-      this.options.onMessage(msg);
-      this.emitTransport({ type: 'msg', msg });
+      this.options.onMessage(decoded.msg);
+      this.emitTransport({ type: 'msg', msg: decoded.msg });
     };
   }
 

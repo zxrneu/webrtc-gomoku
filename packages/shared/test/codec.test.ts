@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pack, unpack, bytesToB64url, b64urlToBytes, encodeGameMessage, decodeGameMessage } from '../src/index';
+import { pack, unpack, bytesToB64url, b64urlToBytes, encodeGameMessage, decodeGameMessage, decodeGameMessageSafe } from '../src/index';
 
 describe('Shared Codec (Connection Code & Compression)', () => {
   it('base64url roundtrip', () => {
@@ -102,6 +102,67 @@ describe('GameMessage Codec & Validation', () => {
     expect(() => decodeGameMessage('123')).toThrow();
     expect(() => decodeGameMessage('null')).toThrow();
     expect(() => decodeGameMessage('{}')).toThrow();
+  });
+
+  it('hello capabilities 合法往返，缺字段/非布尔被拒绝', () => {
+    const msg = {
+      t: 'hello' as const,
+      name: 'Alice',
+      capabilities: { qr: true, file: true, audio: true, video: false },
+    };
+    expect(decodeGameMessage(encodeGameMessage(msg))).toEqual(msg);
+    expect(() => decodeGameMessage(JSON.stringify({ t: 'hello', name: 'A', capabilities: { file: true } }))).toThrow();
+    expect(() =>
+      decodeGameMessage(JSON.stringify({ t: 'hello', name: 'A', capabilities: { qr: 1, file: true, audio: true, video: false } }))
+    ).toThrow();
+  });
+
+  it('media 帧往返一致', () => {
+    const meta = {
+      t: 'media-meta' as const,
+      id: 'm1',
+      kind: 'image' as const,
+      name: 'a.png',
+      size: 1024,
+      mime: 'image/png',
+      chunkSize: 32 * 1024,
+      chunks: 1,
+      hash: '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824',
+    };
+    expect(decodeGameMessage(encodeGameMessage(meta))).toEqual(meta);
+    const chunk = { t: 'media-chunk' as const, id: 'm1', seq: 0, data: 'AAEC' };
+    expect(decodeGameMessage(encodeGameMessage(chunk))).toEqual(chunk);
+    expect(decodeGameMessage(encodeGameMessage({ t: 'media-end' as const, id: 'm1' }))).toEqual({ t: 'media-end', id: 'm1' });
+    expect(decodeGameMessage(encodeGameMessage({ t: 'media-cancel' as const, id: 'm1' }))).toEqual({ t: 'media-cancel', id: 'm1' });
+    const ack = { t: 'media-ack' as const, id: 'm1', ok: true, reason: 'accepted' as const };
+    expect(decodeGameMessage(encodeGameMessage(ack))).toEqual(ack);
+  });
+
+  it('media 帧非法字段被拒绝', () => {
+    expect(() => decodeGameMessage(JSON.stringify({ t: 'media-meta', id: '', kind: 'image' }))).toThrow();
+    expect(() => decodeGameMessage(JSON.stringify({ t: 'media-meta', id: 'm', kind: 'video', name: 'a', size: 1, mime: '', chunkSize: 16384, chunks: 1 }))).toThrow();
+    expect(() => decodeGameMessage(JSON.stringify({ t: 'media-meta', id: 'm', kind: 'file', name: 'a', size: 1, mime: '', chunkSize: 16384, chunks: 1, hash: '' }))).toThrow();
+    expect(() => decodeGameMessage(JSON.stringify({ t: 'media-chunk', id: 'm', seq: -1, data: 'AA' }))).toThrow();
+    expect(() => decodeGameMessage(JSON.stringify({ t: 'media-ack', id: 'm', ok: 'yes' }))).toThrow();
+    expect(() => decodeGameMessage(JSON.stringify({ t: 'media-ack', id: 'm', ok: true, reason: 'bogus' }))).toThrow();
+  });
+});
+
+describe('decodeGameMessageSafe（R-P0-5 可忽略路径）', () => {
+  it('未知类型返回 unknown-type 而非抛错', () => {
+    expect(decodeGameMessageSafe(JSON.stringify({ t: 'media-meta-future' }))).toEqual({ ok: false, reason: 'unknown-type' });
+  });
+
+  it('坏 JSON / 非对象 / 空串各有明确 reason', () => {
+    expect(decodeGameMessageSafe('{bad')).toEqual({ ok: false, reason: 'bad-json' });
+    expect(decodeGameMessageSafe('123')).toEqual({ ok: false, reason: 'not-object' });
+    expect(decodeGameMessageSafe('')).toEqual({ ok: false, reason: 'empty' });
+  });
+
+  it('字段非法返回 invalid-fields，合法消息返回 ok', () => {
+    expect(decodeGameMessageSafe(JSON.stringify({ t: 'move', x: 'a', y: 1 }))).toEqual({ ok: false, reason: 'invalid-fields' });
+    const ok = decodeGameMessageSafe(JSON.stringify({ t: 'chat', text: 'hi' }));
+    expect(ok).toEqual({ ok: true, msg: { t: 'chat', text: 'hi' } });
   });
 });
 

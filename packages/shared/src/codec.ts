@@ -178,6 +178,7 @@ function validateGameMessage(obj: Record<string, unknown>): GameMessage {
       if (obj.hostColor !== undefined && obj.hostColor !== BLACK && obj.hostColor !== WHITE) {
         throw new Error('hello 消息 hostColor 必须为 1(黑) 或 2(白)');
       }
+      if (obj.capabilities !== undefined) validateCapabilities(obj.capabilities);
       return obj as unknown as GameMessage;
     case 'color':
       if (obj.color !== BLACK && obj.color !== WHITE) {
@@ -208,8 +209,101 @@ function validateGameMessage(obj: Record<string, unknown>): GameMessage {
     case 'sync':
       if (!Array.isArray(obj.moves)) throw new Error('sync 消息缺少 moves 数组');
       return obj as unknown as GameMessage;
+    case 'media-meta': {
+      if (typeof obj.id !== 'string' || !obj.id) throw new Error('media-meta 缺少合法的 id');
+      if (obj.kind !== 'image' && obj.kind !== 'file' && obj.kind !== 'audio') {
+        throw new Error('media-meta kind 必须为 image/file/audio');
+      }
+      if (typeof obj.name !== 'string') throw new Error('media-meta 缺少合法的 name');
+      if (typeof obj.size !== 'number' || !Number.isInteger(obj.size) || obj.size < 0) {
+        throw new Error('media-meta size 必须为非负整数');
+      }
+      if (typeof obj.mime !== 'string') throw new Error('media-meta 缺少合法的 mime');
+      if (typeof obj.chunkSize !== 'number' || !Number.isInteger(obj.chunkSize)) {
+        throw new Error('media-meta chunkSize 必须为整数');
+      }
+      if (typeof obj.chunks !== 'number' || !Number.isInteger(obj.chunks) || obj.chunks < 1) {
+        throw new Error('media-meta chunks 必须为正整数');
+      }
+      if (obj.durationMs !== undefined && (typeof obj.durationMs !== 'number' || obj.durationMs < 0)) {
+        throw new Error('media-meta durationMs 必须为非负数');
+      }
+      if (obj.hash !== undefined && (typeof obj.hash !== 'string' || !obj.hash.trim())) {
+        throw new Error('media-meta hash 必须为非空字符串');
+      }
+      return obj as unknown as GameMessage;
+    }
+    case 'media-chunk':
+      if (typeof obj.id !== 'string' || !obj.id) throw new Error('media-chunk 缺少合法的 id');
+      if (typeof obj.seq !== 'number' || !Number.isInteger(obj.seq) || obj.seq < 0) {
+        throw new Error('media-chunk seq 必须为非负整数');
+      }
+      if (typeof obj.data !== 'string') throw new Error('media-chunk 缺少 data');
+      return obj as unknown as GameMessage;
+    case 'media-end':
+    case 'media-cancel':
+      if (typeof obj.id !== 'string' || !obj.id) throw new Error(`${String(obj.t)} 缺少合法的 id`);
+      return obj as unknown as GameMessage;
+    case 'media-ack': {
+      if (typeof obj.id !== 'string' || !obj.id) throw new Error('media-ack 缺少合法的 id');
+      if (typeof obj.ok !== 'boolean') throw new Error('media-ack ok 必须为布尔');
+      if (
+        obj.reason !== undefined &&
+        obj.reason !== 'accepted' &&
+        obj.reason !== 'rejected-size' &&
+        obj.reason !== 'rejected-type' &&
+        obj.reason !== 'unsupported' &&
+        obj.reason !== 'done'
+      ) {
+        throw new Error('media-ack reason 非法');
+      }
+      return obj as unknown as GameMessage;
+    }
     default:
       throw new Error(`未知消息类型: ${String(obj.t)}`);
+  }
+}
+
+/** 校验 hello.capabilities：必须四键齐全且均为布尔（缺字段视为非法） */
+function validateCapabilities(raw: unknown): void {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error('hello capabilities 必须为对象');
+  }
+  const caps = raw as Record<string, unknown>;
+  for (const key of ['qr', 'file', 'audio', 'video']) {
+    if (typeof caps[key] !== 'boolean') throw new Error(`hello capabilities.${key} 必须为布尔`);
+  }
+}
+
+/** 安全解码结果：失败不抛未捕获异常，调用方按 reason 忽略 */
+export type DecodeResult =
+  | { ok: true; msg: GameMessage }
+  | { ok: false; reason: 'empty' | 'not-object' | 'bad-json' | 'unknown-type' | 'invalid-fields' };
+
+/**
+ * 安全解码（M7 增量）：未知类型 / 坏 JSON / 字段非法一律返回可忽略结果。
+ *
+ * 旧版客户端收到未知 `t` 时，`webrtc.ts` 的 `dc.onmessage` 走本函数后静默丢弃，
+ * 主流程（落子/聊天）继续可用——满足 R-P0-5「不崩」。
+ */
+export function decodeGameMessageSafe(raw: unknown): DecodeResult {
+  if (typeof raw !== 'string' || !raw.trim()) return { ok: false, reason: 'empty' };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { ok: false, reason: 'bad-json' };
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, reason: 'not-object' };
+  }
+  const t = (parsed as Record<string, unknown>).t;
+  if (typeof t !== 'string') return { ok: false, reason: 'invalid-fields' };
+  try {
+    return { ok: true, msg: validateGameMessage(parsed as Record<string, unknown>) };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '';
+    return { ok: false, reason: message.startsWith('未知消息类型') ? 'unknown-type' : 'invalid-fields' };
   }
 }
 

@@ -14,7 +14,8 @@
 
 import type { GameState, PlayerColor } from '@webrtc-gomoku/core';
 import { applyMove, create as createGame, currentColor, undo as undoMove, BLACK, WHITE } from '@webrtc-gomoku/core';
-import type { GameMessage } from '@webrtc-gomoku/shared';
+import type { Capabilities, GameMessage } from '@webrtc-gomoku/shared';
+import { normalizeCapabilities } from '@webrtc-gomoku/shared';
 
 import type { ModalState } from '../types';
 import { sounds } from '../audio';
@@ -40,6 +41,10 @@ export interface OnlineMessageDeps {
   readonly addSysMsg: (text: string) => void;
   /** 追加一条对手发来的聊天消息（聊天区样式与系统消息不同，必须区分） */
   readonly onPeerChat: (text: string) => void;
+  /** 富媒体帧（meta/chunk/end/cancel/ack）转交媒体控制器 */
+  readonly onMediaFrame?: (msg: GameMessage) => void;
+  /** 对手能力集（旧版无字段 → 全 false） */
+  readonly onPeerCapabilities?: (caps: Capabilities) => void;
   /** 轻提示 */
   readonly showToast: (message: string) => void;
   /** 是否已有确认弹窗占位（换边申请需要避让） */
@@ -67,6 +72,8 @@ export function createOnlineMessageHandler(deps: OnlineMessageDeps): (msg: GameM
     setManualConnected,
     addSysMsg,
     onPeerChat,
+    onMediaFrame,
+    onPeerCapabilities,
     showToast,
     isModalOpen,
     gameRef,
@@ -82,6 +89,7 @@ export function createOnlineMessageHandler(deps: OnlineMessageDeps): (msg: GameM
     switch (msg.t) {
       case 'hello':
         setPeerName(msg.name || '对手');
+        onPeerCapabilities?.(normalizeCapabilities(msg.capabilities));
         addSysMsg(`${msg.name || '对手'} 加入了对局`);
         if (!isHostRef.current && msg.hostColor) {
           awaitingColorRef.current = false;
@@ -164,6 +172,13 @@ export function createOnlineMessageHandler(deps: OnlineMessageDeps): (msg: GameM
       case 'chat':
         onPeerChat(msg.text);
         sounds.playNotify();
+        break;
+      case 'media-meta':
+      case 'media-chunk':
+      case 'media-end':
+      case 'media-cancel':
+      case 'media-ack':
+        onMediaFrame?.(msg);
         break;
       case 'undo-req':
         if (swapPhaseRef.current !== 'idle') { connRef.current?.send({ t: 'undo-no' }); return; }

@@ -10,13 +10,30 @@ import type { Move, PlayerColor } from '@webrtc-gomoku/core';
  * 每个消息都有一个唯一标识属性 `t`（type 的简写），用于区分是落子、聊天还是悔棋。
  */
 
-/** 1. 握手问候消息：连接建立后交换各自的昵称 */
+/** 能力集（N1）：hello 的可选字段；旧版无该字段 = 全 false */
+export interface Capabilities {
+  /** 扫码配对能力 */
+  qr: boolean;
+  /** 图片 + 文件消息能力 */
+  file: boolean;
+  /** 语音消息能力（本期语义；实时通话另属 F3） */
+  audio: boolean;
+  /** 视频通话能力（占位，本期恒 false） */
+  video: boolean;
+}
+
+/** 富媒体类型判别：image=图片气泡；file=文件卡片；audio=语音消息 */
+export type MediaKind = 'image' | 'file' | 'audio';
+
+/** 1. 握手问候消息：连接建立后交换各自的昵称与能力集 */
 export interface HelloMsg {
   t: 'hello';
   /** 发送者的玩家昵称 */
   name: string;
   /** 发送者（若为房主）指定的房主执子颜色 */
   hostColor?: PlayerColor;
+  /** 能力协商（M7 增量；旧版不下发 → 按全 false 处理） */
+  capabilities?: Capabilities;
 }
 
 
@@ -134,6 +151,64 @@ export interface SwapNoMsg {
 }
 
 /**
+ * 18. 富媒体会话元信息（M7 增量，发送第一帧）
+ *
+ * 富媒体不复用 `chat` 帧：旧客户端 codec 要求 `chat.text` 为字符串，
+ * 新增独立帧族才能保证「旧端解析失败即丢弃」而非误判为合法聊天。
+ */
+export interface MediaMetaMsg {
+  t: 'media-meta';
+  /** 传输会话 ID（收发双方配对用） */
+  id: string;
+  /** 富媒体类型 */
+  kind: MediaKind;
+  /** 原始文件名（已 sanitize；仅展示，禁止作为路径） */
+  name: string;
+  /** 字节数（接收端复核） */
+  size: number;
+  mime: string;
+  /** 分片大小（16–64KB） */
+  chunkSize: number;
+  /** 分片总数 = ceil(size/chunkSize) */
+  chunks: number;
+  /** 语音消息时长（毫秒，仅 kind='audio' 时下发） */
+  durationMs?: number;
+  /** 文件完整性哈希（SHA-256 十六进制字符串） */
+  hash?: string;
+}
+
+/** 19. 富媒体数据分片（data 为 base64url 编码的分片字节） */
+export interface MediaChunkMsg {
+  t: 'media-chunk';
+  id: string;
+  /** 0 基分片序号 */
+  seq: number;
+  /** base64url 编码的分片内容 */
+  data: string;
+}
+
+/** 20. 富媒体发送完成（发送最后一帧） */
+export interface MediaEndMsg {
+  t: 'media-end';
+  id: string;
+}
+
+/** 21. 富媒体取消（任一方可发；对端收到即丢弃会话并中止发送） */
+export interface MediaCancelMsg {
+  t: 'media-cancel';
+  id: string;
+}
+
+/** 22. 富媒体接收确认（对 meta 的接受/拒绝决策，及完成后回执） */
+export interface MediaAckMsg {
+  t: 'media-ack';
+  id: string;
+  ok: boolean;
+  /** 决策/结果原因码（web 层映射为中文文案） */
+  reason?: 'accepted' | 'rejected-size' | 'rejected-type' | 'unsupported' | 'done';
+}
+
+/**
  * P2P 局内消息类型的联合集合（可区分联合 Discriminated Union）
  * 无论接收到什么消息，只需根据 msg.t 即可安全地做 switch-case 分发
  */
@@ -154,7 +229,12 @@ export type GameMessage =
   | ColorMsg
   | SwapReqMsg
   | SwapOkMsg
-  | SwapNoMsg;
+  | SwapNoMsg
+  | MediaMetaMsg
+  | MediaChunkMsg
+  | MediaEndMsg
+  | MediaCancelMsg
+  | MediaAckMsg;
 
 
 /**

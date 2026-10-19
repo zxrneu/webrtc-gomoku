@@ -31,18 +31,34 @@ export type FlowState = 'idle' | 'host-wait' | 'guest-invite' | 'guest-wait' | '
 export type GameMode = 'online' | 'ai';
 
 /**
- * 实时对局聊天消息结构
+ * 实时对局聊天消息结构（判别联合，M7 富媒体增量）
  */
-export interface ChatItem {
+export interface ChatItemBase {
   /** 消息唯一 ID（防 React key 冲突） */
   id: string;
   /** 发送方角色：self(我方) | peer(对方) | sys(系统提示，如加入/胜负公告) */
   sender: 'self' | 'peer' | 'sys';
-  /** 聊天内容文本 */
-  text: string;
   /** 发送时间（格式如 "12:30"） */
   time: string;
 }
+
+/** 传输状态（用于进度气泡） */
+export type TransferStatus = 'sending' | 'receiving' | 'failed' | 'cancelled';
+
+export type ChatItem =
+  | (ChatItemBase & { kind: 'text'; text: string })
+  | (ChatItemBase & { kind: 'image'; mediaId: string; url: string; name: string; size: number })
+  | (ChatItemBase & { kind: 'file'; mediaId: string; url: string; name: string; size: number; mime: string })
+  | (ChatItemBase & { kind: 'audio'; mediaId: string; url: string; durationMs: number })
+  | (ChatItemBase & {
+      kind: 'transfer';
+      mediaId: string;
+      direction: 'send' | 'receive';
+      name: string;
+      size: number;
+      done: number;
+      status: TransferStatus;
+    });
 
 /**
  * 模态确认弹窗状态（用于处理悔棋申请、重开申请等双向协商交互）

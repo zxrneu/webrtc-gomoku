@@ -119,10 +119,108 @@
   cursor: not-allowed;
 }
 
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(3px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
-.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-@media (prefers-reduced-motion: reduce) { .chatItem { animation: none; } .btn, .chatInput { transition: none; } }
+/* ---------- 富媒体（M7）：输入工具、气泡、进度 ---------- */
+
+.iconBtn {
+  flex-shrink: 0;
+  width: 44px;
+  min-height: 44px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--card-border);
+  background: #ffffff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.iconBtn:hover:not(:disabled) { border-color: var(--accent); background: #fdf8f0; }
+.iconBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+.iconBtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.mediaItem { display: flex; flex-direction: column; gap: 4px; max-width: 100%; }
+.mediaWho { font-size: 11px; color: var(--text-muted); }
+
+.imageBubble { display: block; max-width: 220px; border-radius: 12px; overflow: hidden; background: #ede6d8; }
+.image { display: block; width: 100%; max-height: 180px; object-fit: cover; }
+.imageMeta { display: block; padding: 2px 8px; color: var(--text-muted); font-size: 11px; }
+
+.fileBubble {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 240px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: #ede6d8;
+  color: var(--text-main);
+  text-decoration: none;
+}
+.fileIcon { font-size: 20px; }
+.fileMeta { display: flex; flex-direction: column; min-width: 0; }
+.fileMeta strong { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fileMeta small { font-size: 11px; color: var(--text-muted); }
+.download { flex-shrink: 0; font-size: 11px; font-weight: 600; color: var(--accent-hover); }
+
+.audioBubble { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 12px; background: #ede6d8; }
+.audio { max-width: 200px; height: 32px; }
+.audioBubble small { color: var(--text-muted); font-size: 11px; }
+
+.transferBubble {
+  min-width: 200px;
+  max-width: 240px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: #ede6d8;
+  color: var(--text-main);
+}
+.transferHead { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.transferHead strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transferHead small { color: var(--text-muted); flex-shrink: 0; }
+.progress { height: 4px; margin: 6px 0; border-radius: 2px; background: rgba(0, 0, 0, 0.12); overflow: hidden; }
+.progressBar { display: block; height: 100%; background: var(--accent); transition: width 0.15s linear; }
+.transferFoot { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-muted); }
+.cancelLink { border: 0; background: none; padding: 0; color: var(--accent-hover); font-size: 11px; font-weight: 600; cursor: pointer; text-decoration: underline; }
+
+.recordingBar {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--accent);
+  background: #fdf8f0;
+  font-size: 13px;
+}
+.recDot { color: #c0392b; animation: pulse 1s ease-in-out infinite; }
+.recTime { flex: 1; color: var(--text-main); font-variant-numeric: tabular-nums; }
+.btnGhost {
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--card-border);
+  background: #ffffff;
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (max-width: 480px) {
+  .iconBtn { width: 38px; min-height: 40px; font-size: 16px; }
+  .imageBubble { max-width: 180px; }
+  .transferBubble { min-width: 160px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chatItem { animation: none; }
+  .btn, .chatInput, .iconBtn { transition: none; }
+  .recDot { animation: none; }
+}

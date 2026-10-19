@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import type { ChatItem } from '../../types';
+import { describeChatItem } from '../../media/chatItems';
 import { Chat, type ChatProps } from './Chat';
 import { useChatActivity } from './useChatActivity';
 import styles from './GameSidebar.module.css';
@@ -100,7 +101,7 @@ function ChatNotice({ unreadCount, preview, peerName, onOpen }: ChatNoticeProps)
       <div role="status" aria-live="polite" className={styles.announcement}>{unreadCount > 0 ? `${unreadCount} 条未读聊天消息` : ''}</div>
       {preview && <button id="chat-preview" className={styles.preview} onClick={onOpen}>
         <span className={styles.previewHeading}><strong>{peerName || '对手'}</strong><span>新消息 · 点击回复</span></span>
-        <span className={styles.previewText}>{preview.text}</span>
+        <span className={styles.previewText}>{describeChatItem(preview)}</span>
       </button>}
       <button id="chat-launcher" className={styles.launcher} onClick={onOpen} aria-controls="chat-panel" aria-expanded={false}
         aria-label={unreadCount ? `打开聊天，${unreadCount} 条未读消息` : '打开聊天'}>

@@ -27,6 +27,9 @@ import type { ChatItem, FlowState, GameMode, ModalState, ScannerTarget } from '.
 import { sounds } from './audio';
 import { detectQrFromSource, renderQrToCanvas } from './qr';
 import { createRoomSession } from './roomSession';
+import { createTextItem } from './media/chatItems';
+import { localCapabilities } from './media/capabilities';
+import { useChatMedia } from './media/useChatMedia';
 import type { WebRTCClient } from './webrtc';
 import type { ConnectionApi } from './connection/useConnection';
 import { useConnection } from './connection/useConnection';
@@ -95,20 +98,12 @@ export const App: React.FC = () => {
   }, []);
 
   const addSysMsg = useCallback((text: string) => {
-    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    setMessages((prev) => [
-      ...prev,
-      { id: Math.random().toString(36).slice(2), sender: 'sys', text, time },
-    ]);
+    setMessages((prev) => [...prev, createTextItem('sys', text)]);
   }, []);
 
   /** 追加对手发来的聊天消息（与系统消息区分样式） */
   const addPeerMsg = useCallback((text: string) => {
-    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    setMessages((prev) => [
-      ...prev,
-      { id: Math.random().toString(36).slice(2), sender: 'peer', text, time },
-    ]);
+    setMessages((prev) => [...prev, createTextItem('peer', text)]);
   }, []);
 
   /* ---------------- 连接编排接线（唯一状态源） ---------------- */
@@ -133,7 +128,12 @@ export const App: React.FC = () => {
 
   const sendHello = useCallback(() => {
     const name = myNameRef.current || (isHostRef.current ? '房主' : '玩家');
-    connRef.current?.send({ t: 'hello', name, hostColor: isHostRef.current ? myColorRef.current : undefined });
+    connRef.current?.send({
+      t: 'hello',
+      name,
+      hostColor: isHostRef.current ? myColorRef.current : undefined,
+      capabilities: localCapabilities(),
+    });
   }, []);
   const conn = useConnection({
     onGameMessage: (msg) => handleGameMessageRef.current(msg),
@@ -181,6 +181,9 @@ export const App: React.FC = () => {
   /** 房间号一律以服务端下发的为准（created / joined / resumed） */
   const roomCode = conn.status.room ?? '';
 
+  /** 富媒体控制器：能力交集、发送/接收、进度气泡（细节全部封装在 hook 内） */
+  const media = useChatMedia({ connRef, setMessages, setModal, showToast, addSysMsg, connected });
+
   /* ---------------- 单一视图派生（架构 §6） ---------------- */
   // Board / GameStatus 只吃 view.*，避免「人机/联机」分支散落到每个组件里。
   // 人机侧 connected 恒为 true：本地引擎没有连接概念，棋盘不应出现「等待连接」遮罩。
@@ -208,6 +211,8 @@ export const App: React.FC = () => {
       setManualConnected,
       addSysMsg,
       onPeerChat: addPeerMsg,
+      onMediaFrame: media.handleFrame,
+      onPeerCapabilities: media.setPeerCapabilities,
       showToast,
       isModalOpen: () => modal.open,
       gameRef,
@@ -218,7 +223,7 @@ export const App: React.FC = () => {
       connRef,
       clientRef,
     }),
-    [modal.open, addSysMsg, addPeerMsg, showToast],
+    [modal.open, addSysMsg, addPeerMsg, showToast, media.handleFrame, media.setPeerCapabilities],
   );
 
   // 让编排器永远拿到最新的消息处理器（避免 useCallback 闭包过期）
@@ -322,15 +327,7 @@ export const App: React.FC = () => {
     (text: string) => {
       if (!connected || !text.trim()) return;
       connRef.current?.send({ t: 'chat', text });
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Math.random().toString(36).slice(2),
-          sender: 'self',
-          text,
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        },
-      ]);
+      setMessages((prev) => [...prev, createTextItem('self', text)]);
     },
     [connected]
   );
@@ -364,13 +361,14 @@ export const App: React.FC = () => {
   // 复位房间会话（只清界面态，连接生命周期由编排器负责）
   const resetRoomSession = useCallback(() => {
     swapPhaseRef.current = 'idle'; hasConnectedRef.current = false; awaitingColorRef.current = false;
+    media.revokeAllUrls();
     const fresh = createRoomSession();
     setGame(fresh.game); setMessages(fresh.messages); setPeerName(fresh.peerName);
     setManualConnected(false); setTransport(fresh.transport); setFlow(fresh.flow);
     setHostOfferCode(fresh.hostOfferCode); setGuestOfferInput(fresh.guestOfferInput);
     setHostAnswerInput(fresh.hostAnswerInput); setGuestAnswerCode(fresh.guestAnswerCode);
     setHostTimer(fresh.hostTimer); setFlowResult(fresh.flowResult); setModal(fresh.modal);
-  }, []);
+  }, [media.revokeAllUrls]);
 
   useEffect(() => {
     connectedRef.current = connected;
@@ -470,6 +468,7 @@ export const App: React.FC = () => {
           break;
         case 'failed':
           swapPhaseRef.current = 'idle';
+          media.failAll();
           showToast('连接已断开，棋盘已保留');
           addSysMsg('连接已断开，棋盘已保留；可点击顶部「立即重试」');
           break;
@@ -481,6 +480,7 @@ export const App: React.FC = () => {
           break;
         case 'peer-gone':
           // 宽限到期、对手真的走了：必须整盘复位（moves / 聊天 / 对手昵称 / 弹窗）
+          media.failAll();
           setManualConnected(false);
           resetRoomSession();
           addSysMsg('对手已离开房间');
@@ -488,6 +488,7 @@ export const App: React.FC = () => {
           break;
         case 'room-ready':
           // 会话已提交（首次建房/入房或换房成功）—— 清盘与角色切换都在此刻发生
+          media.failAll();
           resetRoomSession();
           setIsHost(e.role === 'host');
           if (e.role === 'guest') {
@@ -522,7 +523,7 @@ export const App: React.FC = () => {
           break;
       }
     },
-    [showToast, addSysMsg, resetRoomSession, sendHello]
+    [showToast, addSysMsg, resetRoomSession, sendHello, media.failAll]
   );
   handleConnEventRef.current = handleConnEvent;
 
@@ -648,6 +649,8 @@ export const App: React.FC = () => {
       get pendingIce() { return clientRef.current?.pendingIce.length ?? 0; },
       get flow() { return flow; },
       get transport() { return transport; },
+      get capabilities() { return media.capabilities; },
+      get peerCapabilities() { return media.peerCapabilities; },
       /** 人机模式诊断快照（e2e 断言 thinking / 手数 / 难度用） */
       get ai() {
         return {
@@ -670,7 +673,7 @@ export const App: React.FC = () => {
       openScanner: (target: ScannerTarget) => openScannerModal(target),
       stopScanner: () => closeScannerModal(),
     };
-  }, [connected, game, myColor, peerName, roomCode, flow, transport, showMoveNumbers, handleGameMessage, handleToggleMoveNumbers, handleToggleColor, mode, ai]);
+  }, [connected, game, myColor, peerName, roomCode, flow, transport, showMoveNumbers, handleGameMessage, handleToggleMoveNumbers, handleToggleColor, mode, ai, media.capabilities, media.peerCapabilities]);
 
   // 计算回合与提示信息（人机 / 联机两套文案，但都从 view 派生）
   const isMyTurn = view.isMyTurn && swapPhaseRef.current === 'idle' && !awaitingColorRef.current;
@@ -735,7 +738,7 @@ export const App: React.FC = () => {
         />
 
         <aside className={`${styles.side} side`}>
-          <GameSidebar messages={messages} peerName={peerName} chat={mode === 'online' ? { connected, myName, onSend: handleSendChat } : null}>
+          <GameSidebar messages={messages} peerName={peerName} chat={mode === 'online' ? { connected, myName, onSend: handleSendChat, media } : null}>
           {mode === 'ai' ? (
             <AiPanel api={ai} over={view.game.over} />
           ) : (
