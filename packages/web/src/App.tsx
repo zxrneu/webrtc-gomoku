@@ -40,7 +40,7 @@ import { ConnectionBanner } from './components/Banner/ConnectionBanner';
 import { ConnectionPanel } from './components/Connection/ConnectionPanel';
 import { AiPanel } from './components/AiPanel/AiPanel';
 import { GameStatus } from './components/GameStatus/GameStatus';
-import { Chat } from './components/Chat/Chat';
+import { GameSidebar } from './components/Chat/GameSidebar';
 import { ScannerModal } from './components/Scanner/ScannerModal';
 import { ConfirmModal } from './components/Modal/ConfirmModal';
 import { Toast } from './components/Toast/Toast';
@@ -735,6 +735,7 @@ export const App: React.FC = () => {
         />
 
         <aside className={`${styles.side} side`}>
+          <GameSidebar messages={messages} peerName={peerName} chat={mode === 'online' ? { connected, myName, onSend: handleSendChat } : null}>
           {mode === 'ai' ? (
             <AiPanel api={ai} over={view.game.over} />
           ) : (
@@ -790,16 +791,7 @@ export const App: React.FC = () => {
             transport={mode === 'ai' ? null : transport}
           />
 
-          {/* 聊天区仅联机模式存在（PRD §5.2：人机模式下隐藏） */}
-          {mode === 'online' && (
-            <Chat
-              messages={messages}
-              connected={connected}
-              myName={myName}
-              peerName={peerName}
-              onSend={handleSendChat}
-            />
-          )}
+          </GameSidebar>
         </aside>
       </main>
 

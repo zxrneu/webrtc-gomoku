@@ -1,48 +1,26 @@
 .chatCard {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
   padding: 16px;
   display: flex;
+  flex: 1;
+  min-height: 0;
   flex-direction: column;
   gap: 12px;
 }
 
-@media (min-width: 981px) {
-  .chatCard {
-    flex: 1;
-    min-height: 200px;
-    padding: 14px;
-    gap: 10px;
-  }
-}
-
-.chatHead {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text-main);
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--card-border);
-}
-
 .chatList {
   display: flex;
+  flex: 1;
+  min-height: 0;
   flex-direction: column;
-  gap: 8px;
-  height: 180px;
+  gap: 12px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 4px;
 }
 
-@media (min-width: 981px) {
-  .chatList {
-    flex: 1;
-    min-height: 90px;
-    height: auto;
-    max-height: none;
-  }
-}
+.empty { margin: auto; text-align: center; padding: 24px 8px; }
+.empty strong { display: block; color: var(--text-main); font-size: 15px; font-weight: 600; }
+.empty span { display: block; color: var(--text-muted); font-size: 13px; line-height: 1.6; margin-top: 8px; }
 
 .chatItem {
   display: flex;
@@ -94,14 +72,17 @@
 .chatInputRow {
   display: flex;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .chatInput {
   flex: 1;
+  min-width: 0;
+  min-height: 44px;
   padding: 8px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--card-border);
-  font-size: 13px;
+  font-size: 16px;
   background: #ffffff;
   outline: none;
   transition: all 0.2s;
@@ -122,15 +103,15 @@
   font-size: 13px;
   font-weight: 600;
   border-radius: var(--radius-sm);
-  background: #ffffff;
-  color: var(--text-main);
-  border: 1px solid var(--card-border);
+  background: var(--accent-hover);
+  color: #ffffff;
+  border: 1px solid var(--accent-hover);
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .btn:hover:not(:disabled) {
-  background: #faf7f2;
+  background: var(--accent);
 }
 
 .btn:disabled {
@@ -142,3 +123,6 @@
   from { opacity: 0; transform: translateY(3px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) { .chatItem { animation: none; } .btn, .chatInput { transition: none; } }

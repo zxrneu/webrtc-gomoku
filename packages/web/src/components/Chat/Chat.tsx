@@ -5,7 +5,9 @@ import styles from './Chat.module.css';
 /**
  * 实时聊天组件入参属性接口
  */
-interface ChatProps {
+export interface ChatProps {
+  /** 面板展开时刷新滚动位置。 */
+  isActive?: boolean;
   /** 聊天消息历史记录列表 */
   messages: ChatItem[];
   /** P2P 数据通道是否已连接就绪（未连接时禁用输入框和发送按钮） */
@@ -25,7 +27,7 @@ interface ChatProps {
  * 2. 具备自动触底滚动 (Auto-scroll to bottom) 机制，新消息到达自动平滑展示
  * 3. 严格的空消息防抖与连接状态联动
  */
-export const Chat: React.FC<ChatProps> = ({ messages, connected, myName, peerName, onSend }) => {
+export const Chat: React.FC<ChatProps> = ({ messages, connected, myName, peerName, onSend, isActive = true }) => {
   /** 输入框内用户正在编辑的草稿文本 */
   const [text, setText] = useState('');
   /** 聊天滚动容器 DOM 引用，用于在新消息到来时控制视口滚动 */
@@ -36,10 +38,10 @@ export const Chat: React.FC<ChatProps> = ({ messages, connected, myName, peerNam
    * 监听 messages 数组变化，当有新消息插入时，将滚动条高度重置到底部
    */
   useEffect(() => {
-    if (listRef.current) {
+    if (isActive && listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, isActive]);
 
   /**
    * 表单提交处理函数（支持回车键或者点击发送按钮提交）
@@ -54,10 +56,9 @@ export const Chat: React.FC<ChatProps> = ({ messages, connected, myName, peerNam
 
   return (
     <div className={`${styles.chatCard} card chat-card`}>
-      <div className={`${styles.chatHead} chat-head`}>对局聊天</div>
-
       {/* 消息滚动列表视口 */}
-      <div id="chat-list" ref={listRef} className={`${styles.chatList} chat-list`}>
+      <div id="chat-list" ref={listRef} className={`${styles.chatList} chat-list`} role="log" aria-label="聊天记录" aria-live="polite">
+        {messages.length === 0 && <div className={styles.empty}><strong>好棋，也值得聊两句</strong><span>{connected ? '和对手打个招呼吧' : '连接对手后，就可以在这里聊天'}</span></div>}
         {messages.map((item) => {
           const isMine = item.sender === 'self';
           const isTheirs = item.sender === 'peer';
@@ -90,6 +91,7 @@ export const Chat: React.FC<ChatProps> = ({ messages, connected, myName, peerNam
       <form className={`${styles.chatInputRow} chat-input-row`} onSubmit={handleSubmit}>
         <input
           id="chat-input"
+          aria-label="聊天消息"
           type="text"
           maxLength={100}
           value={text}

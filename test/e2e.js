@@ -255,6 +255,8 @@ async function launchBrowser() {
   await pageA.screenshot({ path: 'test/e2e-win.png' });
 
   // 聊天
+  await pageA.getByRole('tab', { name: /聊天/ }).click();
+  await pageB.getByRole('tab', { name: /聊天/ }).click();
   if (p2p) {
     await pageA.fill('#chat-input', '你好呀');
     await pageA.click('#chat-send-btn');
@@ -268,6 +270,8 @@ async function launchBrowser() {
     await pageA.evaluate(() => window.__gomoku.deliver({ t: 'hello', name: '小红' }));
   }
   check('聊天消息送达对端', true);
+  await pageA.getByRole('tab', { name: '对局', exact: true }).click();
+  await pageB.getByRole('tab', { name: '对局', exact: true }).click();
 
   // 重新开始（请求-同意）
   await pageA.click('#restart-btn');
@@ -478,6 +482,7 @@ async function launchBrowser() {
   } else {
     await pageB.evaluate(() => window.__gomoku.deliver({ t: 'move', x: 7, y: 7 }));
   }
+  await pageA.getByRole('tab', { name: /聊天/ }).click();
   await pageA.fill('#chat-input', '上一局的消息');
   await pageA.click('#chat-send-btn');
   if (!p2p) await pageB.evaluate(() => window.__gomoku.deliver({ t: 'chat', text: '上一局的消息' }));
@@ -492,6 +497,8 @@ async function launchBrowser() {
     `换房前 A 已有一局数据（落子 ${beforeSwitch.moves} / 聊天 ${beforeSwitch.mine} / 对手 ${beforeSwitch.peerName}）`,
     beforeSwitch.moves === 1 && beforeSwitch.mine >= 1 && beforeSwitch.peerName === '小红'
   );
+
+  await pageA.getByRole('tab', { name: '对局', exact: true }).click();
 
   // A 在同一页面直接创建新房间（不刷新页面），旧房间号极小概率重复则重试
   let room2 = room;
