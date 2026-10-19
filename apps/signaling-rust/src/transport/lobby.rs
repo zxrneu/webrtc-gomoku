@@ -58,6 +58,7 @@ pub struct Lobby {
     rooms: HashMap<RoomCode, RoomInfo>,
     cooldown: HashMap<(PeerId, PeerId), u64>,
     projection: Option<PublicProjection>,
+    dirty: bool,
     revision: u64,
     sequence: u64,
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
@@ -84,6 +85,7 @@ impl Lobby {
             rooms: HashMap::new(),
             cooldown: HashMap::new(),
             projection: None,
+            dirty: false,
             revision: 0,
             sequence: 0,
             clock,
@@ -92,6 +94,10 @@ impl Lobby {
     }
     fn now(&self) -> u64 {
         (self.clock)()
+    }
+    pub(super) fn invalidate(&mut self) {
+        self.projection = None;
+        self.dirty = true;
     }
     fn allow_request(&mut self, ctx: &ConnCtx) -> bool {
         let now = self.now();
@@ -227,7 +233,7 @@ impl Lobby {
         }
     }
     fn end_invite(&mut self, i: &Invite, code: &str, message: &str) {
-        self.projection = None;
+        self.invalidate();
         self.invites.remove(&i.id);
         if code == "DECLINED" || code == "EXPIRED" {
             self.cooldown
@@ -565,6 +571,7 @@ impl Lobby {
     }
     /// Update discovery metadata after legacy room operations.
     pub(super) fn sync(&mut self, ctx: &ConnCtx, deps: &ConnDeps) {
+        self.invalidate();
         let id = ctx.peer_id();
         let Some(seat) = deps.seats.peek(&id) else {
             return;
@@ -594,6 +601,7 @@ impl Lobby {
             return;
         }
         if let Some(mut p) = self.people.remove(previous) {
+            self.invalidate();
             self.interrupt(&restored);
             self.people.remove(&restored);
             p.ctx = ctx.clone();
@@ -609,6 +617,7 @@ impl Lobby {
             .map(|p| p.ctx.conn_id == ctx.conn_id)
             .unwrap_or(false)
         {
+            self.invalidate();
             self.interrupt(&id);
             self.people.remove(&id);
         }
@@ -641,7 +650,7 @@ impl Lobby {
         self.cooldown.retain(|_, until| *until > now);
         self.rooms.retain(|code, _| deps.rooms.contains(code));
         if self.queue.len() != queue_len || self.rooms.len() != room_len {
-            self.projection = None;
+            self.invalidate();
         }
     }
     fn project_users(&self, deps: &ConnDeps) -> Vec<ListedUser> {
@@ -762,9 +771,13 @@ impl Lobby {
             .cloned()
             .map(|state| ServerMsg::LobbyState { state })
     }
-    /// One-second fallback also expires pending invitations and queue tickets.
+    /// Publish accumulated changes once per cycle; idle cycles only expire timers.
     pub fn flush(&mut self, deps: &ConnDeps) {
         self.expire(deps);
+        if !self.dirty {
+            return;
+        }
+        self.dirty = false;
         self.projection = Some(self.build_projection(deps));
         self.revision = self.revision.saturating_add(1);
         for (id, p) in &self.people {
@@ -789,7 +802,7 @@ pub async fn handle(deps: &ConnDeps, ctx: &ConnCtx, raw: &str) {
         return;
     }
     if !matches!(msg, Command::List { .. }) {
-        lobby.projection = None;
+        lobby.invalidate();
     }
     if let Command::Enter {
         name,
@@ -816,7 +829,7 @@ pub async fn handle(deps: &ConnDeps, ctx: &ConnCtx, raw: &str) {
         ctx.send(msg);
     }
 }
-/// Keep snapshots and expiration moving even when all clients are idle.
+/// Coalesce discovery changes and expire invitations and queue tickets each second.
 pub fn spawn_sweeper(
     deps: ConnDeps,
     mut shutdown: tokio::sync::watch::Receiver<bool>,

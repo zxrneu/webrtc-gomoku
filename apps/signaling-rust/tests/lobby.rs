@@ -546,3 +546,114 @@ async fn repeated_queries_reuse_the_current_public_projection() {
     assert_eq!(first["totalUsers"], 1);
     assert_eq!(second["totalUsers"], 1);
 }
+
+#[tokio::test]
+async fn disconnect_burst_is_published_once_on_the_next_cycle() {
+    let d = deps();
+    let r = Router::new(d.clone());
+    let (observer, mut rx) = person(99);
+    enter(&r, &observer, "旁观").await;
+    let mut departing = Vec::new();
+    for id in 1..=10 {
+        let (ctx, receiver) = person(id);
+        enter(&r, &ctx, &format!("棋友{id}")).await;
+        departing.push((ctx, receiver));
+    }
+    d.lobby.lock().await.flush(&d);
+    frames(&mut rx);
+    for (ctx, _) in &departing {
+        gomoku_signaling::transport::connection::on_disconnect(&d, ctx).await;
+    }
+    assert!(
+        frames(&mut rx).is_empty(),
+        "disconnect must not broadcast to unrelated users"
+    );
+    d.lobby.lock().await.flush(&d);
+    let published = frames(&mut rx);
+    assert_eq!(published.len(), 1);
+    assert_eq!(published[0]["online"], 1);
+}
+
+#[tokio::test]
+async fn querying_after_disconnect_returns_current_users_before_publication() {
+    let d = deps();
+    let r = Router::new(d.clone());
+    let (a, _ra) = person(1);
+    let (b, mut rb) = person(2);
+    enter(&r, &a, "松间").await;
+    enter(&r, &b, "听雨").await;
+    d.lobby.lock().await.flush(&d);
+    frames(&mut rb);
+    gomoku_signaling::transport::connection::on_disconnect(&d, &a).await;
+    let current = state(&r, &b, &mut rb).await;
+    assert_eq!(current["online"], 1);
+    assert_eq!(current["totalUsers"], 1);
+    assert_eq!(current["users"][0]["name"], "听雨");
+}
+
+#[tokio::test]
+async fn unchanged_lobby_does_not_broadcast_and_queries_do_not_schedule_broadcasts() {
+    let d = deps();
+    let r = Router::new(d.clone());
+    let (a, mut ra) = person(1);
+    enter(&r, &a, "松间").await;
+    d.lobby.lock().await.flush(&d);
+    frames(&mut ra);
+    state(&r, &a, &mut ra).await;
+    d.lobby.lock().await.flush(&d);
+    d.lobby.lock().await.flush(&d);
+    assert!(
+        frames(&mut ra).is_empty(),
+        "unchanged roster must not be broadcast every second"
+    );
+    send(&r, &a, json!({"t":"lobby-name","name":"新昵称"})).await;
+    frames(&mut ra);
+    d.lobby.lock().await.flush(&d);
+    assert_eq!(last(&mut ra, "lobby-state")["name"], "新昵称");
+}
+
+#[tokio::test]
+async fn legacy_room_mutations_do_not_broadcast_to_unrelated_users_immediately() {
+    let d = deps();
+    let r = Router::new(d.clone());
+    let (observer, mut rx) = person(1);
+    let (host, mut host_rx) = person(2);
+    enter(&r, &observer, "旁观").await;
+    d.lobby.lock().await.flush(&d);
+    frames(&mut rx);
+    send(&r, &host, json!({"t":"create","room":"AB12"})).await;
+    assert_eq!(last(&mut host_rx, "created")["room"], "AB12");
+    assert!(frames(&mut rx).is_empty());
+    d.lobby.lock().await.flush(&d);
+    assert_eq!(frames(&mut rx).len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn expired_guest_seat_updates_a_previously_cached_public_room() {
+    let mut d = deps();
+    d.seats = Arc::new(SeatRegistry::new(0));
+    let r = Router::new(d.clone());
+    let (host, mut host_rx) = person(1);
+    let (guest, mut guest_rx) = person(2);
+    enter(&r, &host, "松间").await;
+    enter(&r, &guest, "听雨").await;
+    send(&r, &host, json!({"t":"lobby-create","public":true})).await;
+    let code = last(&mut host_rx, "lobby-seat")["room"].clone();
+    send(&r, &guest, json!({"t":"lobby-join","room":code})).await;
+    frames(&mut guest_rx);
+    gomoku_signaling::transport::connection::on_disconnect(&d, &guest).await;
+    d.lobby.lock().await.flush(&d);
+    let before = state(&r, &host, &mut host_rx).await;
+    assert_eq!(before["rooms"][0]["count"], 2);
+
+    let (_shutdown, shutdown_rx) = tokio::sync::watch::channel(false);
+    let sweeper = gomoku_signaling::transport::seat::spawn_sweeper(d.clone(), shutdown_rx);
+    tokio::task::yield_now().await;
+    let interval = d.cfg.snapshot().session.sweep_interval_secs;
+    tokio::time::advance(std::time::Duration::from_secs(interval)).await;
+    tokio::task::yield_now().await;
+    d.lobby.lock().await.flush(&d);
+    let after = state(&r, &host, &mut host_rx).await;
+    sweeper.abort();
+    assert_eq!(after["rooms"][0]["count"], 1);
+}

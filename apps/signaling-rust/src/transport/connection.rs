@@ -168,7 +168,6 @@ pub async fn on_disconnect(deps: &ConnDeps, ctx: &ConnCtx) {
     {
         let mut lobby = deps.lobby.lock().await;
         lobby.disconnect(ctx);
-        lobby.flush(deps);
     }
     if !deps.seats.is_owner(&peer, ctx.conn_id) {
         return;

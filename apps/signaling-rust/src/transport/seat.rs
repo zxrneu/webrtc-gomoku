@@ -393,6 +393,7 @@ pub fn spawn_sweeper(
                 _ = tokio::time::sleep(std::time::Duration::from_secs(interval_secs)) => {
                     let now = super::heartbeat::now_ms();
                     let expired = deps.seats.sweep(now);
+                    let changed = !expired.is_empty();
                     for seat in expired {
                         tracing::info!(
                             node_id = %deps.node_id,
@@ -402,6 +403,9 @@ pub fn spawn_sweeper(
                             "srv.grace.expire"
                         );
                         super::router::do_leave(&deps, &seat.peer_id, &seat.room).await;
+                    }
+                    if changed {
+                        deps.lobby.lock().await.invalidate();
                     }
                 }
             }

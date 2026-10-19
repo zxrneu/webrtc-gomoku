@@ -78,7 +78,6 @@ impl Router {
             let mut lobby = self.deps.lobby.lock().await;
             lobby.rebind(&previous, ctx);
             lobby.sync(ctx, &self.deps);
-            lobby.flush(&self.deps);
         }
     }
 
