@@ -7,6 +7,7 @@ import {
   AI_CELLS,
   DEFAULT_SLICE_MS,
   DIFFICULTY_PRESETS,
+  HINT_SEARCH_OPTIONS,
   ROOT_BRANCH_LIMIT,
   SEED_HI,
   SEED_LO,
@@ -170,5 +171,23 @@ describe('core 零 IO / 零随机（架构 §8.1）', () => {
       }
     }
     expect(hits).toEqual([]);
+  });
+});
+
+
+describe('提示的独立分析预算', () => {
+  it('提示比最强对手拥有更多时间、节点和搜索深度', () => {
+    expect(HINT_SEARCH_OPTIONS.difficulty).toBe('hard');
+    expect(HINT_SEARCH_OPTIONS.timeBudgetMs).toBeGreaterThan(DIFFICULTY_PRESETS.hard.timeBudgetMs);
+    expect(HINT_SEARCH_OPTIONS.maxNodes).toBeGreaterThan(DIFFICULTY_PRESETS.hard.maxNodes);
+    expect(HINT_SEARCH_OPTIONS.maxDepth).toBeGreaterThan(DIFFICULTY_PRESETS.hard.maxDepth);
+    expect(HINT_SEARCH_OPTIONS.pnsTimeBudgetMs).toBeGreaterThan(PNS_TIME_BUDGET_MS);
+    expect(HINT_SEARCH_OPTIONS.pnsMaxNodes).toBeGreaterThan(PNS_NODE_LIMIT);
+  });
+
+  it('提示配置不可修改，且不改变对手的最强档', () => {
+    expect(Object.isFrozen(HINT_SEARCH_OPTIONS)).toBe(true);
+    expect(DIFFICULTY_PRESETS.hard.timeBudgetMs).toBe(3000);
+    expect(DIFFICULTY_PRESETS.hard.maxNodes).toBe(500000);
   });
 });

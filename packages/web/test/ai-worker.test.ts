@@ -98,6 +98,14 @@ describe('Worker 消息边界', () => {
     expect(isWorkerRequest({ t: 'cancel', id: 1 })).toBe(true);
   });
 
+  it.each(['vcfMaxNodes', 'pnsMaxNodes', 'pnsTimeBudgetMs'])('深度提示参数 %s 也必须经过数值边界校验', (key) => {
+    const request = { t: 'search', id: 1, game: create(), color: BLACK };
+    expect(isWorkerRequest({ ...request, options: { [key]: 1000 } })).toBe(true);
+    for (const invalid of [NaN, Infinity, -1, '1000', null]) {
+      expect(isWorkerRequest({ ...request, options: { [key]: invalid } })).toBe(false);
+    }
+  });
+
   it('拒绝畸形坐标、统计和未知回复', () => {
     expect(isWorkerResponse({ t: 'result', id: 1, move: [7, 7], stats })).toBe(true);
     expect(isWorkerResponse({ t: 'result', id: 1, move: [7.5, 7], stats })).toBe(false);

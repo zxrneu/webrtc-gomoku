@@ -20,6 +20,17 @@ export const DIFFICULTY_PRESETS: Readonly<Record<Difficulty, AiPreset>> = Object
   hard: Object.freeze({ timeBudgetMs: 3000, maxDepth: 16, maxNodes: 500000 }),
 });
 
+/** 玩家主动请求的深度提示；不改变对手档位，也不改变可取消分片的调度方式。 */
+export const HINT_SEARCH_OPTIONS = Object.freeze({
+  difficulty: 'hard',
+  timeBudgetMs: 10000,
+  maxDepth: 24,
+  maxNodes: 2000000,
+  vcfMaxNodes: 96000,
+  pnsMaxNodes: 320000,
+  pnsTimeBudgetMs: 6000,
+} satisfies AiOptions);
+
 /** 根节点分支上限 */
 export const ROOT_BRANCH_LIMIT = 14;
 

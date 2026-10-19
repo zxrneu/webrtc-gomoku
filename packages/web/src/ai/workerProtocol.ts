@@ -38,7 +38,7 @@ function isGame(value: unknown): value is GameState {
 function isOptions(value: unknown): value is SearchOptions {
   if (!isRecord(value) || 'now' in value) return false;
   if (value.difficulty !== undefined && !['easy', 'normal', 'hard'].includes(String(value.difficulty))) return false;
-  return ['timeBudgetMs', 'maxDepth', 'maxNodes'].every((key) => value[key] === undefined ||
+  return ['timeBudgetMs', 'maxDepth', 'maxNodes', 'vcfMaxNodes', 'pnsMaxNodes', 'pnsTimeBudgetMs'].every((key) => value[key] === undefined ||
     (typeof value[key] === 'number' && Number.isFinite(value[key]) && value[key] >= 0));
 }
 

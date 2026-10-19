@@ -133,7 +133,7 @@ export const AiPanel: React.FC<AiPanelProps> = ({ api, over }) => {
       <section className={styles.hintCard} aria-label="AI 落子提示">
         <button id="ai-hint-btn" type="button" className={`${styles.btn} btn`}
           disabled={!api.canHint || api.hintThinking} onClick={api.requestHint}>
-          {api.hintThinking ? '正在分析棋局…' : 'AI 提示'}
+          {api.hintThinking ? '正在深入分析…' : 'AI 提示'}
         </button>
         <div aria-live="polite" aria-busy={api.hintThinking}>
           {api.hint ? (
@@ -146,7 +146,7 @@ export const AiPanel: React.FC<AiPanelProps> = ({ api, over }) => {
             </div>
           ) : (
             <p className={styles.hintNote}>{api.hintUnavailable ? '暂时没有可用建议，请重新分析。'
-              : '轮到你时，查看推荐位置和这一步的用意。'}</p>
+              : '轮到你时可请求深度提示。分析会比对手思考更久，期间也可直接落子。'}</p>
           )}
         </div>
       </section>

@@ -154,8 +154,15 @@ async function exerciseHintRaces(browser) {
     await page.click('#mode-ai-btn');
     await page.click('#ai-hint-btn');
     await pending(1);
+    assert.match(await page.locator('#ai-hint-btn').innerText(), /深入分析/);
+    const hintOptions = await page.evaluate(() => window.__hintRace.requests[0].options);
+    assert.equal(hintOptions.difficulty, 'hard');
+    assert.ok(hintOptions.timeBudgetMs > 3000, '提示有独立的更长分析时间');
+    assert.ok(hintOptions.maxNodes > 500000, '提示有独立的更大节点预算');
     await clickCell(page, 7, 7);
     await pending(2);
+    const opponentOptions = await page.evaluate(() => window.__hintRace.requests[1].options);
+    assert.equal(opponentOptions.timeBudgetMs, undefined, '对手仍使用原档位默认预算');
     await release(0);
     await noHint();
     assert.equal(await page.evaluate(() => window.__gomoku.ai.thinking), true, '旧提示响应不能结束对手思考');
