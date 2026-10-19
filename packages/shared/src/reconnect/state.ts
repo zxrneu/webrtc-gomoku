@@ -121,6 +121,7 @@ const SIGNAL_LOST_FROM: readonly ConnState[] = [
 
 /** 可进入 FAILED 的状态 */
 const FATAL_FROM: readonly ConnState[] = ['SIGNAL_CONNECTING', 'RECONNECTING', 'P2P_RECOVERING'];
+const INITIAL_ICE_FAILURE_FROM: readonly ConnState[] = ['ROOM_WAITING', 'NEGOTIATING'];
 
 /** 可被「对手离开」清盘的状态 */
 const PEER_GONE_FROM: readonly ConnState[] = [
@@ -250,7 +251,8 @@ export function reduce(s: ConnSnapshot, e: ConnEvent, p: ReconnectPolicy): ConnS
       return s;
 
     case 'FATAL':
-      if (!isOneOf(s.state, FATAL_FROM)) return s;
+      if (!isOneOf(s.state, FATAL_FROM) &&
+          !(e.reason === 'ICE_FAILED' && isOneOf(s.state, INITIAL_ICE_FAILURE_FROM))) return s;
       return { ...s, state: 'FAILED', reason: e.reason, nextRetryAtMs: null, since: e.at };
 
     case 'PAUSE':

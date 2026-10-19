@@ -78,11 +78,6 @@ impl Router {
     }
 
     async fn handle_create(&self, ctx: &ConnCtx, room: Option<String>) {
-        // v1 leaves the previous room *before* validating the new code.
-        if ctx.current_room().is_some() {
-            self.leave_current(ctx).await;
-        }
-
         match room {
             Some(raw) => match RoomCode::new(&raw) {
                 Ok(code) => match self.attempt_create(ctx, &code).await {
@@ -139,6 +134,8 @@ impl Router {
         }
         match self.deps.rooms.create(code.clone(), ctx.handle()) {
             Ok(()) => {
+                // Commit only after target admission; rejected switches preserve the old seat.
+                self.leave_current(ctx).await;
                 ctx.set_room(code.clone());
                 // v1.1: a seat is issued *before* `created` so the client can
                 // resume with the token it just received.
@@ -186,11 +183,6 @@ impl Router {
     }
 
     async fn handle_join(&self, ctx: &ConnCtx, room: &str, name: &str) {
-        // v1 leaves the previous room before attempting the join.
-        if ctx.current_room().is_some() {
-            self.leave_current(ctx).await;
-        }
-
         // v1 does not format-validate `join`; an invalid code is simply "not found".
         let code = match RoomCode::new(room) {
             Ok(c) => c,
@@ -201,6 +193,11 @@ impl Router {
                 return;
             }
         };
+
+        if ctx.current_room().as_ref() == Some(&code) {
+            ctx.send(messages::error("已在该房间，无需重复加入"));
+            return;
+        }
 
         let ttl = self.deps.cfg.snapshot().redis.room_ttl_secs;
         let peer = ctx.peer_id();
@@ -265,6 +262,9 @@ impl Router {
             }
             Err(_) => Vec::new(),
         };
+
+        // The target now owns a slot. Only a successful switch releases the previous seat.
+        self.leave_current(ctx).await;
 
         // F5: subscribe to the room channel *before* any cross-node publish —
         // the old order (publish → subscribe) could lose the very first

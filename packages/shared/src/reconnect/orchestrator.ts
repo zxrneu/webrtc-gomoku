@@ -149,6 +149,7 @@ export function createConnectionManager(deps: ConnectionManagerDeps): Connection
   let p2pStepTimer: number | null = null;
   let peerWaitTimer: number | null = null;
   let syncTimer: number | null = null;
+  let negotiationTimer: number | null = null;
 
   // ---------------- 对账 ----------------
   let syncRev = 0;
@@ -179,6 +180,7 @@ export function createConnectionManager(deps: ConnectionManagerDeps): Connection
     const next = reduce(prev, event, policy);
     if (next === prev) return false;
     snap = next;
+    updateNegotiationTimeout();
     if (next.state !== prev.state) {
       logger.log({
         ev: 'conn.state',
@@ -214,6 +216,20 @@ export function createConnectionManager(deps: ConnectionManagerDeps): Connection
   function clearRetryTimer(): void {
     retryTimer = clearHandle(retryTimer);
   }
+  /** 首次建连失败必须可见；候选消息不能不断延长同一次协商。 */
+  function updateNegotiationTimeout(): void {
+    const isNegotiating = snap.state === 'NEGOTIATING';
+    const isWaitingForOffer = snap.state === 'ROOM_WAITING' && role === 'guest' && hasPeer && !restorePending;
+    if (!isNegotiating && !isWaitingForOffer) {
+      negotiationTimer = clearHandle(negotiationTimer);
+      return;
+    }
+    if (negotiationTimer !== null) return;
+    negotiationTimer = clock.setTimeout(() => {
+      negotiationTimer = null;
+      if (!disposed) failSession('ICE_FAILED');
+    }, policy.p2p.negotiationTimeoutMs);
+  }
   function clearP2pTimers(): void {
     p2pDelayTimer = clearHandle(p2pDelayTimer);
     p2pStepTimer = clearHandle(p2pStepTimer);
@@ -228,6 +244,7 @@ export function createConnectionManager(deps: ConnectionManagerDeps): Connection
     incidentTimer = clearHandle(incidentTimer);
   }
   function clearAllTimers(): void {
+    negotiationTimer = clearHandle(negotiationTimer);
     clearRetryTimer();
     clearP2pTimers();
     clearPeerWait();

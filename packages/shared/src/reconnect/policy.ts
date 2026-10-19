@@ -19,6 +19,8 @@ export interface WsHeartbeatConfig {
 
 /** P2P 恢复相关参数 */
 export interface P2pConfig {
+  /** 首次协商的最长等待时间（含加入方等待 offer） */
+  negotiationTimeoutMs: number;
   /** `pc.connectionState==='disconnected'` 需持续多久才判定真的断了（去抖） */
   disconnectedGraceMs: number;
   /** DC 应用层心跳参数 */
@@ -72,6 +74,7 @@ export const DEFAULT_POLICY: ReconnectPolicy = {
   incidentSettleMs: 10000,
   wsHeartbeat: { intervalMs: 5000, timeoutMs: 3000, misses: 2 },
   p2p: {
+    negotiationTimeoutMs: 15000,
     disconnectedGraceMs: 5000,
     dcHeartbeat: { intervalMs: 5000, timeoutMs: 3000, misses: 2 },
     iceRestartAttempts: 2,

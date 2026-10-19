@@ -18,6 +18,8 @@ const BASE = process.env.BASE || 'http://localhost:3000';
 const CELL = 36;
 const PAD = 28;
 const P2P_TIMEOUT = Number(process.env.P2P_TIMEOUT || 12000);
+const REQUIRE_RELAY = process.env.REQUIRE_RELAY === '1';
+const REQUIRE_P2P = REQUIRE_RELAY || process.env.REQUIRE_P2P === '1';
 
 const failures = [];
 function check(name, cond) {
@@ -50,14 +52,14 @@ async function launchBrowser() {
     const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
     const page = await ctx.newPage();
     page.on('pageerror', (e) => console.error(`[${name} pageerror]`, e.message));
-    await page.addInitScript(() => {
+    await page.addInitScript((requireRelay) => {
       const send = RTCDataChannel.prototype.send;
       const create = RTCPeerConnection.prototype.createDataChannel;
       const NativePeer = RTCPeerConnection;
       window.__gameplayTest = { hold: false, holdColor: false, queue: [], channels: [], peers: [], protocolOnly: false };
       window.RTCPeerConnection = class extends NativePeer {
-        constructor(...args) {
-          super(...args);
+        constructor(config) {
+          super(requireRelay ? { ...config, iceTransportPolicy: 'relay' } : config);
           window.__gameplayTest.peers.push(this);
         }
       };
@@ -81,7 +83,7 @@ async function launchBrowser() {
         window.__gameplayTest.holdColor = false;
         for (const { channel, raw } of window.__gameplayTest.queue.splice(0)) send.call(channel, raw);
       };
-    });
+    }, REQUIRE_RELAY);
     await page.goto(BASE);
     return page;
   }
@@ -166,7 +168,25 @@ async function launchBrowser() {
     check('P2P DataChannel 双向连通', true);
     check('A 是黑方(邀请方)', (await state(pageA)).myColor === 1);
     check('B 是白方(加入方)', (await state(pageB)).myColor === 2);
+    if (REQUIRE_RELAY) {
+      for (const [name, page] of [['A', pageA], ['B', pageB]]) {
+        const candidateTypes = await page.evaluate(async () => {
+          const peer = window.__gameplayTest.peers.find((pc) => pc.connectionState === 'connected');
+          if (!peer) return [];
+          const stats = await peer.getStats();
+          const transport = [...stats.values()].find((report) => report.type === 'transport' && report.selectedCandidatePairId);
+          const pair = transport && stats.get(transport.selectedCandidatePairId);
+          return pair ? [stats.get(pair.localCandidateId)?.candidateType, stats.get(pair.remoteCandidateId)?.candidateType] : [];
+        });
+        check(`${name} 实际选择 TURN 中继候选对`, candidateTypes.length === 2 && candidateTypes.every((type) => type === 'relay'));
+      }
+    }
   } else {
+    if (REQUIRE_P2P) {
+      console.error('真实连接验收失败:', JSON.stringify({ A: await state(pageA), B: await state(pageB) }));
+      await browser.close();
+      throw new Error('必须建立真实 DataChannel，禁止降级为协议仿真');
+    }
     console.log('  (本环境 ICE 被阻断，降级为对局协议仿真)');
     const sa = await state(pageA);
     const sb = await state(pageB);
@@ -184,10 +204,12 @@ async function launchBrowser() {
           if (peer.ondatachannel) {
             const channel = { readyState: 'open', send() {}, close() {} };
             peer.ondatachannel({ channel });
+            channel.onopen?.();
           }
         }
         for (const channel of test.channels) {
           Object.defineProperty(channel, 'readyState', { configurable: true, get: () => 'open' });
+          channel.onopen?.();
         }
         window.__gomoku.forceConnected(true);
       });
@@ -522,9 +544,9 @@ async function launchBrowser() {
   check(`对手离开后 B 不是 FAILED（${afterB.state}）`, afterB.state === 'ROOM_WAITING');
 
   console.log('== 阶段二·补2：输错房号不会把自己踢出当前房间 ==');
-  // A 此时独自在新房间里：若服务端「先退旧房再校验」，这个房间会被销毁 → /healthz 房间数 -1
-  const roomsBeforeBadJoin = (await (await fetch(`${BASE}/healthz`)).json()).rooms;
+  // 验证本测试的房间仍能接入和协商，避免依赖会被其他玩家/宽限回收影响的全局房间数。
   const roomBeforeBadJoin = await pageA.evaluate(() => window.__gomoku.room);
+  const peersBeforeBadJoin = await pageA.evaluate(() => window.__gameplayTest.peers.length);
   await pageA.fill('#room-input', 'ZZZZ');
   await pageA.click('#join-room-btn');
   const toastText = await pageA
@@ -539,14 +561,18 @@ async function launchBrowser() {
     )
     .then((handle) => handle.jsonValue())
     .catch(() => '');
-  const roomsAfterBadJoin = (await (await fetch(`${BASE}/healthz`)).json()).rooms;
   const roomAfterBadJoin = await pageA.evaluate(() => window.__gomoku.room);
   check(`输错房号提示「房间 ZZZZ 不存在」（${toastText}）`, toastText.includes('不存在'));
   check(`输错房号后 A 仍在原房间 ${roomAfterBadJoin}`, roomAfterBadJoin === roomBeforeBadJoin);
-  check(
-    `输错房号不会把自己踢出房间（服务端房间数 ${roomsBeforeBadJoin} → ${roomsAfterBadJoin}）`,
-    roomsAfterBadJoin === roomsBeforeBadJoin
-  );
+  await pageB.fill('#room-input', roomBeforeBadJoin);
+  await pageB.click('#join-room-btn');
+  const originalRoomRetained = await Promise.all([
+    pageA.waitForFunction((count) => window.__gameplayTest.peers.length > count && window.__gomoku.signalingState === 'stable',
+      peersBeforeBadJoin, { timeout: 5000 }),
+    pageB.waitForFunction((code) => window.__gomoku.room === code && window.__gomoku.signalingState === 'stable',
+      roomBeforeBadJoin, { timeout: 5000 }),
+  ]).then(() => true).catch(() => false);
+  check('输错房号后原房间仍能接入，原玩家仍能完成双方协商', originalRoomRetained);
 
   console.log('== 阶段三：邀请对局（手动信令 · 微信互发） ==');
   const pageC = await newPlayerPage('C');
@@ -607,10 +633,11 @@ async function launchBrowser() {
         tLine.label === transport.summary
     );
     console.log('  连接方式:', JSON.stringify(transport), '| UI:', JSON.stringify(tLine));
-    await clickCell(pageC, 7, 7);
+    await clickCell(pageC, 7, 7, 1);
     await pageD.waitForFunction(() => window.__gomoku.moves.length === 1, null, { timeout: 8000 });
     check('邀请对局落子同步', true);
   } else {
+    if (REQUIRE_P2P) check('邀请对局必须建立真实 DataChannel', false);
     // 15 秒诊断兜底应展示失败原因
     await pageC.waitForTimeout(16000);
     const diag = await pageC.evaluate(() => {

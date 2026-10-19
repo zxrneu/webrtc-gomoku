@@ -218,6 +218,81 @@ describe('orchestrator · 重连缺陷回归', () => {
 });
 
 describe('orchestrator · 建连与退避', () => {
+  it('首次直连 15 秒仍未打开数据通道时报告失败而非无限等待', () => {
+    const ctx = setup();
+    ctx.manager.createRoom('A8B2');
+    ctx.signal.open();
+    ctx.signal.server({ t: 'created', room: 'A8B2', peerId: 'p1' });
+    ctx.signal.server({ t: 'peer-joined', peerId: 'p2', name: '对手' });
+
+    ctx.clock.advance(14999);
+    expect(ctx.manager.getStatus().state).toBe('NEGOTIATING');
+    ctx.clock.advance(1);
+
+    expect(ctx.manager.getStatus().state).toBe('FAILED');
+    expect(ctx.events).toContainEqual({ type: 'failed', reason: 'ICE_FAILED', message: undefined });
+    expect(ctx.signal.readyState).toBe('open');
+  });
+
+  it('加入方等待 offer 超时也报告首次直连失败', () => {
+    const ctx = setup();
+    ctx.manager.joinRoom('A8B2', '加入方');
+    ctx.signal.open();
+    ctx.signal.server({ t: 'joined', room: 'A8B2', peerId: 'p2' });
+
+    ctx.clock.advance(15000);
+
+    expect(ctx.manager.getStatus().state).toBe('FAILED');
+    expect(ctx.manager.getStatus().reason).toBe('ICE_FAILED');
+  });
+
+  it('首次协商收到重复候选不会延长连接期限', () => {
+    const ctx = setup();
+    ctx.manager.joinRoom('A8B2', '加入方');
+    ctx.signal.open();
+    ctx.signal.server({ t: 'joined', room: 'A8B2', peerId: 'p2' });
+    ctx.clock.advance(10000);
+    ctx.signal.server({ t: 'signal', data: { kind: 'ice', candidate: {} } });
+    ctx.clock.advance(5000);
+
+    expect(ctx.manager.getStatus().state).toBe('FAILED');
+  });
+
+  it('首次直连成功后取消协商超时，旧期限不影响新恢复流程', () => {
+    const ctx = setup();
+    hostConnected(ctx);
+    ctx.clock.advance(14000);
+    ctx.p2p.dropDc();
+    ctx.clock.advance(1000);
+
+    expect(ctx.manager.getStatus().state).toBe('P2P_RECOVERING');
+    expect(ctx.events.some((event) => event.type === 'failed')).toBe(false);
+  });
+
+  it('房主尚无对手时不启动直连超时', () => {
+    const ctx = setup();
+    ctx.manager.createRoom('A8B2');
+    ctx.signal.open();
+    ctx.signal.server({ t: 'created', room: 'A8B2', peerId: 'p1' });
+
+    ctx.clock.advance(60000);
+
+    expect(ctx.manager.getStatus().state).toBe('ROOM_WAITING');
+  });
+
+  it('离开首次协商中的房间后取消旧超时', () => {
+    const ctx = setup();
+    ctx.manager.joinRoom('A8B2', '加入方');
+    ctx.signal.open();
+    ctx.signal.server({ t: 'joined', room: 'A8B2', peerId: 'p2' });
+    ctx.manager.leave();
+
+    ctx.clock.advance(15000);
+
+    expect(ctx.manager.getStatus().state).toBe('IDLE');
+    expect(ctx.events.some((event) => event.type === 'failed')).toBe(false);
+  });
+
   it('建房成功后进入 ROOM_WAITING，对手加入后进入 NEGOTIATING', () => {
     const ctx = setup();
 

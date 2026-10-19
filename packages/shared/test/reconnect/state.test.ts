@@ -55,6 +55,13 @@ describe('state · 状态枚举', () => {
 });
 
 describe('state · 合法迁移', () => {
+  it.each(['ROOM_WAITING', 'NEGOTIATING'] as const)('%s 支持报告首次直连超时', (state) => {
+    const next = reduce(at(state), { type: 'FATAL', at: 15000, reason: 'ICE_FAILED' }, P);
+
+    expect(next.state).toBe('FAILED');
+    expect(next.reason).toBe('ICE_FAILED');
+  });
+
   it('IDLE 收到 START 迁移到 SIGNAL_CONNECTING 并写入角色与房间', () => {
     const next = reduce(initialSnapshot(0), { type: 'START', at: 5, role: 'guest', room: 'A8B2' }, P);
 
