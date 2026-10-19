@@ -13,7 +13,7 @@
 2. **只负责建连握手**：两台浏览器在互联网两端无法感知对方的公网 IP 和 NAT 端口时，通过 WebSocket 连接信令服务交换双方的 **SDP（媒体协商描述）** 与 **ICE Candidate（网络打洞候选地址）**。
 3. **握手即脱离**：一旦两端完成打洞并建立起浏览器底层的 `RTCDataChannel` 点对点直连通道，信令服务器甚至断开也不会影响正在进行的对局！
 
-> ⚠️ **协议冻结红线**：协议（WS 消息集合 / 字段名 / 5 条标准错误文案）与前端 [`packages/shared/src/types.ts`](file:///Users/zxr/Workbuddy/2026-10-15-18-07-03/webrtc-gomoku/packages/shared/src/types.ts) **逐字节冻结对齐**，前端在 Node 版与 Rust 版之间切换时无需改动任何一行代码！
+> ⚠️ **协议冻结红线**：协议（WS 消息集合 / 字段名 / 5 条标准错误文案）与前端 [`packages/shared/src/types.ts`](../../packages/shared/src/types.ts) **逐字节冻结对齐**，前端在 Node 版与 Rust 版之间切换时无需改动任何一行代码！
 
 ---
 
@@ -40,7 +40,7 @@
   - 房间号 Hash 取模路由至 64 个独立 `RwLock<HashMap>` 分片，搭配无锁 `AtomicU64` 计数器，保证多核心 CPU 算力线性释放。
 - 🧱 **SOLID 依赖反转设计（DIP & ISP）**：
   - 核心逻辑严格单向无环：`protocol ◄ rooms ◄ transport ◄ http ◄ main`；
-  - `relay` 跨节点中继通过 [`rooms::LocalDelivery`](file:///Users/zxr/Workbuddy/2026-10-15-18-07-03/webrtc-gomoku/apps/signaling-rust/src/rooms/mod.rs) 特征反向回投，完全不反向依赖具体的传输实现。
+  - `relay` 跨节点中继通过 [`rooms::LocalDelivery`](src/rooms/mod.rs) 特征反向回投，完全不反向依赖具体的传输实现。
 - 🌊 **有界通道背压控制（Backpressure & Slow Client Drop）**：
   - 每个 WebSocket 拥有专属的有界通道 `mpsc::Sender<ServerMsg>`；
   - 采用非阻塞 `try_send`，在客户端网络拥塞导致队列堆满时立即标记熔断并切断连接，杜绝慢连接拖垮服务端内存。

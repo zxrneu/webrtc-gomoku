@@ -29,7 +29,6 @@ async function launchBrowser() {
   const candidates = [
     {},
     { executablePath: process.env.CHROME_PATH },
-    { executablePath: '/Users/zxr/Library/Caches/ms-playwright/chromium-1248/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing' },
     { channel: 'chrome' },
   ].filter(Boolean);
   let lastErr = null;

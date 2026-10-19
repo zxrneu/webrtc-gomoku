@@ -20,7 +20,7 @@
 - ⚡️ **极简高效的信令中继管道**：
   - 基于高吞吐的原生 `ws` 库构建，专注于 1v1 房间分配与信令透传，全服务内存常驻仅 ~30MB。
 - 🧱 **SOLID 依赖反转架构（DIP & ISP）**：
-  - 核心房间簿记模块 [`rooms.ts`](file:///Users/zxr/Workbuddy/2026-10-15-18-07-03/webrtc-gomoku/apps/server/src/rooms.ts) 与底层 WebSocket 彻底解耦，仅依赖最小契约接口 `RoomClient`；
+  - 核心房间簿记模块 [`rooms.ts`](src/rooms.ts) 与底层 WebSocket 彻底解耦，仅依赖最小契约接口 `RoomClient`；
   - 单元测试可在**脱离网络端口**的环境下毫秒级执行，告别端口冲突与假死连接。
 - 🛡️ **原子化前置校验（Zero Accidental Eviction）**：
   - 铁律约束：**所有房间号格式、存在性、容量校验在数据状态迁移前执行完毕**；
