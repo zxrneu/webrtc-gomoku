@@ -93,6 +93,8 @@ Node、Rust 构建版与 Vite 开发版均支持配置证书启动 HTTPS，网�
 
 运行 `pnpm https:setup` 可直接下载 mkcert 二进制、配置本机 CA 并生成局域网证书；可用 `--ip 192.168.1.100` 指定地址。Node 使用 `pnpm build && pnpm start:https`，Rust 使用 `pnpm build:web && pnpm start:https:rust`，默认访问证书覆盖的局域网 IP 的 HTTPS 3443 端口。
 
+当前阿里云公网实例的证书签发、自动续签、进程说明与管理命令见 [阿里云运维手册](docs/aliyun-operations.md)。
+
 ## 本地开发与测试
 
 ```bash

@@ -4,6 +4,8 @@
 
 Node 和 Rust 服务均支持同一端口提供 HTTPS 网页、`/config`、`/healthz` 和 WSS `/signal`。Vite 开发服务也支持 HTTPS。公网可选用下文的反向代理统一管理证书。所有命令均在仓库根执行，除明确标记的 PowerShell 外采用 Bash/Zsh 语法。
 
+已部署的阿里云公网实例使用 Rust 原生 TLS 和 Let’s Encrypt IP 证书，签发、自动续签、服务与进程管理见 [阿里云运维手册](aliyun-operations.md)。
+
 ## 1. 局域网：生成受信任的开发证书
 
 在仓库根运行以下命令，macOS、Linux 和 Windows PowerShell 使用同样的命令（需要 Node.js 18+）：
