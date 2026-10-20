@@ -1,11 +1,4 @@
-/**
- * 顶层应用协调器与状态机主控 (App.tsx)
- *
- * 两套棋局共存（架构 §6）：
- * - 联机：`game` / `myColor` 由本组件持有，`useConnection` 是唯一连接状态源；
- * - 人机：全部封装在 `useAiGame` 内部，本组件只读它的返回值。
- * 二者**互不写入**：`mode` 只是视图开关，切换不触碰 `conn`、不发消息、不清盘。
- */
+/** 顶层协调器：联机、人机各自维护棋局；模式切换只改变视图。 */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { GameState, PlayerColor } from '@webrtc-gomoku/core';
@@ -43,8 +36,13 @@ import { Board } from './components/Board/Board';
 import { ConnectionBanner } from './components/Banner/ConnectionBanner';
 import { ConnectionPanel } from './components/Connection/ConnectionPanel';
 import { AiPanel } from './components/AiPanel/AiPanel';
+import { AiHintButton, AiHintDetails } from './components/AiPanel/AiHint';
 import { GameStatus } from './components/GameStatus/GameStatus';
 import { GameSidebar } from './components/Chat/GameSidebar';
+import { PlayerTrays } from './components/Match/PlayerTrays';
+import { RoomHeading } from './components/Match/RoomHeading';
+import { RoomSidebar } from './components/Match/RoomSidebar';
+import { playerLabels } from './components/Match/playerLabels';
 import { ScannerModal } from './components/Scanner/ScannerModal';
 import { ConfirmModal } from './components/Modal/ConfirmModal';
 import { Toast } from './components/Toast/Toast';
@@ -70,7 +68,6 @@ export const App: React.FC = () => {
   const ai = useAiGame(mode);
 
   // 界面交互状态
-  const [activeTab, setActiveTab] = useState<'room' | 'manual'>('room');
   const [inputRoomCode, setInputRoomCode] = useState('');
   const [flow, setFlow] = useState<FlowState>('idle');
   const [hostOfferCode, setHostOfferCode] = useState('');
@@ -698,11 +695,15 @@ export const App: React.FC = () => {
   }, [connected, game, myColor, peerName, roomCode, flow, transport, showMoveNumbers, handleGameMessage, handleToggleMoveNumbers, handleToggleColor, mode, ai, media.capabilities, media.peerCapabilities]);
 
   // 计算回合与提示信息（人机 / 联机两套文案，但都从 view 派生）
-  const isMyTurn = view.isMyTurn && (mode === 'ai' || !requests.hasPending()) && swapPhaseRef.current === 'idle' && !awaitingColorRef.current;
+  const isMyTurn = view.isMyTurn && (mode === 'ai' || (
+    !requests.hasPending() && swapPhaseRef.current === 'idle' && !awaitingColorRef.current
+  ));
   const turnText = mode === 'ai'
     ? view.game.over ? '对局结束' : ai.thinking ? 'AI 正在思考…' : view.isMyTurn ? '轮到你落子' : 'AI 回合'
     : !connected ? '等待连接…' : game.over ? '对局结束' : swapPhaseRef.current !== 'idle' ? '等待换边确认…' : isMyTurn ? '轮到你落子' : '对方思考中…';
-  const overlayText = mode === 'ai' ? '' : connected ? '' : '输入昵称，创建或加入房间，开始 P2P 对局';
+  const overlayText = mode === 'ai' || connected ? '' : roomCode
+    ? `房间 ${roomCode} · 等待联机，可先切换人机对弈`
+    : '输入昵称，创建或加入房间，开始 P2P 对局';
   const winnerColor = view.game.moves[view.game.moves.length - 1]?.c;
   const resultText = !view.game.over ? '' : !view.game.winLine
     ? '平局！'
@@ -710,30 +711,27 @@ export const App: React.FC = () => {
       ? mode === 'ai' ? '你赢了，再来一局？' : '你赢了（' + (winnerColor === BLACK ? '黑' : '白') + '方五连）'
       : mode === 'ai' ? 'AI 获胜，再来一局？' : '你输了，再来一局？';
 
-  const isMeBlack = view.myColor === BLACK;
-  const myLabel = myName ? `${myName} (我)` : isHost ? '房主 (我)' : '玩家 (我)';
-  const peerLabel = peerName || (isHost ? '加入方' : '房主');
-  const aiLabel = `AI（${DIFFICULTY_LABELS[ai.difficulty]}）`;
-  const blackName = mode === 'ai' ? (isMeBlack ? '我' : aiLabel) : isMeBlack ? myLabel : peerLabel;
-  const whiteName = mode === 'ai' ? (isMeBlack ? aiLabel : '我') : !isMeBlack ? myLabel : peerLabel;
-  const blackTag = mode === 'ai' ? (isMeBlack ? '先行' : 'AI') : isMeBlack ? (isHost ? '房主 (先行)' : '加入方 (先行)') : (isHost ? '加入方 (先行)' : '房主 (先行)');
-  const whiteTag = mode === 'ai' ? (isMeBlack ? 'AI' : '后手') : !isMeBlack ? (isHost ? '房主' : '加入方') : (isHost ? '加入方' : '房主');
+  const { blackName, whiteName, blackTag, whiteTag } = playerLabels({ mode, myColor: view.myColor, isHost,
+    myName, peerName, difficulty: ai.difficulty });
 
   const headerStatus = mode === 'ai' ? 'online' : connected ? 'online' : roomCode || conn.status.state !== 'IDLE' ? 'signaling' : 'offline';
+  const inRoom = mode === 'online' && roomCode !== '';
   const headerStatusText = mode === 'ai'
     ? `人机对战 · ${DIFFICULTY_LABELS[ai.difficulty]}`
     : connected ? '已直连' : conn.status.state === 'IDLE' ? '未连接' : '匹配中';
 
   return (
     <div className={styles.layout}>
-      <Header status={headerStatus} statusText={headerStatusText} mode={mode} onModeChange={setMode} />
+      <Header status={headerStatus} statusText={headerStatusText} mode={mode} onModeChange={setMode} compact={inRoom || mode === 'ai'}>
+        {mode === 'ai' && <AiPanel api={ai} over={view.game.over} />}
+      </Header>
 
       {/* 连接状态条：文案全部来自编排器（PRD §6.4）；人机模式无连接概念，不渲染 */}
       {mode === 'online' && (
         <ConnectionBanner status={conn.status} onRetry={conn.retryNow} onLeave={() => { requests.invalidate(); conn.leave(); }} />
       )}
 
-      <main className={`${styles.wrap} wrap`}>
+      <main className={`${styles.wrap} ${inRoom || mode === 'ai' ? styles.roomLayout : ''} wrap`}>
         <Board
           board={view.game.board}
           moves={view.game.moves}
@@ -758,13 +756,24 @@ export const App: React.FC = () => {
           showMoveNumbers={showMoveNumbers}
           onToggleMoveNumbers={handleToggleMoveNumbers}
           onRematch={handleRestart}
+          roomView={inRoom || mode === 'ai'}
+          heading={inRoom ? <RoomHeading code={roomCode} connected={connected}
+            onCopy={() => copyText(`${window.location.origin}/?room=${roomCode}`, '邀请链接已复制')} /> : null}
+          players={inRoom || mode === 'ai' ? <PlayerTrays key={mode === 'ai' ? 'ai' : roomCode} variant={mode} black={{ name: blackName, tag: blackTag }}
+            white={{ name: whiteName, tag: whiteTag }} myColor={view.myColor}
+            turn={view.connected && !view.game.over ? currentColor(view.game) : null}
+            moves={view.game.moves} connected={view.connected} over={view.game.over} transport={mode === 'ai' ? null : transport}
+            actions={{ onSwap: mode === 'ai' ? () => ai.setPlayerColor(ai.playerColor === BLACK ? WHITE : BLACK) : handleToggleColor,
+              onName: mode === 'ai' ? undefined : name => { setMyName(name); myNameRef.current = name; sendHello(); },
+              onPick: () => document.getElementById('board')?.focus({ preventScroll: true }) }} /> : null}
+          extraActions={mode === 'ai' ? <AiHintButton api={ai} /> : null}
+          actionDetails={mode === 'ai' && (ai.hint || ai.hintThinking || ai.hintUnavailable)
+            ? <AiHintDetails api={ai} /> : null}
         />
 
-        <aside className={`${styles.side} side`}>
+        <RoomSidebar inRoom={inRoom || mode === 'ai'}>
           <GameSidebar messages={messages} peerName={peerName} chat={mode === 'online' ? { connected, myName, onSend: handleSendChat, media } : null}>
-          {mode === 'ai' ? (
-            <AiPanel api={ai} over={view.game.over} />
-          ) : (
+          {mode === 'online' && (
             <ConnectionPanel
               myColor={myColor}
               isHost={isHost}
@@ -772,10 +781,9 @@ export const App: React.FC = () => {
               onToggleColor={handleToggleColor}
               name={myName}
               setName={setMyName}
-              activeTab={activeTab}
-              setActiveTab={setActiveTab}
               flow={flow}
               roomCode={roomCode}
+              roomHeadingExternal={inRoom}
               inputRoomCode={inputRoomCode}
               setInputRoomCode={setInputRoomCode}
               roomStatus={conn.status.label}
@@ -790,6 +798,7 @@ export const App: React.FC = () => {
               setHostTextFolded={setHostTextFolded}
               guestTextFolded={guestTextFolded}
               setGuestTextFolded={setGuestTextFolded}
+              onStartAi={() => setMode('ai')}
               onCreateRoom={handleCreateRoom}
               onJoinRoom={handleJoinRoom}
               onCopyInviteLink={() => copyText(`${window.location.origin}/?room=${roomCode}`, '邀请链接已复制')}
@@ -805,7 +814,7 @@ export const App: React.FC = () => {
             />
           )}
 
-          <GameStatus
+          {!inRoom && mode !== 'ai' && <GameStatus
             blackName={blackName}
             whiteName={whiteName}
             blackTag={blackTag}
@@ -814,11 +823,11 @@ export const App: React.FC = () => {
             moves={view.game.moves}
             over={view.game.over}
             connected={view.connected}
-            transport={mode === 'ai' ? null : transport}
-          />
+            transport={transport}
+          />}
 
           </GameSidebar>
-        </aside>
+        </RoomSidebar>
       </main>
 
       <ScannerModal

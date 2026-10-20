@@ -1,0 +1,28 @@
+.button {
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid rgba(13, 148, 136, 0.3);
+  border-radius: var(--radius-sm);
+  background: #f0fdfa;
+  color: #0f766e;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.button:disabled { opacity: 0.5; cursor: not-allowed; }
+.button:hover:not(:disabled) { background: #ccfbf1; }
+.button:focus-visible { outline: 2px solid #0f766e; outline-offset: 2px; }
+
+.details {
+  padding: 10px 12px;
+  border: 1px solid rgba(13, 148, 136, 0.2);
+  border-radius: var(--radius-sm);
+  background: rgba(13, 148, 136, 0.04);
+  text-align: left;
+}
+
+.title { margin: 0 0 6px; font-size: 13px; color: #0f766e; font-weight: 700; }
+.reasons { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.6; color: var(--text-main); }
+.note { margin: 6px 0 0; font-size: 12px; line-height: 1.6; color: var(--text-muted); }
+.note:first-child { margin-top: 0; }

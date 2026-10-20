@@ -5,11 +5,12 @@ import { createLobbyRuntime, type LobbyRuntime, type LobbyView } from './runtime
 import { createLobbyId, lobbyIdentity, prepareLobbyWindow, readLobbySession, saveLobbySession } from './storage';
 import { isLobbyName } from '@webrtc-gomoku/shared';
 import { LobbyPage } from './LobbyPage';
+import type { GameMode } from '../types';
 import styles from './Lobby.module.css';
 
 interface LobbyContextValue {
   openLobby: () => void;
-  openGame: () => void;
+  openGame: (mode?: GameMode) => void;
   runtime: LobbyRuntime;
   view: LobbyView;
   now: number;
@@ -67,6 +68,13 @@ export function LobbyProvider({ children }: { children: React.ReactNode }) {
     });
   });
   const view = useSyncExternalStore(runtime.subscribe, runtime.getSnapshot);
+  const requestedRoom = useRef(new URLSearchParams(location.search).get('room')?.toUpperCase() ?? '');
+  useEffect(() => {
+    const code = requestedRoom.current;
+    if (saved || view.phase !== 'ready' || !/^[A-Z0-9]{4}$/.test(code) || !manager.current) return;
+    requestedRoom.current = '';
+    manager.current.joinRoom(code, view.name);
+  }, [view.phase, view.name, saved]);
   nameRef.current = view.name;
   const [now, setNow] = useState(Date.now);
   const [attempt, setAttempt] = useState(0);
@@ -93,7 +101,10 @@ export function LobbyProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('popstate', pop);
   }, []);
   const openLobby = () => navigate('lobby');
-  const openGame = () => { navigate('game'); window.setTimeout(() => document.getElementById('mode-online-btn')?.click(), 0); };
+  const openGame = (mode: GameMode = 'online') => {
+    navigate('game');
+    window.setTimeout(() => document.getElementById(`mode-${mode}-btn`)?.click(), 0);
+  };
   const value: LobbyContextValue = {
     openLobby, openGame, runtime, view: configError ? { ...view, phase: 'offline', notice: '暂时无法连接大厅服务，请重试' } : view, now,
     retry: () => { if (configError) setAttempt(v => v + 1); else runtime.retry(); },

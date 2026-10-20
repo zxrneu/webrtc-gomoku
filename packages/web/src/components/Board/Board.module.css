@@ -30,7 +30,10 @@
     justify-content: center;
     padding: 14px 18px;
     gap: 12px;
+    min-height: 0;
+    overflow-y: auto;
   }
+  .boardCard:has(.withExtras) { justify-content: flex-start; }
 }
 
 /**
@@ -185,7 +188,10 @@
   width: 100%;
   max-width: 560px;
   padding: 4px 0;
+  flex-wrap: wrap;
 }
+
+.actionDetails { width: 100%; max-width: 560px; }
 
 /**
  * 通用拟物按钮基础样式（白底微浮雕微阴影）
@@ -308,6 +314,24 @@
     width: 100%;
     justify-content: center;
   }
+
+  .withExtras {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .withExtras > button {
+    min-width: 0;
+    min-height: 34px;
+    padding: 6px;
+    font-size: 12px;
+    grid-column: span 2;
+  }
+
+  .withExtras > button:nth-child(4),
+  .withExtras > button:nth-child(5) { grid-column: span 3; }
+  .withExtras .turnHint { grid-column: 1 / -1; font-size: 12px; }
 }
 
 /**
@@ -403,4 +427,29 @@
   border-radius: 50%;
   transform: translate(-50%, -50%);
   pointer-events: none;
+}
+
+.boardCard.roomMatch {
+  padding: 10px 14px;
+  gap: 6px;
+  height: auto;
+  max-height: 100%;
+  justify-content: flex-start;
+}
+
+.roomMatch > * { flex-shrink: 0; }
+.roomMatch .canvas { width: min(560px, 100%, calc(100dvh - var(--board-reserve, 350px))); max-height: calc(100dvh - var(--board-reserve, 350px)); }
+.roomMatch .boardActions { gap: 6px; padding: 2px 0; }
+.roomMatch .btn { min-height: 32px; font-size: 12px; padding: 5px 10px; }
+.roomMatch .turnHint { font-size: 12px; }
+
+@media (max-width: 980px) {
+  .boardCard.roomMatch { padding: 8px; border-radius: 14px; }
+}
+
+@media (max-width: 640px) {
+  .roomMatch .boardActions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+  .roomMatch .boardActions.withExtras { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .roomMatch .btn { min-width: 0; padding: 5px 2px; }
+  .roomMatch .turnHint { grid-column: 1 / -1; line-height: 18px; }
 }

@@ -6,6 +6,12 @@ const { pathToFileURL } = require('node:url');
 const { chromium } = require('playwright');
 const BASE = process.env.BASE || 'http://localhost:3000';
 
+async function setAiColor(page, color) {
+  await page.waitForFunction(() => window.__gomoku.mode === 'ai');
+  const current = (await page.locator('#black-name').innerText()) === '我' ? 1 : 2;
+  if (current !== color) await page.locator('#toggle-color-btn').click();
+}
+
 async function launch() {
   try { return await chromium.launch(); }
   catch { return chromium.launch({ channel: 'chrome' }); }
@@ -21,6 +27,40 @@ async function settle(page, moves) {
   await page.waitForFunction((count) => !window.__gomoku.ai.thinking && window.__gomoku.ai.moves.length === count,
     moves, { timeout: 10000 });
 }
+
+async function checkAiLayout(page) {
+  for (const width of [320, 375, 1400]) {
+    await page.setViewportSize({ width, height: width < 640 ? 667 : 1000 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const difficulty = await page.locator('header #ai-difficulty').boundingBox();
+    const board = await page.locator('#board').boundingBox();
+    assert.equal(await page.locator('#player-trays').isVisible(), true);
+    assert.match(await page.locator('#player-trays').innerText(), /AI（/);
+    assert.equal(await page.locator('#toggle-color-btn').getAttribute('aria-label'), '切换执子并重新开局');
+    const hint = await page.locator('.board-actions #ai-hint-btn').boundingBox();
+    assert.ok(difficulty && difficulty.width <= 90 && difficulty.y >= 0 && difficulty.y + difficulty.height < 200,
+      `${width}px 难度选择在顶部且不占满整行`);
+    assert.ok(hint && hint.y >= board.y + board.height && hint.y - board.y - board.height <= 40,
+      `${width}px AI 提示紧邻棋盘`);
+    if (width < 640) {
+      assert.ok(hint.y + hint.height <= 667, '手机首屏能直接操作提示');
+      const lastAction = await page.locator('#toggle-move-numbers-btn').boundingBox();
+      assert.ok(lastAction.y + lastAction.height <= 667, '人机常用操作全部位于首屏');
+      assert.ok(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1), '人机基础对弈页无需滚动');
+    }
+    assert.equal(await page.getByRole('button', { name: '悔棋', exact: true }).count(), 1, '悔棋只有一个入口');
+    assert.equal(await page.getByRole('button', { name: '重新开始', exact: true }).count(), 1, '重开只有一个入口');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, '没有横向溢出');
+  }
+  await page.setViewportSize({ width: 375, height: 667 });
+  await page.screenshot({ path: `output/playwright/ai-trays-${page.url().startsWith('file:') ? 'offline' : 'online'}.png` });
+  await page.locator('#ai-difficulty').selectOption('normal');
+  assert.match(await page.locator('#ai-difficulty-hint').innerText(), /下一局生效/);
+  assert.equal(await page.evaluate(() => window.__gomoku.ai.difficulty), 'hard', '更改难度不打断当前局');
+  await page.locator('#ai-difficulty').selectOption('hard');
+  assert.equal(await page.locator('#ai-difficulty-hint').count(), 0);
+}
+
 async function exercise(browser, url, supportsWorker) {
   const context = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
   const page = await context.newPage();
@@ -52,12 +92,13 @@ async function exercise(browser, url, supportsWorker) {
   }, supportsWorker);
   try {
     await page.goto(url);
-    if (await page.locator('#lobby-page').count()) await page.getByRole('button', { name: /返回棋盘/ }).click();
+    if (await page.locator('#lobby-page').count()) await page.locator('#lobby-board-btn').click();
     await page.waitForFunction(() => !!window.__gomoku);
     await context.setOffline(true);
     const beforeRequests = requests.length;
     await page.click('#mode-ai-btn');
     await settle(page, 1);
+    await checkAiLayout(page);
     await page.evaluate(() => { window.__aiWorkerTest.maxGap = 0; window.__aiWorkerTest.longTasks = []; });
     await clickCell(page, 8, 8);
     await settle(page, 3);
@@ -73,6 +114,7 @@ async function exercise(browser, url, supportsWorker) {
     const hintMoves = await page.evaluate(() => window.__gomoku.ai.moves.length);
     await page.click('#ai-hint-btn');
     await page.waitForSelector('#ai-hint-explanation');
+    assert.equal(await page.locator('.board-card #ai-hint-explanation').count(), 1, '提示说明直接出现在棋盘操作区');
     assert.match(await page.locator('#ai-hint-explanation').innerText(), /推荐|为什么/);
     assert.equal(await page.evaluate(() => window.__gomoku.ai.moves.length), hintMoves, '提示不代替玩家落子');
     assert.equal(await page.locator('#ai-hint-marker').count(), 1, '棋盘显示推荐点');
@@ -93,22 +135,22 @@ async function exercise(browser, url, supportsWorker) {
     await settle(page, 5);
     await page.click('#ai-hint-btn');
     await page.waitForSelector('#ai-hint-explanation');
-    await page.click('#ai-undo-btn');
+    await page.click('#undo-btn');
     await settle(page, 3);
     assert.equal(await page.locator('#ai-hint-explanation').count(), 0, '悔棋清除旧提示');
     await page.click('#ai-hint-btn');
-    await page.click('#ai-restart-btn');
+    await page.click('#restart-btn');
     await settle(page, 1);
     assert.equal(await page.locator('#ai-hint-explanation').count(), 0, '重开取消提示');
     await page.click('#ai-hint-btn');
     await page.click('#mode-online-btn');
     await page.click('#mode-ai-btn');
     assert.equal(await page.locator('#ai-hint-explanation').count(), 0, '切模式取消提示');
-    await page.click('#ai-color-white-btn');
-    await page.click('#ai-color-white-btn');
+    await setAiColor(page, 2);
+    await setAiColor(page, 2);
     await settle(page, 1);
     assert.equal(await page.evaluate(() => window.__aiWorkerTest.created), supportsWorker ? 1 : 0, '重开仍复用 Worker');
-    await page.click('#ai-color-black-btn');
+    await setAiColor(page, 1);
     await settle(page, 0);
     await page.click('#ai-hint-btn');
     await page.waitForSelector('#ai-hint-explanation');
@@ -152,7 +194,7 @@ async function exerciseHintRaces(browser) {
   const noHint = async () => assert.equal(await page.locator('#ai-hint-marker').count(), 0, '旧响应不能显示提示');
   try {
     await page.goto(BASE);
-    if (await page.locator('#lobby-page').count()) await page.getByRole('button', { name: /返回棋盘/ }).click();
+    if (await page.locator('#lobby-page').count()) await page.locator('#lobby-board-btn').click();
     await page.click('#mode-ai-btn');
     await page.click('#ai-hint-btn');
     await pending(1);
@@ -173,14 +215,14 @@ async function exerciseHintRaces(browser) {
 
     await page.click('#ai-hint-btn');
     await pending(3);
-    await page.click('#ai-undo-btn');
+    await page.click('#undo-btn');
     await release(2);
     await settle(page, 0);
     await noHint();
 
     await page.click('#ai-hint-btn');
     await pending(4);
-    await page.click('#ai-restart-btn');
+    await page.click('#restart-btn');
     await release(3);
     await noHint();
     assert.equal(await page.evaluate(() => window.__gomoku.ai.moves.length), 0, '重开后不落旧子');
@@ -194,7 +236,7 @@ async function exerciseHintRaces(browser) {
 
     await page.click('#ai-hint-btn');
     await pending(6);
-    await page.click('#ai-color-white-btn');
+    await setAiColor(page, 2);
     await pending(7);
     await release(5);
     await noHint();

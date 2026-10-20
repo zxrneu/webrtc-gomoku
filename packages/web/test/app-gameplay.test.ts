@@ -10,6 +10,8 @@ import { App } from '../src/App';
 import { Board } from '../src/components/Board/Board';
 import { ConnectionPanel } from '../src/components/Connection/ConnectionPanel';
 import { Header } from '../src/components/Header/Header';
+import { AiPanel } from '../src/components/AiPanel/AiPanel';
+import { PlayerTrays } from '../src/components/Match/PlayerTrays';
 import { ConfirmModal } from '../src/components/Modal/ConfirmModal';
 
 // Run App's real callbacks with persistent hook slots, without mounting a DOM or network.
@@ -97,6 +99,33 @@ function receiveReply(kind: 'undo' | 'restart') {
 }
 
 describe('App gameplay coordination', () => {
+  it('入房后棋盘接管房间标题与棋盒，设置面板不重复标题', () => {
+    connection.api!.status = { ...connection.api!.status, room: 'TEST' };
+    const app = event({ type: 'room-ready', room: 'TEST', role: 'host' });
+    expect(app.board.roomView).toBe(true);
+    expect(app.board.heading).toBeTruthy();
+    expect(app.board.players).toBeTruthy();
+    expect(app.panel.roomHeadingExternal).toBe(true);
+  });
+
+  it('拿棋后焦点直接交给棋盘，提示留在棋盒旁', () => {
+    connection.api!.status = { ...connection.api!.status, room: 'TEST' };
+    const focus = vi.fn();
+    vi.stubGlobal('document', { getElementById: vi.fn(() => ({ focus })) });
+    try {
+      propsOf(renderApp().board.players, PlayerTrays).actions.onPick();
+      expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it('人机设置接入顶部，提示接入棋盘操作区', () => {
+    renderApp().header.onModeChange('ai');
+    const app = renderApp();
+    expect(propsOf(app.header.children, AiPanel).api).toBeDefined();
+    expect(propsOf(app.board.players, PlayerTrays).variant).toBe('ai');
+    expect(app.board.extraActions).toBeDefined();
+    expect(app.board.actionDetails).toBeDefined();
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
     hooks.slots = [];
@@ -361,6 +390,35 @@ describe('App gameplay coordination', () => {
     const request = vi.mocked(connection.api!.send).mock.calls.find(([msg]) => msg.t === 'restart-req')?.[0];
     receive({ t: 'restart-no', requestId: request && 'requestId' in request ? request.requestId : undefined }).board.onMove(7, 7);
     expect(renderApp().board.moves).toHaveLength(1);
+  });
+
+  it('shows waiting guidance instead of asking to create a room after joining', () => {
+    connection.api!.status = { ...connection.api!.status, room: 'TEST' };
+    const app = setConnected(false);
+    expect(app.board.overlayText).toContain('TEST');
+    expect(app.board.overlayText).not.toContain('创建或加入房间');
+  });
+
+  it('allows AI moves while an online swap is pending without changing the room game', () => {
+    renderApp().panel.onToggleColor();
+    renderApp().header.onModeChange('ai');
+    const ai = renderApp();
+    expect(ai.board.myTurn).toBe(true);
+    ai.board.onMove(7, 7);
+    expect(renderApp().board.moves).toEqual([{ x: 7, y: 7, c: BLACK }]);
+    expect(connection.api?.send).not.toHaveBeenCalledWith({ t: 'move', x: 7, y: 7 });
+    renderApp().header.onModeChange('online');
+    expect(renderApp().board.moves).toEqual([]);
+    expect(renderApp().board.myTurn).toBe(false);
+    expect(connection.api?.leave).not.toHaveBeenCalled();
+  });
+
+  it('allows AI moves while the guest is restoring their online color', () => {
+    event({ type: 'room-ready', room: 'TEST', role: 'guest' });
+    connection.options?.onP2pDisconnected?.();
+    setConnected(false);
+    renderApp().header.onModeChange('ai');
+    expect(renderApp().board.myTurn).toBe(true);
   });
 
   it('updates the restored role before a following effect in the same event loop', () => {

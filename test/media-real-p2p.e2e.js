@@ -95,7 +95,7 @@ async function waitForServer(url, timeoutMs = 15000) {
       assert.equal(await page.evaluate(() => typeof navigator.mediaDevices?.getUserMedia), 'function');
     }
     for (const page of [pageA, pageB]) {
-      if (await page.locator('#lobby-page').count()) await page.getByRole('button', { name: /返回棋盘/ }).click();
+      if (await page.locator('#lobby-page').count()) await page.locator('#lobby-board-btn').click();
       if (await page.locator('[data-online-tab="room"]').count()) await page.locator('[data-online-tab="room"]').click();
     }
 
@@ -119,8 +119,10 @@ async function waitForServer(url, timeoutMs = 15000) {
     console.log('  ok - 真实 P2P DataChannel 已双向连通！');
 
     // 切换到聊天 Tab
-    const chatTabA = pageA.getByRole('tab', { name: /聊天/ });
-    const chatTabB = pageB.getByRole('tab', { name: /聊天/ });
+
+
+    const chatTabA = pageA.getByRole('button', { name: /^打开聊天/ });
+    const chatTabB = pageB.getByRole('button', { name: /^打开聊天/ });
     await chatTabA.click();
     await chatTabB.click();
 
@@ -275,7 +277,9 @@ async function waitForServer(url, timeoutMs = 15000) {
     await pageA.click('#chat-voice-btn');
     await pageA.waitForSelector('#chat-record-send');
     const previousRoom = await pageA.locator('#room-code-text').innerText();
-    await pageA.getByRole('tab', { name: '对局', exact: true }).click();
+
+    await pageA.getByRole('button', { name: '收起聊天', exact: true }).click();
+    await pageA.click('#switch-room-btn');
     await pageA.click('#create-room-btn');
     await pageA.waitForFunction(old => window.__gomoku.room && window.__gomoku.room !== old && !window.__gomoku.connected, previousRoom);
     await pageA.waitForFunction(() => window.__recordingTracks.every(track => track.readyState === 'ended'));
@@ -284,13 +288,15 @@ async function waitForServer(url, timeoutMs = 15000) {
     const ctxC = await browser.newContext({ ignoreHTTPSErrors, permissions: ['microphone'], viewport: { width: 1280, height: 800 } });
     const pageC = await ctxC.newPage();
     await pageC.goto(BASE);
-    if (await pageC.locator('#lobby-page').count()) await pageC.getByRole('button', { name: /返回棋盘/ }).click();
+    if (await pageC.locator('#lobby-page').count()) await pageC.locator('#lobby-board-btn').click();
     await pageC.locator('[data-online-tab="room"]').click();
     await pageC.fill('#room-input', await pageA.locator('#room-code-text').innerText());
     await pageC.click('#join-room-btn');
     await Promise.all([pageA, pageC].map(page => page.waitForFunction(() => window.__gomoku.connected, null, { timeout: 15000 })));
-    await pageA.getByRole('tab', { name: /聊天/ }).click();
-    await pageC.getByRole('tab', { name: /聊天/ }).click();
+
+    await pageA.getByRole('button', { name: /^打开聊天/ }).click();
+
+    await pageC.getByRole('button', { name: /^打开聊天/ }).click();
     assert.equal(await pageC.locator('#chat-list audio').count(), 0, '新对手不得收到上一房间的录音');
     await pageA.waitForFunction(() => !document.getElementById('chat-voice-btn').disabled);
     await pageA.click('#chat-voice-btn');

@@ -1,11 +1,9 @@
-/* 连接状态条：固定贴顶，不遮挡棋盘交互（pointer-events 只给按钮） */
+/* 连接状态条占据独立一行，避免覆盖顶部模式入口。 */
 
 .banner {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 1500;
+  position: relative;
+  z-index: 40;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;

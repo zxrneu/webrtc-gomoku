@@ -21,14 +21,12 @@ export interface ConnectionPanelProps {
   name: string;
   /** 更新玩家昵称状态 */
   setName: (name: string) => void;
-  /** 当前选中的连接模式标签页：'room' (房间信令服务器联机) | 'manual' (面对面/微信邀请对局) */
-  activeTab: 'room' | 'manual';
-  /** 切换标签页 */
-  setActiveTab: (tab: 'room' | 'manual') => void;
   /** 邀请对局手动流程状态机 ('idle' | 'host-wait' | 'guest-invite' | 'guest-wait' | 'connected') */
   flow: FlowState;
   /** 服务器分配的 4 位房间号 */
   roomCode: string;
+  /** 房间标题已由棋盘显示，设置中不再重复。 */
+  roomHeadingExternal?: boolean;
   /** 用户输入的待加入房间号 */
   inputRoomCode: string;
   /** 设置待加入房间号 */
@@ -63,6 +61,8 @@ export interface ConnectionPanelProps {
   onJoinRoom: () => void;
   /** 复制房间邀请链接回调 */
   onCopyInviteLink: () => void;
+  /** 房间中直接开始本地人机对弈 */
+  onStartAi: () => void;
   /** 开启邀请方主导对局流程（发起端生成 Offer） */
   onStartHostFlow: () => void;
   /** 开启被邀请方对局流程（接收端输入 Offer） */
@@ -85,12 +85,12 @@ export interface ConnectionPanelProps {
  * 连接与对局准备控制面板 (ConnectionPanel)
  * 职责：
  * 1. 玩家身份维护：昵称录入与保存
- * 2. 双模式切换：
- *    - 「房间联机」：基于 WebSocket 自动信令交换的 4 位房间号配对
- *    - 「邀请对局」：彻底无服务器的 WebRTC Vanilla ICE 离线信令交换（支持面对面二维码扫码与微信长文本互发）
+ * 2. 按部署方式展示连接入口：
+ *    - 服务器版「房间联机」：基于 WebSocket 自动信令交换的 4 位房间号配对
+ *    - 独立 HTML「邀请对局」：彻底无服务器的 WebRTC Vanilla ICE 离线信令交换（支持面对面二维码扫码与微信长文本互发）
  * 3. 动态三步指引 (fstep 1 -> 2 -> 3)，平滑引导非技术用户完成复杂的 P2P 握手
  */
-export const LegacyConnectionPanel: React.FC<ConnectionPanelProps> = ({
+export const LegacyConnectionPanel: React.FC<ConnectionPanelProps & { method?: 'room' | 'manual' }> = ({
   myColor,
   isHost: _isHost,
   connected,
@@ -98,10 +98,10 @@ export const LegacyConnectionPanel: React.FC<ConnectionPanelProps> = ({
   name,
   setName,
 
-  activeTab,
-  setActiveTab,
+  method = 'manual',
   flow,
   roomCode,
+  roomHeadingExternal = false,
   inputRoomCode,
   setInputRoomCode,
   roomStatus,
@@ -119,6 +119,7 @@ export const LegacyConnectionPanel: React.FC<ConnectionPanelProps> = ({
   onCreateRoom,
   onJoinRoom,
   onCopyInviteLink,
+  onStartAi,
   onStartHostFlow,
   onStartGuestFlow,
   onCopyHostOffer,
@@ -128,10 +129,6 @@ export const LegacyConnectionPanel: React.FC<ConnectionPanelProps> = ({
   onOpenScanner,
   flowResult,
 }) => {
-  // 检测当前是否是 file:// 协议本地离线双击打开（该模式下无法连接外置 WebSocket 服务器）
-  const isFileProtocol =
-    typeof window !== 'undefined' && window.location.protocol === 'file:';
-
   /** 邀请方 Offer 二维码 Canvas DOM 引用 */
   const hostQrRef = useRef<HTMLCanvasElement | null>(null);
   /** 被邀请方 Answer 二维码 Canvas DOM 引用 */
@@ -139,6 +136,9 @@ export const LegacyConnectionPanel: React.FC<ConnectionPanelProps> = ({
 
   /** 连接成功后是否展开完整的连接配置信息（默认收起为紧凑条以节省垂直空间） */
   const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const [isSwitchingRoom, setIsSwitchingRoom] = useState(false);
+  const showRoomSetup = !roomCode || isSwitchingRoom;
+  useEffect(() => setIsSwitchingRoom(false), [roomCode]);
   const isCompact = flow === 'connected' && !detailsExpanded;
 
   // 当邀请码 Offer 生成时，调用 qr.ts 绘制离散对齐的清晰黑白二维码
@@ -187,15 +187,17 @@ export const LegacyConnectionPanel: React.FC<ConnectionPanelProps> = ({
     setGuestTextFolded(() => next);
   };
 
+  const colorSwitchLabel = connected ? '申请换边（切换执黑/执白）' : myColor === BLACK ? '切换为执白' : '切换为执黑';
+
   return (
-    <div id="connect-card" className={`${styles.connectCard} ${isCompact ? styles.compact : ''} card`}>
+    <div id="connect-card" className={`${styles.connectCard} ${isCompact ? styles.compact : ''} ${roomHeadingExternal ? styles.roomSettings : ''} card`}>
       {/* 对局已连接时的紧凑状态条与展开详情按钮 */}
       {flow === 'connected' && (
         <div className={styles.compactHeader}>
           <div className={styles.compactBadge}>
             <span className={styles.compactDot} />
             <span className={styles.compactTitle}>
-              {activeTab === 'room' && roomCode ? `房间 ${roomCode}` : 'P2P 对局已直连'}
+              {method === 'room' && roomCode ? `房间 ${roomCode}` : 'P2P 对局已直连'}
             </span>
           </div>
           <button
@@ -218,14 +220,14 @@ export const LegacyConnectionPanel: React.FC<ConnectionPanelProps> = ({
           maxLength={12}
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="输入昵称后才能创建 / 加入房间"
+          placeholder="输入昵称"
           autoComplete="off"
           className={styles.nameInput}
         />
       </label>
 
       {/* 执子身份与切换按钮（显式提供按钮切换执黑/执白，可随时发起协商确认） */}
-      <div id="role-select-box" className={`${styles.colorSection} color-section`}>
+      {!roomHeadingExternal && <div id="role-select-box" className={`${styles.colorSection} color-section`}>
         <div className={styles.colorHeader}>
           <span className={styles.colorLabel}>当前执子</span>
           <span className={`${styles.colorBadge} ${myColor === BLACK ? styles.badgeBlack : styles.badgeWhite}`}>
@@ -236,38 +238,22 @@ export const LegacyConnectionPanel: React.FC<ConnectionPanelProps> = ({
         <button
           id="toggle-color-btn"
           type="button"
-          className={`${styles.btn} ${styles.btnSmall} ${styles.grow} btn small`}
+          className={`${styles.btn} ${styles.colorSwitch} btn small`}
+          aria-label={colorSwitchLabel}
+          title={colorSwitchLabel}
           onClick={onToggleColor}
         >
-          {connected ? '申请换边（切换执黑/执白）' : myColor === BLACK ? '切换为执白' : '切换为执黑'}
+          切换
         </button>
-      </div>
-
-      {/* 联机方式切换标签页 */}
-      <div className={`${styles.tabs} tabs`}>
-
-        <button
-          className={`${styles.tab} ${activeTab === 'room' ? `${styles.active} active` : ''} tab`}
-          data-tab="room"
-          onClick={() => setActiveTab('room')}
-        >
-          房间联机
-        </button>
-        <button
-          className={`${styles.tab} ${activeTab === 'manual' ? `${styles.active} active` : ''} tab`}
-          data-tab="manual"
-          onClick={() => setActiveTab('manual')}
-        >
-          邀请对局
-        </button>
-      </div>
+      </div>}
 
       {/* ======================= 标签页 1：房间联机（需信令服务器） ======================= */}
-      <div
+      {method === 'room' && <div
         id="tab-room"
-        className={`tab-panel ${activeTab === 'room' ? '' : 'hidden'}`}
-        style={{ display: activeTab === 'room' ? 'flex' : 'none', flexDirection: 'column', gap: '12px' }}
+        className="tab-panel"
+        style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
       >
+        {showRoomSetup && <>
         <p className={`${styles.manualTip} manual-tip`}>
           输入 4 位房间号或点击「创建房间」，系统将通过信令服务器自动完成 P2P 直连配对。
         </p>
@@ -277,10 +263,9 @@ export const LegacyConnectionPanel: React.FC<ConnectionPanelProps> = ({
           <button
             id="create-room-btn"
             className={`${styles.btn} ${styles.btnPrimary} ${styles.grow} btn primary grow`}
-            disabled={isFileProtocol}
             onClick={onCreateRoom}
           >
-            {flow === 'connected' ? '换房' : '创建房间'}
+            {roomCode ? '创建新房间' : '创建房间'}
           </button>
         </div>
 
@@ -299,25 +284,25 @@ export const LegacyConnectionPanel: React.FC<ConnectionPanelProps> = ({
             onChange={(e) => setInputRoomCode(e.target.value.toUpperCase())}
             placeholder="房间号"
             autoComplete="off"
-            disabled={isFileProtocol}
           />
           <button
             id="join-room-btn"
             className={`${styles.btn} ${styles.grow} btn grow`}
-            disabled={isFileProtocol}
             onClick={onJoinRoom}
           >
             加入房间
           </button>
         </div>
 
+        </>}
+
         {/* 房间信息与链接复制 */}
         <div
-          id="room-info"
+          id={roomHeadingExternal ? undefined : 'room-info'}
           className={`${styles.roomInfo} room-info ${roomCode ? '' : 'hidden'}`}
           style={{ display: roomCode ? 'flex' : 'none' }}
         >
-          <div className={`${styles.roomInfoLine} room-info-line`}>
+          {!roomHeadingExternal && <div className={`${styles.roomInfoLine} room-info-line`}>
             房间号 <b id="room-code-text">{roomCode}</b>
             <button
               id="copy-link-btn"
@@ -326,27 +311,26 @@ export const LegacyConnectionPanel: React.FC<ConnectionPanelProps> = ({
             >
               复制邀请链接
             </button>
-          </div>
+          </div>}
           <div id="room-status" className={`${styles.statusLine} status-line`}>
             {roomStatus || '等待对手加入…'}
           </div>
+          <button id="switch-room-btn" type="button" className={`${styles.btn} ${styles.btnSmall} ${styles.btnGhost}`}
+            onClick={() => setIsSwitchingRoom(value => !value)}>
+            {isSwitchingRoom ? '取消切换' : '切换房间'}
+          </button>
+          <button id="room-ai-btn" type="button" className={`${styles.btn} ${styles.btnPrimary}`} onClick={onStartAi}>
+            人机对弈
+          </button>
         </div>
 
-        {/* file:// 离线协议下的警示提示 */}
-        <p
-          id="file-tip"
-          className={`${styles.manualTip} manual-tip`}
-          style={{ display: isFileProtocol ? 'block' : 'none' }}
-        >
-          当前是 file:// 本地打开，房间联机不可用；请通过服务器访问，或切换到「邀请对局」标签页。
-        </p>
-      </div>
+      </div>}
 
       {/* ======================= 标签页 2：邀请对局（无服务器 Vanilla ICE） ======================= */}
-      <div
+      {method === 'manual' && <div
         id="tab-manual"
-        className={`tab-panel ${activeTab === 'manual' ? '' : 'hidden'}`}
-        style={{ display: activeTab === 'manual' ? 'flex' : 'none', flexDirection: 'column', gap: '12px' }}
+        className="tab-panel"
+        style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
       >
         <p className={`${styles.manualTip} manual-tip`}>
           无需服务器：双方通过微信互发连接码，即可建立 P2P 直连。
@@ -589,7 +573,7 @@ export const LegacyConnectionPanel: React.FC<ConnectionPanelProps> = ({
               : undefined
           }
         />
-      </div>
+      </div>}
     </div>
   );
 };

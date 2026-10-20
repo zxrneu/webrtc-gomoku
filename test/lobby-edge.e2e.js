@@ -79,9 +79,10 @@ async function scenario(name, fn) {
           for (const p of [a, b]) {
             assert.deepEqual(await p.evaluate(() => window.__gomoku.moves), expected);
             await p.waitForFunction(() => !!window.__gomoku.peerName && window.__gomoku.peerCapabilities?.audio === true);
-            await p.getByRole('tab', { name: /聊天/ }).click();
+
+            await p.getByRole('button', { name: /^打开聊天/ }).click();
             await p.locator('#chat-voice-btn:enabled').waitFor({ state: 'visible' });
-            await p.getByRole('tab', { name: '对局', exact: true }).click();
+            await p.getByRole('button', { name: '收起聊天', exact: true }).click();
           }
         };
         await b.reload(); await check();

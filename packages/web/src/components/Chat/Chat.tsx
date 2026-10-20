@@ -182,7 +182,10 @@ export const Chat: React.FC<ChatProps> = ({
             disabled={!connected || !media.capabilities.audio}
             onClick={media.onStartRecord}
           >
-            <span aria-hidden="true">🎤</span> 语音消息
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+              <rect x="8" y="2" width="8" height="13" rx="4" />
+              <path d="M5 11a7 7 0 0 0 14 0M12 18v4M9 22h6" />
+            </svg>
           </button>
         )}
 
@@ -214,10 +217,14 @@ export const Chat: React.FC<ChatProps> = ({
             <button
               id="chat-send-btn"
               type="submit"
+              aria-label="发送消息"
+              title="发送消息"
               disabled={!connected || !text.trim()}
-              className={`${styles.btn} btn small`}
+              className={styles.sendBtn}
             >
-              发送
+              <svg width="25" height="25" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+                <path d="M10.9 2.8a1.2 1.2 0 0 1 2.2 0l8 17.5c.5 1.1-.6 2.2-1.7 1.7L12 18.2 4.6 22c-1.1.5-2.2-.6-1.7-1.7Z" />
+              </svg>
             </button>
           </>
         )}

@@ -1,217 +1,50 @@
-/**
- * 人机设置卡样式（复用全局 .card 暖白卡面，与 ConnectionPanel 视觉同源）
- */
-
-.aiCard {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px 18px;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
-}
-
-.head {
+.settings {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.title {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-main);
-}
-
-.badge {
-  padding: 3px 10px;
-  border-radius: var(--radius-pill);
-  background: var(--accent-soft);
-  color: var(--accent);
+.difficulty {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
-  font-weight: 700;
-  line-height: 1.4;
-}
-
-.field {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.label {
-  flex: none;
-  width: 42px;
-  font-size: 13px;
+  font-weight: 600;
   color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .select {
-  flex: 1;
-  min-width: 0;
-  padding: 7px 10px;
+  width: 78px;
+  min-height: 32px;
+  padding: 4px 8px;
   border: 1px solid var(--card-border);
   border-radius: var(--radius-sm);
   background: #fffdf8;
-  color: var(--text-main);
-  font-family: var(--font-family);
-  font-size: 13px;
+  color: var(--accent);
+  font: inherit;
   cursor: pointer;
 }
 
 .select:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline-offset: 2px;
 }
 
-.hint {
-  margin: -4px 0 0;
+.note {
+  flex-basis: 100%;
+  margin: 0;
   font-size: 12px;
   color: var(--accent);
 }
 
-.segmented {
-  display: inline-flex;
-  flex: 1;
-  gap: 2px;
-  padding: 3px;
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-pill);
-  background: rgba(120, 95, 55, 0.07);
-}
-
-.segment {
-  flex: 1;
-  padding: 6px 8px;
-  border: none;
-  border-radius: var(--radius-pill);
-  background: transparent;
+.status {
+  font-size: 12px;
   color: var(--text-muted);
-  font-family: var(--font-family);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.2;
-  cursor: pointer;
-  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
 }
 
-.segment:hover {
-  color: var(--text-main);
+@media (max-width: 640px) {
+  .settings { justify-content: space-between; }
+  .status { display: none; }
 }
-
-.segmentActive {
-  background: var(--card-bg);
-  color: var(--accent);
-  box-shadow: var(--shadow-sm);
-}
-
-.players {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
-  background: rgba(120, 95, 55, 0.05);
-}
-
-.playerRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--text-main);
-}
-
-.stone {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  flex: none;
-}
-
-.stoneBlack {
-  background: radial-gradient(circle at 35% 32%, #555 0%, #050505 100%);
-}
-
-.stoneWhite {
-  background: radial-gradient(circle at 35% 32%, #ffffff 0%, #cfc9be 100%);
-  border: 1px solid #b0a99d;
-}
-
-.playerName {
-  font-weight: 600;
-}
-
-.actions {
-  display: flex;
-  gap: 8px;
-}
-
-.btn {
-  flex: 1;
-  padding: 8px 12px;
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-sm);
-  background: #fffdf8;
-  color: var(--text-main);
-  font-family: var(--font-family);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
-}
-
-.btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.btnPrimary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-.btnPrimary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  color: #fff;
-}
-
-.thinking {
-  margin: 0;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 13px;
-  font-weight: 600;
-  text-align: center;
-}
-
-.meta {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-light);
-  text-align: center;
-}
-
-.hintCard {
-  padding: 12px;
-  border: 1px solid rgba(13, 148, 136, 0.25);
-  border-radius: var(--radius-md);
-  background: rgba(13, 148, 136, 0.05);
-}
-.hintCard > button { width: 100%; color: #0f766e; }
-.hintTitle { margin: 12px 0 8px; font-size: 13px; color: #0f766e; font-weight: 700; }
-.reasons { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.7; color: var(--text-main); }
-.reasons li + li { margin-top: 6px; }
-.hintNote { margin: 8px 0 0; font-size: 12px; line-height: 1.6; color: var(--text-muted); }

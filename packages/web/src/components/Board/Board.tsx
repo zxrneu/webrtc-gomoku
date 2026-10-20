@@ -59,6 +59,11 @@ interface BoardProps {
    */
   aiColor?: PlayerColor;
   hintPoint?: Point | null;
+  extraActions?: React.ReactNode;
+  actionDetails?: React.ReactNode;
+  players?: React.ReactNode;
+  heading?: React.ReactNode;
+  roomView?: boolean;
 }
 
 
@@ -115,6 +120,11 @@ export const Board: React.FC<BoardProps> = ({
   thinking = false,
   aiColor,
   hintPoint,
+  extraActions,
+  actionDetails,
+  players,
+  heading,
+  roomView = false,
 }) => {
 
   /** Canvas DOM 节点的引用，用于获取 2D 渲染上下文 (CanvasRenderingContext2D) */
@@ -452,11 +462,14 @@ export const Board: React.FC<BoardProps> = ({
   };
 
   return (
-    <section className={`${styles.boardCard} card board-card`}>
+    <section className={`${styles.boardCard} ${roomView ? styles.roomMatch : ''} card board-card`}>
+      {players}
+      {heading}
       <div className={`${styles.boardWrap} board-wrap`}>
         {/* HTML5 棋盘画板 */}
         <canvas
           id="board"
+          tabIndex={roomView ? 0 : undefined}
           ref={canvasRef}
           width={CANVAS_SIZE}
           height={CANVAS_SIZE}
@@ -525,7 +538,8 @@ export const Board: React.FC<BoardProps> = ({
       </div>
 
       {/* 棋盘下方操作栏（悔棋、重开、音效开关与回合提示） */}
-      <div className={`${styles.boardActions} board-actions`}>
+      <div className={`${styles.boardActions} ${extraActions ? styles.withExtras : ''} board-actions`}>
+        {extraActions}
         <button
           id="undo-btn"
           className={`${styles.btn} btn`}
@@ -565,6 +579,7 @@ export const Board: React.FC<BoardProps> = ({
           {turnText}
         </span>
       </div>
+      {actionDetails && <div className={styles.actionDetails}>{actionDetails}</div>}
     </section>
   );
 };

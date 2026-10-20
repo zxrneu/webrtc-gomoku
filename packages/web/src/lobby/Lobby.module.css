@@ -104,41 +104,75 @@
   .globalNotice { bottom: max(16px, env(safe-area-inset-bottom)); left: 16px; }
 }
 @media (prefers-reduced-motion: reduce) { .panel *, .nav * { transition: none !important; animation: none !important; } }
-.overview, .browse { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-.page { min-height: 100vh; background: radial-gradient(ellipse at 0 0, #f2eadb, transparent 65%), #f9f6ef; color: var(--text-main); }
-.pageHeader { max-width: 1160px; margin: auto; padding: 28px 32px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.brand { display: flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; }
-.brand strong { font-size: 21px; letter-spacing: 2px; }
-.brand strong > span { display: block; font-size: 11px; letter-spacing: 1px; font-weight: 400; color: var(--text-muted); margin-top: 5px; }
-.brandStones { display: flex; gap: 4px; background: #ebe4d8; border-radius: 30px; padding: 7px; }
-.brandStones i { width: 20px; height: 20px; background: #2b2922; border-radius: 50%; box-shadow: 0 2px 4px #30281d25; }
+/* 大厅首屏：身份、开局操作、列表按顺序紧凑排列。 */
+.overview { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 12px; }
+.browse { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.page { min-height: 100dvh; background: radial-gradient(ellipse at 0 0, #f2eadb, transparent 65%), #f9f6ef; color: var(--text-main); }
+.pageHeader { max-width: 1080px; margin: auto; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.brand { display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; }
+.brand strong { font-size: 20px; letter-spacing: 2px; }
+.brandStones { display: flex; gap: 4px; background: #ebe4d8; border-radius: 30px; padding: 6px; }
+.brandStones i { width: 18px; height: 18px; background: #2b2922; border-radius: 50%; box-shadow: 0 2px 4px #30281d25; }
 .brandStones i + i { background: white; border: 1px solid #d5cbbb; }
-.backGame { min-height: 44px; padding: 10px 18px; border: 1px solid #ded4c3; border-radius: 24px; background: #fffdf8; color: var(--text-main); font-size: 13px; }
+.backGame { min-height: 36px; padding: 7px 12px; border: 1px solid #ded4c3; border-radius: 20px; background: #fffdf8; color: var(--text-main); font-size: 12px; }
 .backGame:hover { background: #eee6d8; }
-.backGame span { margin-left: 12px; }
-.pageMain { max-width: 1160px; margin: auto; padding: 30px 32px 26px; }
-.pageIntro { margin-bottom: 34px; }
-.pageIntro p { color: var(--accent); font-size: 12px; letter-spacing: 3px; margin: 0 0 14px; }
-.pageIntro h1 { font-size: clamp(25px, 3.5vw, 38px); font-weight: 600; letter-spacing: -1px; margin: 0 0 13px; }
-.pageIntro > span { color: var(--text-muted); font-size: 14px; line-height: 1.7; }
-.page .panel { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 0 40px; padding: 30px; min-height: 440px; box-shadow: 0 12px 50px #4e39100a; }
-.page .overview { padding-right: 28px; border-right: 1px solid #ece4d7; }
-.page .browse .listHead { border-top: 0; padding-top: 0; }
-.page .userRow { padding: 15px 0; }
-.page .footer { grid-column: 1 / -1; margin-top: 24px; }
-.page .empty { padding: 24px 10px; }
-.pageFoot { text-align: center; color: var(--text-muted); font-size: 12px; letter-spacing: 1px; margin: 24px 0 0; }
-@media (max-width: 760px) {
-  .pageHeader { padding: 20px; }
-  .pageMain { padding: 14px 16px 28px; }
-  .pageIntro { margin-bottom: 24px; padding: 0 4px; }
-  .page .panel { display: flex; padding: 22px 18px 14px; gap: 22px; min-height: 0; }
-  .page .overview { padding: 0; border: 0; }
-  .page .browse { border-top: 1px solid #ece4d7; padding-top: 14px; }
-  .sections button { min-height: 48px; font-size: 16px; padding: 10px 4px; }
-  .page .footer { margin-top: 0; }
+.backGame span { margin-left: 6px; }
+.pageMain { max-width: 1080px; margin: auto; padding: 0 24px 24px; }
+.page .panel { padding: 20px; gap: 18px; border-radius: 16px; }
+.heading { padding: 0; }
+.heading h2 { margin: 0; font-size: 18px; }
+.identity { gap: 6px; padding: 0; background: transparent; min-width: 0; max-width: 280px; }
+.identity .avatar, .identity small { display: none; }
+.identity strong { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.identity button { min-height: 32px; font-size: 12px !important; padding: 0 6px; }
+.stats { grid-column: 1 / -1; font-size: 12px; }
+.notice, .overview > .empty { grid-column: 1 / -1; }
+.launch { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(210px, 1.2fr); gap: 10px; margin-top: 4px; }
+.launch .matchButton, .launch .create, .aiEntry { min-height: 60px !important; width: 100%; padding: 10px 12px; border-radius: 10px !important; display: flex; gap: 8px; align-items: center; text-align: left; }
+.launch strong { font-size: 15px; display: block; white-space: nowrap; }
+.launch small { font-size: 11px; display: block; color: var(--text-muted); margin-top: 4px; line-height: 1.5; }
+.launch .matchButton small { color: #fff; opacity: .85; }
+.launch button > span:first-child:not(:only-child) { font-size: 22px; }
+.aiEntry { order: 2; background: #fff9ed; color: #92400e; border: 1px solid #e3cfaf; }
+.aiEntry:hover { background: #f7ecd6; }
+.joinForm { order: 3; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.joinForm input { width: 100%; min-width: 0; height: 40px; padding: 8px; border: 1px solid #ded6c8; border-radius: 8px; background: white; color: var(--text-main); font-size: 16px; text-transform: uppercase; }
+.joinForm button { white-space: nowrap; min-height: 40px; padding: 8px; font-size: 12px !important; }
+.launch > .roomSummary, .launch > .matching, .launch > .invitation { grid-column: 1 / 4; }
+.filters { display: flex; align-items: center; gap: 12px; }
+.search { flex: 1; min-width: 0; }
+.search input { padding: 9px 10px; min-height: 40px; }
+.check { flex: none; white-space: nowrap; margin: 0; font-size: 12px; }
+.listHead { padding-top: 12px; }
+.sections { flex: 0 1 330px; padding: 3px; border-radius: 9px; }
+.sections button { min-height: 38px; padding: 7px 12px; font-size: 14px; }
+.userRow { padding: 10px 0; }
+.userText { gap: 4px; }
+.userText > strong { font-size: 14px; }
+.inviteButton { min-height: 36px !important; padding: 7px 10px; }
+.nameForm { max-width: 260px; }
+@media (max-width: 900px) {
+  .launch { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .joinForm { grid-column: 1 / -1; }
+  .launch > .roomSummary, .launch > .matching, .launch > .invitation { grid-column: 1 / 3; }
+}
+@media (max-width: 600px) {
+  .pageHeader { padding: 12px; }
+  .pageMain { padding: 0 8px 16px; }
+  .page .panel { padding: 12px; gap: 12px; }
   .brand strong { font-size: 18px; }
-  .brand strong > span { font-size: 10px; }
-  .backGame { padding: 8px 12px; }
-  .backGame span { margin-left: 4px; }
+  .heading h2 { font-size: 16px; }
+  .identity { max-width: 170px; }
+  .launch { gap: 8px; }
+  .launch .matchButton, .launch .create, .aiEntry { justify-content: center; padding: 10px 4px; min-height: 48px !important; gap: 4px; }
+  .launch small, .launch button > span:first-child:not(:only-child) { display: none; }
+  .launch strong { font-size: 14px; }
+  .filters { gap: 8px; }
+  .check { font-size: 11px; gap: 4px; }
+  .sections { flex: 1; }
+  .sections button { min-height: 40px; }
+  .refresh { width: 36px; min-height: 40px !important; }
+  .nameForm { grid-column: 1 / -1; max-width: none; }
+  .launch > .roomSummary, .launch > .matching, .launch > .invitation { grid-column: 1 / -1; }
+  .launch:has(> .roomSummary) .aiEntry, .launch:has(> .matching) .aiEntry, .launch:has(> .invitation) .aiEntry { grid-column: 1 / -1; }
 }

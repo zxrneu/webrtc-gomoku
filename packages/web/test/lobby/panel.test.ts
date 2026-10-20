@@ -15,15 +15,29 @@ function render(current = view) {
 }
 
 describe('大厅界面行为表达', () => {
+  it('首页提供房间号加入入口，并使用玩家能理解的统计', () => {
+    const html = render();
+    expect(html).toContain('id="lobby-room-code"');
+    expect(html).toContain('加入房间');
+    expect(html).not.toContain('个会话');
+    expect(html).not.toContain('同一浏览器');
+  });
+  it('棋友列表不展示内部会话编号，忙碌状态说明等待对手', () => {
+    const html = render({ ...view, state: { ...view.state!, users: [{ id: 'raw-secret-id', name: '竹影', status: 'waiting' }] } });
+    expect(html).not.toContain('secret-id');
+    expect(html).toContain('等待对手');
+    expect(html).not.toContain('不可邀请');
+  });
   it('匹配与开桌都明确说明进入对局的方式', () => {
     const html = render();
-    expect(html).toContain('随机找一位在线玩家');
+    expect(html).toContain('与正在匹配的棋友配对');
     expect(html).toContain('创建公开房间，等棋友加入');
   });
   it('提供在线棋友与房间广场，空闲用户可邀请，自己不能自邀', () => {
     const html = render(); expect(html).toContain('在线棋友'); expect(html).toContain('房间广场');
-    expect(html.match(/data-invite-user=/g)).toHaveLength(2);
-    expect(html).toContain('你'); expect(html).toContain('对局中'); expect(html).toContain('不可邀请');
+    expect(html.match(/data-invite-user=/g)).toHaveLength(1);
+    expect(html.match(/小明/g)).toHaveLength(1); expect(html).toContain('对弈中');
+    expect(html).not.toContain('不可邀请'); expect(html).not.toContain('data-invite-user="busy"');
   });
   it('受邀方有明确接受和拒绝动作', () => {
     const html = render({ ...view, state: { ...view.state!, invite: { id: 'i', from: { id: 'other', name: '小红' },

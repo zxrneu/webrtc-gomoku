@@ -22,6 +22,17 @@
   min-width: 0;
 }
 
+.roomLayout {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 660px;
+  align-items: start;
+  gap: 0;
+}
+
+.layout:has(:global(#ai-card)) .roomLayout { --board-reserve: 340px; }
+
+.layout:has(:global(#conn-banner)) .roomLayout { --board-reserve: 365px; }
+
 @media (min-width: 981px) {
   .layout {
     height: 100vh;
@@ -31,8 +42,8 @@
   }
 
   .wrap {
-    height: calc(100vh - 62px);
-    height: calc(100dvh - 62px);
+    flex: 1;
+    min-height: 0;
     overflow: hidden;
     padding: 14px 20px;
   }
@@ -52,5 +63,6 @@
     padding: 14px;
     gap: 16px;
   }
+  .roomLayout { padding: 8px; gap: 0; }
 }
 

@@ -16,7 +16,7 @@
     "test": "vitest run",
     "test:legacy": "node test/core.test.js",
     "test:qr": "node test/qr-scan.test.js",
-    "test:e2e": "node test/e2e.js && node test/ai-e2e.js && node test/chat-e2e.js && node test/media-real-p2p.e2e.js && node test/lobby-e2e.js && node test/lobby-pagination.e2e.js && node test/lobby-protocol.e2e.js && node test/lobby-edge.e2e.js && pnpm test:https",
+    "test:e2e": "node test/e2e.js && node test/room-board.e2e.js && node test/ai-e2e.js && node test/chat-e2e.js && node test/media-real-p2p.e2e.js && node test/lobby-e2e.js && node test/lobby-pagination.e2e.js && node test/lobby-protocol.e2e.js && node test/lobby-edge.e2e.js && pnpm test:https",
     "ai:prove": "pnpm build:core && node scripts/ai-proof.mjs solve",
     "ai:verify": "pnpm build:core && node scripts/ai-proof.mjs verify",
     "ai:bench": "pnpm build:core && node scripts/ai-bench.mjs",

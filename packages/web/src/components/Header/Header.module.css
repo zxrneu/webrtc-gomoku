@@ -1,5 +1,6 @@
 .topbar {
   display: flex;
+  flex-shrink: 0;
   justify-content: space-between;
   align-items: center;
   padding: 10px 24px;
@@ -26,6 +27,10 @@
   gap: 12px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.gameControls {
+  min-width: 0;
 }
 
 .logo {
@@ -127,4 +132,28 @@
   .subtitle {
     display: none;
   }
+  .topbar {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .rightGroup {
+    width: 100%;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .gameControls { flex-basis: 100%; }
+  .compact { padding: 7px 10px; gap: 6px; flex-wrap: nowrap; }
+  .compact .titleGroup { gap: 7px; }
+  .compact .titleText h1 { font-size: 15px; white-space: nowrap; }
+  .compact .logo { padding: 4px 5px; gap: 3px; }
+  .compact .stoneBlack, .compact .stoneWhite { width: 14px; height: 14px; }
+  .compact .rightGroup { width: auto; flex-wrap: nowrap; }
+  .compact .badge { display: none; }
+}
+
+@media (max-width: 640px) {
+  .compact:has(.gameControls) { display: grid; grid-template-columns: auto 1fr; }
+  .compact:has(.gameControls) .rightGroup { display: contents; }
+  .compact:has(.gameControls) .rightGroup > :first-child { justify-self: end; }
+  .compact .gameControls { grid-column: 1 / -1; display: flex; justify-content: center; }
 }

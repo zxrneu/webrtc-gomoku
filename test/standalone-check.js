@@ -6,19 +6,21 @@ const path = require('node:path');
 const { chromium } = require('playwright');
 const FILE = 'file://' + path.join(__dirname, '..', 'dist', 'gomoku-standalone.html');
 (async () => {
-  const browser = await chromium.launch({ channel: 'chrome', args: ['--no-sandbox', '--disable-features=WebRtcHideLocalIpsWithMdns'] });
+  const browser = await chromium.launch({ channel: 'chrome', args: ['--no-sandbox', '--disable-features=WebRtcHideLocalIpsWithMdns',
+    '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
   const errors = [];
   try {
     const pages = [];
     for (const name of ['邀请人', '被邀请人']) {
-      const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+      // 允许本地 ICE 网卡，避免默认路由经过 VPN 时隐藏局域网候选；仅使用虚拟麦克风。
+      const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, permissions: ['microphone'] });
       const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
       await page.goto(FILE); await page.waitForFunction(() => !!window.__gomoku);
       assert.equal(await page.locator('#lobby-page').count(), 0);
       assert.equal(await page.locator('[data-online-tab="lobby"]').count(), 0);
-      assert.equal(await page.locator('#create-room-btn').isDisabled(), true);
-      assert.equal(await page.locator('#join-room-btn').isDisabled(), true);
-      await page.locator('.tab[data-tab="manual"]').click();
+      assert.equal(await page.locator('#create-room-btn').count(), 0);
+      assert.equal(await page.locator('#join-room-btn').count(), 0);
+      assert.equal(await page.locator('#tab-manual').isVisible(), true);
       await page.locator('#name-input').fill(name); pages.push(page);
     }
     const [host, guest] = pages;
@@ -32,7 +34,7 @@ const FILE = 'file://' + path.join(__dirname, '..', 'dist', 'gomoku-standalone.h
     await host.locator('#flow-host-in').fill(answer); await host.locator('#flow-host-finish').click();
     for (const page of pages) await page.waitForFunction(() => window.__gomoku.connected, null, { timeout: 20000 });
     assert.equal(await host.evaluate(() => window.__gomoku.dcState), 'open');
-    console.log('ok - 单文件没有大厅，房间入口禁用，手动信令真实 P2P 双向连通');
+    console.log('ok - 单文件直接显示手动邀请，无房间入口，真实 P2P 双向连通');
     await host.setViewportSize({ width: 375, height: 900 });
     assert.equal(await host.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     fs.mkdirSync('output/playwright', { recursive: true });

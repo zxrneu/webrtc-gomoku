@@ -13,6 +13,9 @@
  * 依赖：playwright（npm i playwright）与任一 Chromium 系浏览器
  */
 const { chromium } = require('playwright');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+const STANDALONE = pathToFileURL(path.resolve(__dirname, '..', 'dist', 'gomoku-standalone.html')).href;
 
 const BASE = process.env.BASE || 'http://localhost:3000';
 const CELL = 36;
@@ -49,7 +52,7 @@ async function launchBrowser() {
 (async () => {
   const browser = await launchBrowser();
 
-  async function newPlayerPage(name) {
+  async function newPlayerPage(name, url = BASE) {
     const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 }, permissions: ['microphone'] });
     const page = await ctx.newPage();
     page.on('pageerror', (e) => console.error(`[${name} pageerror]`, e.message));
@@ -86,8 +89,8 @@ async function launchBrowser() {
         for (const { channel, raw } of window.__gameplayTest.queue.splice(0)) send.call(channel, raw);
       };
     }, REQUIRE_RELAY);
-    await page.goto(BASE);
-    if (await page.locator('#lobby-page').count()) await page.getByRole('button', { name: /返回棋盘/ }).click();
+    await page.goto(url);
+    if (await page.locator('#lobby-page').count()) await page.locator('#lobby-board-btn').click();
     if (await page.locator('[data-online-tab="room"]').count()) await page.locator('[data-online-tab="room"]').click();
     return page;
   }
@@ -142,6 +145,20 @@ async function launchBrowser() {
   console.log('== 阶段一：房间联机信令链路 ==');
   const pageA = await newPlayerPage('A');
   const pageB = await newPlayerPage('B');
+  for (const width of [320, 375, 1400]) {
+    await pageA.setViewportSize({ width, height: 1000 });
+    const layout = await pageA.locator('#role-select-box').evaluate(el => {
+      const row = el.getBoundingClientRect();
+      const button = el.querySelector('button').getBoundingClientRect();
+      const label = el.querySelector('span').getBoundingClientRect();
+      return {
+        compact: row.height <= 52 && button.height <= 36 && button.width <= 64,
+        inline: button.left >= label.right && Math.abs(button.top + button.height / 2 - label.top - label.height / 2) <= 2,
+        contained: button.right <= row.right && label.left >= row.left,
+      };
+    });
+    check(`${width}px 执子栏和切换按钮紧凑且同排不溢出`, layout.compact && layout.inline && layout.contained);
+  }
   await pageA.fill('#name-input', '小明');
   await pageB.fill('#name-input', '小红');
 
@@ -265,8 +282,10 @@ async function launchBrowser() {
   await pageA.screenshot({ path: 'test/e2e-win.png' });
 
   // 聊天
-  await pageA.getByRole('tab', { name: /聊天/ }).click();
-  await pageB.getByRole('tab', { name: /聊天/ }).click();
+
+  await pageA.getByRole('button', { name: /^打开聊天/ }).click();
+
+  await pageB.getByRole('button', { name: /^打开聊天/ }).click();
   if (p2p) {
     await pageA.fill('#chat-input', '你好呀');
     await pageA.click('#chat-send-btn');
@@ -280,8 +299,8 @@ async function launchBrowser() {
     await pageA.evaluate(() => window.__gomoku.deliver({ t: 'hello', name: '小红' }));
   }
   check('聊天消息送达对端', true);
-  await pageA.getByRole('tab', { name: '对局', exact: true }).click();
-  await pageB.getByRole('tab', { name: '对局', exact: true }).click();
+  await pageA.getByRole('button', { name: '收起聊天', exact: true }).click();
+  await pageB.getByRole('button', { name: '收起聊天', exact: true }).click();
 
   // 重新开始（请求-同意）
   await pageA.click('#restart-btn');
@@ -371,10 +390,10 @@ async function launchBrowser() {
   check('换边后执白方A提示对方思考中', turnTextA.includes('对方思考中'));
   check('换边后执黑方B提示轮到你落子', turnTextB.includes('轮到你落子'));
 
-  const roleA = (await pageA.textContent('#role-select-box')).trim();
-  const roleB = (await pageB.textContent('#role-select-box')).trim();
-  check('换边后A控制面板显示执白（后手）', roleA.includes('执白（后手）'));
-  check('换边后B控制面板显示执黑（先行）', roleB.includes('执黑（先行）'));
+  const roleA = await pageA.locator('#toggle-color-btn').getAttribute('aria-label');
+  const roleB = await pageB.locator('#toggle-color-btn').getAttribute('aria-label');
+  check('换边后A棋盒之间的按钮显示当前执白', roleA.includes('当前执白'));
+  check('换边后B棋盒之间的按钮显示当前执黑', roleB.includes('当前执黑'));
 
   // 1.2 验证始终由执黑方首手落子：白方落子被拒，黑方可落子
   if (p2p) {
@@ -492,7 +511,8 @@ async function launchBrowser() {
   } else {
     await pageB.evaluate(() => window.__gomoku.deliver({ t: 'move', x: 7, y: 7 }));
   }
-  await pageA.getByRole('tab', { name: /聊天/ }).click();
+
+  await pageA.getByRole('button', { name: /^打开聊天/ }).click();
   await pageA.fill('#chat-input', '上一局的消息');
   await pageA.click('#chat-send-btn');
   if (!p2p) await pageB.evaluate(() => window.__gomoku.deliver({ t: 'chat', text: '上一局的消息' }));
@@ -508,11 +528,13 @@ async function launchBrowser() {
     beforeSwitch.moves === 1 && beforeSwitch.mine >= 1 && beforeSwitch.peerName === '小红'
   );
 
-  await pageA.getByRole('tab', { name: '对局', exact: true }).click();
+  await pageA.getByRole('button', { name: '收起聊天', exact: true }).click();
 
   // A 在同一页面直接创建新房间（不刷新页面），旧房间号极小概率重复则重试
   let room2 = room;
   for (let i = 0; i < 3 && room2 === room; i++) {
+
+    await pageA.click('#switch-room-btn');
     await pageA.click('#create-room-btn');
     await pageA.waitForTimeout(400);
     room2 = (await pageA.textContent('#room-code-text')).trim();
@@ -548,7 +570,7 @@ async function launchBrowser() {
     sysText: Array.from(document.querySelectorAll('#chat-list .msg.sys'))
       .map((el) => el.textContent || '')
       .join(' | '),
-    status: document.getElementById('room-status').textContent.trim(),
+    status: document.getElementById('room-info').textContent.trim(),
     state: window.__gomoku.connState,
   }));
   check(`对手离开后 B 保留原房间号 ${afterB.room}`, afterB.room === room);
@@ -556,7 +578,7 @@ async function launchBrowser() {
   check('对手离开后 B 对手昵称清空', afterB.peerName === '');
   // 契约变更（QA 缺陷 1 修复）：对手真的离开后不再停在「未连接 / FAILED」，
   // 而是清盘 + 回到同一房间「等待对手加入」；「对手已离开」改由系统消息承载。
-  check(`对手离开后 B 状态提示「等待对手加入」（${afterB.status}）`, afterB.status.includes('等待对手加入'));
+  check(`对手离开后 B 状态提示「等待对手加入」（${afterB.status}）`, afterB.status.includes('等棋友'));
   check(`对手离开后 B 有「对手已离开」系统消息（${afterB.sysText}）`, afterB.sysText.includes('对手已离开'));
   check(`对手离开后 B 不是 FAILED（${afterB.state}）`, afterB.state === 'ROOM_WAITING');
 
@@ -575,6 +597,8 @@ async function launchBrowser() {
   await clickCell(black, 7, 7, 1);
   await white.waitForFunction(() => window.__gomoku.moves.length === 1, null, { timeout: 5000 });
   check('角色交接后双方落子同步', (await state(black)).myColor !== (await state(white)).myColor);
+
+  await replacement.click('#switch-room-btn');
   await replacement.click('#create-room-btn');
   await pageB.waitForFunction(() => !window.__gomoku.connected && window.__gomoku.connState === 'ROOM_WAITING', null, { timeout: 8000 });
   await replacement.context().close();
@@ -583,6 +607,8 @@ async function launchBrowser() {
   // 验证本测试的房间仍能接入和协商，避免依赖会被其他玩家/宽限回收影响的全局房间数。
   const roomBeforeBadJoin = await pageA.evaluate(() => window.__gomoku.room);
   const peersBeforeBadJoin = await pageA.evaluate(() => window.__gameplayTest.peers.length);
+
+  await pageA.click('#switch-room-btn');
   await pageA.fill('#room-input', 'ZZZZ');
   await pageA.click('#join-room-btn');
   const toastText = await pageA
@@ -600,6 +626,8 @@ async function launchBrowser() {
   const roomAfterBadJoin = await pageA.evaluate(() => window.__gomoku.room);
   check(`输错房号提示「房间 ZZZZ 不存在」（${toastText}）`, toastText.includes('不存在'));
   check(`输错房号后 A 仍在原房间 ${roomAfterBadJoin}`, roomAfterBadJoin === roomBeforeBadJoin);
+
+  await pageB.click('#switch-room-btn');
   await pageB.fill('#room-input', roomBeforeBadJoin);
   await pageB.click('#join-room-btn');
   const originalRoomRetained = await Promise.all([
@@ -611,12 +639,12 @@ async function launchBrowser() {
   check('输错房号后原房间仍能接入，原玩家仍能完成双方协商', originalRoomRetained);
 
   console.log('== 阶段三：邀请对局（手动信令 · 微信互发） ==');
-  const pageC = await newPlayerPage('C');
-  const pageD = await newPlayerPage('D');
+  const pageC = await newPlayerPage('C', STANDALONE);
+  const pageD = await newPlayerPage('D', STANDALONE);
   await pageC.fill('#name-input', '小刚');
   await pageD.fill('#name-input', '小美');
-  await pageC.click('[data-online-tab="manual"]');
-  await pageD.click('[data-online-tab="manual"]');
+  check('服务器版不渲染手动信令', await pageA.locator('#tab-manual').count() === 0);
+  check('独立 HTML 直接展示手动信令', await pageC.locator('#tab-manual').isVisible());
 
   // C 创建房间（邀请方）→ 生成邀请码
   await pageC.click('#flow-host-btn');

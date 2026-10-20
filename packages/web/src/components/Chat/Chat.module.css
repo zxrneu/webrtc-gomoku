@@ -70,13 +70,15 @@
 }
 
 .chatInputRow {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 44px 44px minmax(0, 1fr) auto;
   gap: 8px;
   flex-shrink: 0;
 }
 
 .chatInput {
+  grid-column: 1 / 4;
+  grid-row: 2;
   flex: 1;
   flex-basis: 120px;
   min-width: 0;
@@ -131,6 +133,8 @@
 /* ---------- 富媒体（M7）：输入工具、气泡、进度 ---------- */
 
 .iconBtn {
+  grid-row: 1;
+  justify-self: start;
   flex-shrink: 0;
   width: 44px;
   min-height: 44px;
@@ -146,7 +150,31 @@
 .iconBtn:hover:not(:disabled) { border-color: var(--accent); background: #fdf8f0; }
 .iconBtn:disabled { opacity: 0.5; cursor: not-allowed; }
 .iconBtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.voiceBtn { width: auto; padding: 0 10px; font-size: 13px; white-space: nowrap; }
+.voiceBtn {
+  grid-column: 3;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-main);
+}
+.sendBtn {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #2f8e67;
+  color: #fff;
+  cursor: pointer;
+}
+.sendBtn:hover:not(:disabled) { background: #247550; }
+.sendBtn:disabled { background: #d9e8de; cursor: not-allowed; }
+.sendBtn:focus-visible { outline: 2px solid #2f8e67; outline-offset: 3px; }
 .voiceHint { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
 
 .mediaItem { display: flex; flex-direction: column; gap: 4px; max-width: 100%; }
@@ -194,6 +222,8 @@
 .cancelLink { border: 0; background: none; padding: 0; color: var(--accent-hover); font-size: 11px; font-weight: 600; cursor: pointer; text-decoration: underline; }
 
 .recordingBar {
+  grid-column: 1 / -1;
+  grid-row: 2;
   flex: 1;
   display: flex;
   align-items: center;
@@ -217,10 +247,14 @@
   cursor: pointer;
 }
 
+.chatInputRow > :global(#chat-send-btn) { grid-column: 4; grid-row: 2; min-height: 44px; }
+
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @media (max-width: 480px) {
+  .chatCard { padding: 12px; gap: 8px; }
+  .chatInputRow { grid-template-columns: 38px 38px minmax(0, 1fr) auto; gap: 6px; }
   .iconBtn { width: 38px; min-height: 40px; font-size: 16px; }
-  .voiceBtn { width: auto; font-size: 13px; }
+  .voiceBtn { width: 44px; min-height: 44px; }
   .imageBubble { max-width: 180px; }
   .transferBubble { min-width: 160px; }
 }

@@ -9,7 +9,7 @@ const BASE = process.env.BASE || 'http://localhost:3000';
     for (const width of [1440, 1024, 768, 375]) {
       const page = await browser.newPage({ viewport: { width, height: 900 } });
       await page.goto(BASE);
-      if (await page.locator('#lobby-page').count()) await page.getByRole('button', { name: /返回棋盘/ }).click();
+      if (await page.locator('#lobby-page').count()) await page.locator('#lobby-board-btn').click();
       await page.waitForFunction(() => !!window.__gomoku);
       const gameTab = page.getByRole('tab', { name: '对局', exact: true });
       const chatTab = page.getByRole('tab', { name: /聊天/ });
@@ -45,7 +45,10 @@ const BASE = process.env.BASE || 'http://localhost:3000';
       assert.equal(await page.locator('#chat-file-btn').isVisible(), true);
       assert.equal(await page.locator('#chat-voice-btn').isVisible(), true);
       assert.equal(await page.locator('#chat-voice-btn').isDisabled(), true);
-      assert.match(await page.locator('#chat-voice-btn').innerText(), /语音消息/);
+      assert.equal(await page.locator('#chat-voice-btn').getAttribute('aria-label'), '录制语音');
+      assert.equal(await page.locator('#chat-voice-btn svg').count(), 1);
+      assert.equal(await page.locator('#chat-send-btn').getAttribute('aria-label'), '发送消息');
+      assert.equal(await page.locator('#chat-send-btn svg').count(), 1);
       assert.match(await page.locator('#chat-voice-hint').innerText(), /对方/);
       await page.evaluate(() => {
         window.__gomoku.deliver({ t: 'media-meta', id: 'e2e-file-1', kind: 'file', name: 'note.txt', size: 5, mime: 'text/plain', chunkSize: 16384, chunks: 1 });
@@ -104,7 +107,7 @@ const BASE = process.env.BASE || 'http://localhost:3000';
         status: 200, contentType: 'text/html; charset=utf-8', body: html,
       }));
       await page.goto('http://gomoku-insecure.test/');
-      if (await page.locator('#lobby-page').count()) await page.getByRole('button', { name: /返回棋盘/ }).click();
+      if (await page.locator('#lobby-page').count()) await page.locator('#lobby-board-btn').click();
       await page.waitForFunction(() => !!window.__gomoku);
       assert.equal(await page.evaluate(() => window.isSecureContext), false);
       await page.evaluate(() => {
@@ -114,7 +117,10 @@ const BASE = process.env.BASE || 'http://localhost:3000';
       await page.getByRole('tab', { name: /聊天/ }).click();
       assert.equal(await page.locator('#chat-voice-btn').isVisible(), true);
       assert.equal(await page.locator('#chat-voice-btn').isDisabled(), true);
-      assert.match(await page.locator('#chat-voice-btn').innerText(), /语音消息/);
+      assert.equal(await page.locator('#chat-voice-btn').getAttribute('aria-label'), '录制语音');
+      assert.equal(await page.locator('#chat-voice-btn svg').count(), 1);
+      assert.equal(await page.locator('#chat-send-btn').getAttribute('aria-label'), '发送消息');
+      assert.equal(await page.locator('#chat-send-btn svg').count(), 1);
       assert.match(await page.locator('#chat-voice-hint').innerText(), /HTTPS/);
       console.log('  ok - 普通 HTTP 来源仍显示语音入口，并明确提示 HTTPS 要求');
     } finally { await response.close(); }

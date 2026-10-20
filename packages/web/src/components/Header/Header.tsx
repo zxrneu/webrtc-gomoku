@@ -15,6 +15,8 @@ interface HeaderProps {
   mode: GameMode;
   /** 切换视图模式回调（纯视图态，不触碰连接与棋局） */
   onModeChange: (mode: GameMode) => void;
+  children?: React.ReactNode;
+  compact?: boolean;
 }
 
 /**
@@ -24,7 +26,7 @@ interface HeaderProps {
  * 2. 「联机对战 ↔ 人机对战」模式切换（PRD §5.1，默认停在联机以保持老用户路径）
  * 3. 醒目展示全站连接状态呼吸灯胶囊徽标 (online / signaling / offline)
  */
-export const Header: React.FC<HeaderProps> = ({ status, statusText, mode, onModeChange }) => {
+export const Header: React.FC<HeaderProps> = ({ status, statusText, mode, onModeChange, children, compact = false }) => {
   // 根据状态切换不同配色的呼吸灯样式类名
   const badgeClass =
     status === 'online'
@@ -34,7 +36,7 @@ export const Header: React.FC<HeaderProps> = ({ status, statusText, mode, onMode
       : `${styles.badge} ${styles.badgeOffline} badge offline`;
 
   return (
-    <header className={`${styles.topbar} topbar`}>
+    <header className={`${styles.topbar} ${compact ? styles.compact : ''} topbar`}>
       {/* 品牌 Logo 与标题区 */}
       <div className={`${styles.titleGroup} title`}>
         <span className={`${styles.logo} logo`}>
@@ -42,9 +44,9 @@ export const Header: React.FC<HeaderProps> = ({ status, statusText, mode, onMode
           <i className={`${styles.stoneWhite} w`} />
         </span>
         <div className={styles.titleText}>
-          <h1>五子棋 · P2P 联机</h1>
+          <h1>{compact ? '五子棋' : '五子棋 · P2P 联机'}</h1>
           <p className={`${styles.subtitle} subtitle`}>
-            WebRTC 浏览器直连对战 · 邀请对局无需服务器，微信互发连接码即玩
+            {__LOBBY_ENABLED__ ? '进入房间自动连接 · 也可随时切换人机对战' : '邀请对局无需服务器，微信互发连接码即玩'}
           </p>
         </div>
       </div>
@@ -53,10 +55,10 @@ export const Header: React.FC<HeaderProps> = ({ status, statusText, mode, onMode
       <div className={styles.rightGroup}>
         <ModeSwitch mode={mode} onChange={onModeChange} />
 
-        <div id="conn-badge" className={badgeClass}>
+        {children ? <div className={styles.gameControls}>{children}</div> : <div id="conn-badge" className={badgeClass}>
           <span className={`${styles.dot} dot`} />
           <span id="conn-text">{statusText}</span>
-        </div>
+        </div>}
       </div>
     </header>
   );
