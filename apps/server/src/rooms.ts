@@ -59,6 +59,8 @@ const MAX_CLIENTS = 2;
  * - 否则一旦玩家输错了一个不存在的房间号，就会导致原本正常的旧对局被意外退房踢掉。
  */
 export class RoomRegistry {
+  constructor(private readonly onPromote: (clientId: string, room: string) => void = () => {}) {}
+
   /** 
    * 正向索引映射表：roomCode -> Map<clientId, RoomClient>
    * 记录每个房间号下当前在线的玩家列表
@@ -199,7 +201,8 @@ export class RoomRegistry {
 
     // 房间还有对手在场时，向对手广播其已离线离开的消息
     for (const peer of room.values()) {
-      peer.send({ t: 'peer-left' });
+      this.onPromote(peer.id, code);
+      peer.send({ t: 'peer-left', role: 'host' });
     }
     return { code, remaining: room.size, destroyed: false };
   }

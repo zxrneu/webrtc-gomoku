@@ -10,7 +10,8 @@ async function scenario(name, fn) {
   catch (error) { outcomes.push({ name, passed: false, error: error.message }); console.log('FAIL', name, error.message); }
 }
 (async () => {
-  const browser = await chromium.launch({ channel: 'chrome', args: ['--no-sandbox', '--disable-features=WebRtcHideLocalIpsWithMdns'] });
+  const browser = await chromium.launch({ channel: 'chrome', args: ['--no-sandbox', '--disable-features=WebRtcHideLocalIpsWithMdns',
+    '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
   try {
     await scenario('同浏览器第三窗口拒绝后保留明确原因', async () => {
       const context = await browser.newContext();
@@ -49,7 +50,8 @@ async function scenario(name, fn) {
       } finally { await context.close(); }
     });
     await scenario('换边后加入方刷新、双方同时刷新均保留棋谱和执色', async () => {
-      const contexts = await Promise.all([browser.newContext(), browser.newContext()]);
+      // Expose local ICE interfaces in the test environment without opening a physical microphone.
+      const contexts = await Promise.all([browser.newContext({ permissions: ['microphone'] }), browser.newContext({ permissions: ['microphone'] })]);
       try {
         const [a, b] = await Promise.all(contexts.map(c => c.newPage()));
         await Promise.all([a, b].map(p => p.goto(BASE + '/lobby')));
@@ -74,7 +76,13 @@ async function scenario(name, fn) {
           await Promise.all([a, b].map(p => p.waitForFunction(() => window.__gomoku.moves.length === 1)));
           assert.equal(await a.evaluate(() => window.__gomoku.myColor), 2);
           assert.equal(await b.evaluate(() => window.__gomoku.myColor), 1);
-          for (const p of [a, b]) assert.deepEqual(await p.evaluate(() => window.__gomoku.moves), expected);
+          for (const p of [a, b]) {
+            assert.deepEqual(await p.evaluate(() => window.__gomoku.moves), expected);
+            await p.waitForFunction(() => !!window.__gomoku.peerName && window.__gomoku.peerCapabilities?.audio === true);
+            await p.getByRole('tab', { name: /聊天/ }).click();
+            await p.locator('#chat-voice-btn:enabled').waitFor({ state: 'visible' });
+            await p.getByRole('tab', { name: '对局', exact: true }).click();
+          }
         };
         await b.reload(); await check();
         for (let n = 0; n < 3; n++) { await Promise.all([a.reload(), b.reload()]); await check(); }

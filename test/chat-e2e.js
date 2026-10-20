@@ -43,7 +43,10 @@ const BASE = process.env.BASE || 'http://localhost:3000';
       await page.locator('#chat-image-btn').waitFor();
       assert.equal(await page.locator('#chat-image-btn').isVisible(), true);
       assert.equal(await page.locator('#chat-file-btn').isVisible(), true);
-      assert.equal(await page.locator('#chat-voice-btn').count(), 0);
+      assert.equal(await page.locator('#chat-voice-btn').isVisible(), true);
+      assert.equal(await page.locator('#chat-voice-btn').isDisabled(), true);
+      assert.match(await page.locator('#chat-voice-btn').innerText(), /语音消息/);
+      assert.match(await page.locator('#chat-voice-hint').innerText(), /对方/);
       await page.evaluate(() => {
         window.__gomoku.deliver({ t: 'media-meta', id: 'e2e-file-1', kind: 'file', name: 'note.txt', size: 5, mime: 'text/plain', chunkSize: 16384, chunks: 1 });
         window.__gomoku.deliver({ t: 'media-chunk', id: 'e2e-file-1', seq: 0, data: 'aGVsbG8=' });
@@ -91,5 +94,29 @@ const BASE = process.env.BASE || 'http://localhost:3000';
       await page.close();
       console.log(`  ok - 聊天 Tab、弹出预览、未读、草稿、安全转义、富媒体入口与文件气泡 ${width}px`);
     }
+
+    // 以普通 HTTP 来源加载同一构建产物，复现局域网非安全来源的浏览器限制。
+    const response = await browser.newContext();
+    try {
+      const html = await (await response.request.get(BASE)).text();
+      const page = await response.newPage();
+      await page.route('http://gomoku-insecure.test/**', route => route.fulfill({
+        status: 200, contentType: 'text/html; charset=utf-8', body: html,
+      }));
+      await page.goto('http://gomoku-insecure.test/');
+      if (await page.locator('#lobby-page').count()) await page.getByRole('button', { name: /返回棋盘/ }).click();
+      await page.waitForFunction(() => !!window.__gomoku);
+      assert.equal(await page.evaluate(() => window.isSecureContext), false);
+      await page.evaluate(() => {
+        window.__gomoku.forceConnected(true);
+        window.__gomoku.deliver({ t: 'hello', name: '对手', capabilities: { qr: true, file: true, audio: true, video: false } });
+      });
+      await page.getByRole('tab', { name: /聊天/ }).click();
+      assert.equal(await page.locator('#chat-voice-btn').isVisible(), true);
+      assert.equal(await page.locator('#chat-voice-btn').isDisabled(), true);
+      assert.match(await page.locator('#chat-voice-btn').innerText(), /语音消息/);
+      assert.match(await page.locator('#chat-voice-hint').innerText(), /HTTPS/);
+      console.log('  ok - 普通 HTTP 来源仍显示语音入口，并明确提示 HTTPS 要求');
+    } finally { await response.close(); }
   } finally { await browser.close(); }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

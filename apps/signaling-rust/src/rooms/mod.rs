@@ -135,6 +135,8 @@ impl Room {
 
 /// Result of [`RoomTable::leave`].
 pub struct LeaveOutcome {
+    /// Whether this call actually removed the peer.
+    pub removed: bool,
     /// Members still present after the leave (candidates for `peer-left`).
     pub remaining: Vec<ConnHandle>,
     /// Whether the room was destroyed (no members left).
@@ -146,7 +148,12 @@ pub struct RoomTable {
     shards: Box<[RwLock<HashMap<RoomCode, Room>>]>,
     room_count: AtomicU64,
     max_rooms: AtomicU64,
+    promotion: RwLock<Option<MembershipHandler>>,
+    eviction: RwLock<Option<MembershipHandler>>,
 }
+
+/// Injected bookkeeping callback; the room layer does not depend on seat storage.
+pub type MembershipHandler = Arc<dyn Fn(&RoomCode, &PeerId) + Send + Sync>;
 
 impl Default for RoomTable {
     fn default() -> Self {
@@ -165,6 +172,32 @@ impl RoomTable {
             shards: shards.into_boxed_slice(),
             room_count: AtomicU64::new(0),
             max_rooms: AtomicU64::new(max_rooms),
+            promotion: RwLock::new(None),
+            eviction: RwLock::new(None),
+        }
+    }
+
+    /// Install the node-local seat bookkeeping used before relayed role notifications.
+    pub fn set_promotion_handler(&self, handler: MembershipHandler) {
+        *self.promotion.write().unwrap_or_else(|p| p.into_inner()) = Some(handler);
+    }
+
+    /// Retire node-local bookkeeping before a migrated connection is closed.
+    pub fn set_eviction_handler(&self, handler: MembershipHandler) {
+        *self.eviction.write().unwrap_or_else(|p| p.into_inner()) = Some(handler);
+    }
+
+    fn apply_role(&self, code: &RoomCode, peer: &PeerId, msg: &ServerMsg) {
+        if !matches!(msg, ServerMsg::PeerLeft { role: Some(role) } if role == "host") {
+            return;
+        }
+        let handler = self
+            .promotion
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        if let Some(handler) = handler {
+            handler(code, peer);
         }
     }
 
@@ -305,12 +338,15 @@ impl RoomTable {
             Ok(g) => g,
             Err(p) => p.into_inner(),
         };
+        let mut removed = false;
         let mut destroyed = false;
         let remaining = match map.get_mut(code) {
             None => Vec::new(),
             Some(room) => {
-                room.members.remove(peer);
-                if room.members.is_empty() {
+                removed = room.members.remove(peer).is_some();
+                if !removed {
+                    Vec::new()
+                } else if room.members.is_empty() {
                     destroyed = true;
                     Vec::new()
                 } else {
@@ -323,6 +359,7 @@ impl RoomTable {
             self.room_count.fetch_sub(1, Ordering::Relaxed);
         }
         LeaveOutcome {
+            removed,
             remaining,
             destroyed,
         }
@@ -417,6 +454,7 @@ impl LocalDelivery for RoomTable {
         };
         if let Some(r) = map.get(room) {
             if let Some(handle) = r.members.get(target) {
+                self.apply_role(room, target, &msg);
                 handle.send(msg);
             }
         }
@@ -431,6 +469,7 @@ impl LocalDelivery for RoomTable {
         if let Some(r) = map.get(room) {
             for (id, handle) in &r.members {
                 if except != Some(id) {
+                    self.apply_role(room, id, &msg);
                     handle.send(msg.clone());
                 }
             }
@@ -445,6 +484,14 @@ impl LocalDelivery for RoomTable {
         };
         if let Some(r) = map.get_mut(room) {
             if let Some(handle) = r.members.remove(peer) {
+                let handler = self
+                    .eviction
+                    .read()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .clone();
+                if let Some(handler) = handler {
+                    handler(room, peer);
+                }
                 handle.slow.notify_one();
             }
         }
@@ -595,7 +642,7 @@ mod tests {
         table.deliver(
             &code("AAAA"),
             &PeerId::new("aaaaaaaa").expect("id"),
-            ServerMsg::PeerLeft,
+            ServerMsg::PeerLeft { role: None },
         );
         assert!(rx.try_recv().is_ok());
     }
@@ -692,7 +739,7 @@ mod tests {
         );
         let rebound = original.with_peer_id(PeerId::new("bbbbbbbb").expect("id"));
         assert_eq!(rebound.peer_id.as_str(), "bbbbbbbb");
-        rebound.send(ServerMsg::PeerLeft);
+        rebound.send(ServerMsg::PeerLeft { role: None });
         assert!(rx.try_recv().is_ok(), "the queue is shared");
         assert!(!rebound.is_closed());
     }

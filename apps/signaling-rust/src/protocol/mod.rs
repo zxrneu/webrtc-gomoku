@@ -72,7 +72,11 @@ pub enum ServerMsg {
         name: String,
     },
     /// `{t:'peer-left'}` — only sent after the grace period expires.
-    PeerLeft,
+    PeerLeft {
+        /// Server-confirmed role of the surviving member.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        role: Option<String>,
+    },
     /// `{t:'signal', data}` — `data` is opaque and relayed verbatim.
     Signal {
         /// Opaque signaling payload.
@@ -112,6 +116,9 @@ pub enum ServerMsg {
         /// Whether an opponent still holds a seat in the room.
         #[serde(rename = "peerPresent", skip_serializing_if = "Option::is_none")]
         peer_present: Option<bool>,
+        /// Server-confirmed role, including promotion after the former host left.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        role: Option<String>,
     },
 }
 
@@ -315,7 +322,10 @@ mod tests {
 
     #[test]
     fn peer_left_serialization_is_exact() {
-        assert_eq!(enc(&ServerMsg::PeerLeft), r#"{"t":"peer-left"}"#);
+        assert_eq!(
+            enc(&ServerMsg::PeerLeft { role: None }),
+            r#"{"t":"peer-left"}"#
+        );
     }
 
     #[test]
@@ -372,6 +382,7 @@ mod tests {
             peer_id: "abcd1234".into(),
             token: "tok".into(),
             peer_present: Some(true),
+            role: None,
         };
         assert_eq!(
             enc(&m),
@@ -383,6 +394,7 @@ mod tests {
             peer_id: "abcd1234".into(),
             token: "tok".into(),
             peer_present: None,
+            role: None,
         };
         assert_eq!(
             enc(&bare),

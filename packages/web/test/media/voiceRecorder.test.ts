@@ -136,6 +136,29 @@ describe('VoiceRecorder', () => {
     expect(recorder.isRecording).toBe(false);
   });
 
+  it('等待麦克风权限时取消，迟到的授权不会启动录音且释放轨道', async () => {
+    const { env, stopped } = makeEnv();
+    let grant!: (stream: MediaStream) => void;
+    const recorder = new VoiceRecorder({ ...env, getUserMedia: () => new Promise(resolve => { grant = resolve; }) });
+    const starting = recorder.start();
+    recorder.cancel();
+    grant({ getTracks: () => [{ stop: () => stopped.push('late-track') }] } as unknown as MediaStream);
+    await starting;
+    expect(recorder.isRecording).toBe(false);
+    expect(stopped).toContain('late-track');
+  });
+
+  it('录音器启动失败时释放已获得的麦克风轨道', async () => {
+    const { env, stopped } = makeEnv();
+    class BrokenRecorder extends FakeMediaRecorder {
+      override start(): void { throw new Error('设备已断开'); }
+    }
+    const recorder = new VoiceRecorder({ ...env, mediaRecorder: BrokenRecorder as unknown as typeof MediaRecorder });
+    await expect(recorder.start()).rejects.toThrow('设备已断开');
+    expect(stopped).toContain('track');
+    expect(recorder.isRecording).toBe(false);
+  });
+
   it('未开始录音时 stop 抛错', async () => {
     const { env } = makeEnv();
     const recorder = new VoiceRecorder(env);

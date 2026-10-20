@@ -65,6 +65,8 @@ export class VoiceRecorder {
   private startedAt = 0;
   private timer: number | null = null;
   private cancelled = false;
+  private generation = 0;
+  private starting = false;
   private mime = '';
   private pending: { resolve: (r: RecordResult) => void; reject: (e: Error) => void } | null = null;
 
@@ -83,12 +85,30 @@ export class VoiceRecorder {
 
   /** 申请权限并开始录音 */
   async start(): Promise<void> {
-    if (this.recorder) throw new Error('录音已在进行中');
+    if (this.recorder || this.starting) throw new Error('录音已在进行中');
     const Ctor = this.env.mediaRecorder;
     const getUserMedia = this.env.getUserMedia;
     if (!Ctor || !getUserMedia) throw new Error('当前浏览器不支持录音');
 
-    const stream = await getUserMedia({ audio: true });
+    const generation = ++this.generation;
+    this.starting = true;
+    try {
+      const stream = await getUserMedia({ audio: true });
+      if (generation !== this.generation) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      this.stream = stream;
+      this.begin(stream, Ctor);
+    } catch (error) {
+      if (generation === this.generation) this.cleanup();
+      throw error;
+    } finally {
+      if (generation === this.generation) this.starting = false;
+    }
+  }
+
+  private begin(stream: MediaStream, Ctor: typeof MediaRecorder): void {
     const mime = pickAudioMime(AUDIO_MIME_CANDIDATES, (m) => {
       const fn = (Ctor as unknown as { isTypeSupported?: (mime: string) => boolean }).isTypeSupported;
       return typeof fn === 'function' ? fn.call(Ctor, m) : false;
@@ -103,9 +123,9 @@ export class VoiceRecorder {
     this.startedAt = this.env.now();
 
     recorder.ondataavailable = (event: BlobEvent): void => {
-      if (event.data && event.data.size > 0) this.chunks.push(event.data);
+      if (this.recorder === recorder && event.data && event.data.size > 0) this.chunks.push(event.data);
     };
-    recorder.onstop = (): void => this.finalize();
+    recorder.onstop = (): void => { if (this.recorder === recorder) this.finalize(); };
 
     recorder.start();
     this.timer = this.env.setInterval(() => this.tick(), 250);
@@ -125,7 +145,8 @@ export class VoiceRecorder {
 
   /** 取消录音（丢弃已录内容） */
   cancel(): void {
-    if (!this.recorder && !this.pending) return;
+    this.generation++;
+    this.starting = false;
     this.cancelled = true;
     this.clearTimer();
     const pending = this.pending;

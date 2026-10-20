@@ -16,7 +16,22 @@ export function isVoiceRuntimeSupported(): boolean {
   return hasGetUserMedia && hasRecorder;
 }
 
-/** 本端实际能力：录音不支持时 audio 位为 false，入口不渲染 */
+/** 本端实际能力：录音不支持时 audio 位为 false，界面说明不可用原因。 */
 export function localCapabilities(): Capabilities {
   return { ...LOCAL_CAPABILITIES, audio: LOCAL_CAPABILITIES.audio && isVoiceRuntimeSupported() };
+}
+
+/** 语音入口始终可发现，并明确说明当前无法录制的原因。 */
+export function voiceMessageUnavailableReason(options: {
+  connected: boolean;
+  secureContext: boolean;
+  localAudio: boolean;
+  peerAudio: boolean | null;
+}): string | undefined {
+  if (!options.connected) return '请先连接对手，再发送语音消息';
+  if (!options.secureContext) return '语音消息需要 HTTPS，请通过 HTTPS 打开页面';
+  if (!options.localAudio) return '当前浏览器不支持录音，请使用支持录音的浏览器';
+  if (options.peerAudio === null) return '正在确认对方是否支持语音消息';
+  if (!options.peerAudio) return '对方当前不支持语音消息';
+  return undefined;
 }

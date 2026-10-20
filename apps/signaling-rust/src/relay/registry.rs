@@ -25,11 +25,22 @@ redis.call('SADD', KEYS[2], ARGV[1])
 redis.call('EXPIRE', KEYS[1], ARGV[2]); redis.call('EXPIRE', KEYS[2], ARGV[2]); return 1
 ";
 
-/// `leave`: SREM + delete-if-empty. Returns `0` (room deleted) or `1`.
+/// `leave`: atomically remove a member and promote the survivor.
+/// Returns `{status, survivor_peer}`; an empty peer means no new promotion.
 pub const LEAVE_LUA: &str = r"
-redis.call('SREM', KEYS[2], ARGV[1])
-if redis.call('SCARD', KEYS[2]) == 0 then redis.call('DEL', KEYS[1], KEYS[2]); return 0 end
-return 1
+local removed = redis.call('SREM', KEYS[2], ARGV[1])
+if redis.call('SCARD', KEYS[2]) == 0 then redis.call('DEL', KEYS[1], KEYS[2]); return {0, ''} end
+if removed == 1 then
+  for _, member in ipairs(redis.call('SMEMBERS', KEYS[2])) do
+    local peer = string.match(member, '^[^:]+:(.+)$')
+    if peer then
+      local seat = KEYS[1] .. ':seat:' .. peer
+      if redis.call('EXISTS', seat) == 1 then redis.call('HSET', seat, 'role', 'host') end
+      return {1, peer}
+    end
+  end
+end
+return {1, ''}
 ";
 
 /// `refresh`: EXPIRE both keys *only when they still exist*. Returns the
@@ -122,10 +133,12 @@ pub enum JoinStatus {
 }
 
 /// Outcome of a registry `leave`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LeaveStatus {
-    /// The member was removed but the room survives.
+    /// The room survives without a confirmed survivor (including a no-op leave).
     Removed,
+    /// The sole remaining peer, promoted atomically with the removal.
+    Survivor(crate::rooms::PeerId),
     /// The room had no members left and was deleted.
     RoomDeleted,
 }
@@ -198,7 +211,7 @@ impl RedisRoomRegistry {
     /// Atomically leave a room, deleting it when the last member leaves.
     pub async fn leave(&self, code: &RoomCode, member: &str) -> Result<LeaveStatus, RelayError> {
         let mut conn = self.pool.get()?;
-        let result: i64 = redis::Script::new(LEAVE_LUA)
+        let result: (i64, String) = redis::Script::new(LEAVE_LUA)
             .key(room_key(&self.prefix, code))
             .key(members_key(&self.prefix, code))
             .arg(member)
@@ -206,9 +219,14 @@ impl RedisRoomRegistry {
             .await
             .map_err(|e| RelayError::Command(e.to_string()))?;
         match result {
-            0 => Ok(LeaveStatus::RoomDeleted),
-            1 => Ok(LeaveStatus::Removed),
-            other => Err(RelayError::Command(format!("leave.lua 返回未知值 {other}"))),
+            (0, _) => Ok(LeaveStatus::RoomDeleted),
+            (1, survivor) if !survivor.is_empty() => crate::rooms::PeerId::new(&survivor)
+                .map(LeaveStatus::Survivor)
+                .map_err(|e| RelayError::Command(e.to_string())),
+            (1, _) => Ok(LeaveStatus::Removed),
+            other => Err(RelayError::Command(format!(
+                "leave.lua 返回未知值 {other:?}"
+            ))),
         }
     }
 

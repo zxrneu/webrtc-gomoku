@@ -111,7 +111,14 @@ pub fn peer_joined(peer_id: &str, name: &str) -> ServerMsg {
 
 /// `{t:'peer-left'}`
 pub fn peer_left() -> ServerMsg {
-    ServerMsg::PeerLeft
+    ServerMsg::PeerLeft { role: None }
+}
+
+/// Notify the survivor of its server-confirmed role.
+pub fn peer_left_with_role(role: &str) -> ServerMsg {
+    ServerMsg::PeerLeft {
+        role: Some(role.to_string()),
+    }
 }
 
 /// `{t:'signal', data}`
@@ -163,7 +170,26 @@ pub fn resumed(
         peer_id: peer_id.to_string(),
         token: token.to_string(),
         peer_present: peer_present.into(),
+        role: None,
     }
+}
+
+/// Resume a seat with its persisted role without changing the legacy constructor.
+pub fn resumed_with_role(
+    room: &str,
+    peer_id: &str,
+    token: &str,
+    peer_present: impl Into<Option<bool>>,
+    role: &str,
+) -> ServerMsg {
+    let mut msg = resumed(room, peer_id, token, peer_present);
+    if let ServerMsg::Resumed {
+        role: confirmed, ..
+    } = &mut msg
+    {
+        *confirmed = Some(role.to_string());
+    }
+    msg
 }
 
 #[cfg(test)]

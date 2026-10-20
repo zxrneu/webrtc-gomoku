@@ -1,4 +1,5 @@
 //! Room switches use an in-memory router: no sockets, clocks or Redis needed.
+mod support;
 use std::sync::Arc;
 
 use gomoku_signaling::config::{Config, ConfigSnapshot};
@@ -7,6 +8,7 @@ use gomoku_signaling::protocol::ServerMsg;
 use gomoku_signaling::relay::RelayManager;
 use gomoku_signaling::rooms::{outbound_channel, ConnHandle, PeerId, RoomCode, RoomTable};
 use gomoku_signaling::transport::{ConnCtx, ConnDeps, ConnectionRegistry, Router, SeatRegistry};
+use support::fake_relay::{FakeCluster, FakeRelay};
 use tokio::sync::{mpsc, Notify};
 
 fn context(id: u64) -> (ConnCtx, mpsc::Receiver<ServerMsg>) {
@@ -29,6 +31,241 @@ fn dependencies() -> ConnDeps {
         seats: Arc::new(SeatRegistry::new(60000)),
         node_id: Arc::from("test"),
     }
+}
+
+#[tokio::test]
+async fn host_leave_promotes_the_remaining_seat_before_notifying_it() {
+    let deps = dependencies();
+    let router = Router::new(deps.clone());
+    let (host, _host_rx) = context(1);
+    let (guest, mut guest_rx) = context(2);
+    router
+        .handle(&host, r#"{"t":"create","room":"AB12"}"#)
+        .await;
+    router.handle(&guest, r#"{"t":"join","room":"AB12"}"#).await;
+    guest_rx.try_recv().unwrap();
+
+    router.handle(&host, r#"{"t":"leave"}"#).await;
+
+    let left: serde_json::Value =
+        serde_json::from_str(&guest_rx.try_recv().unwrap().encode()).unwrap();
+    assert_eq!(left["role"], "host");
+    assert_eq!(
+        deps.seats.peek(&guest.peer_id()).unwrap().role,
+        gomoku_signaling::transport::SeatRole::Host
+    );
+}
+
+#[tokio::test]
+async fn promoted_guest_resumes_as_host_without_losing_its_credential() {
+    let deps = dependencies();
+    let router = Router::new(deps.clone());
+    let (host, _host_rx) = context(1);
+    let (guest, _guest_rx) = context(2);
+    let (restored, mut restored_rx) = context(3);
+    router
+        .handle(&host, r#"{"t":"create","room":"AB12"}"#)
+        .await;
+    router.handle(&guest, r#"{"t":"join","room":"AB12"}"#).await;
+    let seat = deps.seats.peek(&guest.peer_id()).unwrap();
+    router.handle(&host, r#"{"t":"leave"}"#).await;
+    let resume = serde_json::json!({"t":"resume","room":"AB12","peerId":seat.peer_id.as_str(),"token":seat.token});
+
+    router.handle(&restored, &resume.to_string()).await;
+
+    let resumed: serde_json::Value =
+        serde_json::from_str(&restored_rx.try_recv().unwrap().encode()).unwrap();
+    assert_eq!(resumed["t"], "resumed");
+    assert_eq!(resumed["role"], "host");
+    assert_eq!(resumed["peerPresent"], false);
+}
+
+#[tokio::test]
+async fn cross_node_departure_persists_promotion_for_local_and_remote_resume() {
+    let cluster = FakeCluster::new();
+    let mut a = dependencies();
+    let mut b = dependencies();
+    let mut c = dependencies();
+    for (deps, name) in [(&mut a, "node-a"), (&mut b, "node-b"), (&mut c, "node-c")] {
+        deps.node_id = Arc::from(name);
+        deps.relay = FakeRelay::new(name, cluster.clone(), deps.rooms.clone());
+    }
+    let ra = Router::new(a.clone());
+    let rb = Router::new(b.clone());
+    let rc = Router::new(c.clone());
+    let (host, _host_rx) = context(1);
+    let (guest, mut guest_rx) = context(2);
+    let (restored, mut restored_rx) = context(3);
+    ra.handle(&host, r#"{"t":"create","room":"AB12"}"#).await;
+    rb.handle(&guest, r#"{"t":"join","room":"AB12"}"#).await;
+    guest_rx.try_recv().unwrap();
+    let seat = b.seats.peek(&guest.peer_id()).unwrap();
+
+    ra.handle(&host, r#"{"t":"leave"}"#).await;
+
+    let left: serde_json::Value =
+        serde_json::from_str(&guest_rx.try_recv().unwrap().encode()).unwrap();
+    assert_eq!(left["role"], "host");
+    assert_eq!(
+        b.seats.peek(&guest.peer_id()).unwrap().role,
+        gomoku_signaling::transport::SeatRole::Host
+    );
+    assert_eq!(cluster.seats.lock().unwrap()["AB12:peer0002"].role, "host");
+    let resume = serde_json::json!({"t":"resume","room":"AB12","peerId":seat.peer_id.as_str(),"token":seat.token});
+    rc.handle(&restored, &resume.to_string()).await;
+    let resumed: serde_json::Value =
+        serde_json::from_str(&restored_rx.try_recv().unwrap().encode()).unwrap();
+    assert_eq!(resumed["role"], "host");
+}
+
+#[tokio::test]
+async fn cross_node_role_notification_targets_only_the_surviving_member() {
+    let cluster = FakeCluster::new();
+    let mut a = dependencies();
+    let mut b = dependencies();
+    a.node_id = Arc::from("node-a");
+    b.node_id = Arc::from("node-b");
+    let relay = FakeRelay::new("node-a", cluster.clone(), a.rooms.clone());
+    a.relay = relay.clone();
+    b.relay = FakeRelay::new("node-b", cluster, b.rooms.clone());
+    let ra = Router::new(a);
+    let rb = Router::new(b);
+    let (host, _host_rx) = context(1);
+    let (guest, _guest_rx) = context(2);
+    ra.handle(&host, r#"{"t":"create","room":"AB12"}"#).await;
+    rb.handle(&guest, r#"{"t":"join","room":"AB12"}"#).await;
+
+    ra.handle(&host, r#"{"t":"leave"}"#).await;
+
+    let messages = relay.published_messages();
+    let left = messages
+        .iter()
+        .find(|msg| msg.kind == gomoku_signaling::relay::CrossKind::PeerLeft)
+        .unwrap();
+    assert_eq!(left.target.as_deref(), Some(guest.peer_id().as_str()));
+}
+
+#[tokio::test]
+async fn cross_node_replacement_retires_the_previous_local_seat() {
+    let cluster = FakeCluster::new();
+    let mut a = dependencies();
+    let mut b = dependencies();
+    a.node_id = Arc::from("node-a");
+    b.node_id = Arc::from("node-b");
+    a.relay = FakeRelay::new("node-a", cluster.clone(), a.rooms.clone());
+    b.relay = FakeRelay::new("node-b", cluster.clone(), b.rooms.clone());
+    let ra = Router::new(a.clone());
+    let rb = Router::new(b);
+    let (host, _host_rx) = context(1);
+    let (old_guest, _old_rx) = context(2);
+    let (restored, _restored_rx) = context(3);
+    ra.handle(&host, r#"{"t":"create","room":"AB12"}"#).await;
+    ra.handle(&old_guest, r#"{"t":"join","room":"AB12"}"#).await;
+    let seat = a.seats.peek(&old_guest.peer_id()).unwrap();
+    let resume = serde_json::json!({"t":"resume","room":"AB12","peerId":seat.peer_id.as_str(),"token":seat.token});
+    rb.handle(&restored, &resume.to_string()).await;
+
+    gomoku_signaling::transport::connection::on_disconnect(&a, &old_guest).await;
+
+    assert!(a.seats.peek(&old_guest.peer_id()).is_none());
+    assert_eq!(
+        cluster.seats.lock().unwrap()["AB12:peer0002"].offline_since,
+        0
+    );
+}
+
+#[tokio::test]
+async fn late_cross_node_disconnect_cannot_promote_a_new_guest_or_clear_the_new_game() {
+    let cluster = FakeCluster::new();
+    let mut a = dependencies();
+    let mut b = dependencies();
+    a.node_id = Arc::from("node-a");
+    b.node_id = Arc::from("node-b");
+    a.relay = FakeRelay::new("node-a", cluster.clone(), a.rooms.clone());
+    b.relay = FakeRelay::new("node-b", cluster, b.rooms.clone());
+    let ra = Router::new(a.clone());
+    let rb = Router::new(b);
+    let (host, mut host_rx) = context(1);
+    let (old_guest, _old_rx) = context(2);
+    let (restored, _restored_rx) = context(3);
+    let (next_guest, mut next_rx) = context(4);
+    ra.handle(&host, r#"{"t":"create","room":"AB12"}"#).await;
+    ra.handle(&old_guest, r#"{"t":"join","room":"AB12"}"#).await;
+    let seat = a.seats.peek(&old_guest.peer_id()).unwrap();
+    let resume = serde_json::json!({"t":"resume","room":"AB12","peerId":seat.peer_id.as_str(),"token":seat.token});
+    rb.handle(&restored, &resume.to_string()).await;
+    gomoku_signaling::transport::connection::on_disconnect(&a, &old_guest).await;
+    rb.handle(&restored, r#"{"t":"leave"}"#).await;
+    ra.handle(&next_guest, r#"{"t":"join","room":"AB12"}"#)
+        .await;
+    while host_rx.try_recv().is_ok() {}
+    while next_rx.try_recv().is_ok() {}
+
+    for expired in a.seats.sweep(u64::MAX) {
+        gomoku_signaling::transport::router::do_leave(&a, &expired.peer_id, &expired.room).await;
+    }
+
+    assert_eq!(
+        a.seats.peek(&next_guest.peer_id()).unwrap().role,
+        gomoku_signaling::transport::SeatRole::Guest
+    );
+    assert!(host_rx.try_recv().is_err());
+    assert!(next_rx.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn repeated_cross_node_leave_does_not_broadcast_a_departure() {
+    let cluster = FakeCluster::new();
+    let mut a = dependencies();
+    let mut b = dependencies();
+    a.node_id = Arc::from("node-a");
+    b.node_id = Arc::from("node-b");
+    let relay = FakeRelay::new("node-a", cluster.clone(), a.rooms.clone());
+    a.relay = relay.clone();
+    b.relay = FakeRelay::new("node-b", cluster, b.rooms.clone());
+    let ra = Router::new(a.clone());
+    let rb = Router::new(b);
+    let (host, _host_rx) = context(1);
+    let (guest, _guest_rx) = context(2);
+    ra.handle(&host, r#"{"t":"create","room":"AB12"}"#).await;
+    rb.handle(&guest, r#"{"t":"join","room":"AB12"}"#).await;
+    ra.handle(&host, r#"{"t":"leave"}"#).await;
+    let before = relay.published_messages().len();
+
+    gomoku_signaling::transport::router::do_leave(
+        &a,
+        &host.peer_id(),
+        &RoomCode::new("AB12").unwrap(),
+    )
+    .await;
+
+    assert_eq!(relay.published_messages().len(), before);
+}
+
+#[tokio::test]
+async fn repeated_local_leave_has_no_notifications_or_role_changes() {
+    let deps = dependencies();
+    let router = Router::new(deps.clone());
+    let (host, _host_rx) = context(1);
+    let (guest, mut guest_rx) = context(2);
+    router
+        .handle(&host, r#"{"t":"create","room":"AB12"}"#)
+        .await;
+    router.handle(&guest, r#"{"t":"join","room":"AB12"}"#).await;
+    guest_rx.try_recv().unwrap();
+
+    gomoku_signaling::transport::router::do_leave(
+        &deps,
+        &PeerId::new("missing0").unwrap(),
+        &RoomCode::new("AB12").unwrap(),
+    )
+    .await;
+
+    assert_eq!(
+        deps.seats.peek(&guest.peer_id()).unwrap().role,
+        gomoku_signaling::transport::SeatRole::Guest
+    );
+    assert!(guest_rx.try_recv().is_err());
 }
 
 async fn assert_rejected_switch_preserves_original(raw: &str) {

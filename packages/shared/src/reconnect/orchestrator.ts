@@ -42,6 +42,8 @@ export type ConnSideEffect =
   | { type: 'room-invalid'; room: string; message?: string }
   /** 会话已提交（首次建房/入房或换房成功）：UI 在此清盘并切换角色 */
   | { type: 'room-ready'; room: string; role: 'host' | 'guest' }
+  /** 恢复时采用服务端确认的角色，业务层只同步角色，不清盘。 */
+  | { type: 'role-changed'; role: 'host' | 'guest' }
   /** 换房被服务端拒绝（房号不存在/已满/非法）：只 toast 原文，当前对局零变化 */
   | { type: 'join-rejected'; message: string }
   | { type: 'sync-applied'; appended: number; mismatch: boolean }
@@ -202,6 +204,13 @@ export function createConnectionManager(deps: ConnectionManagerDeps): Connection
   function patch(fields: Partial<ConnSnapshot>): void {
     snap = { ...snap, ...fields };
     publish();
+  }
+
+  function adoptRole(confirmed: 'host' | 'guest' | undefined): void {
+    if ((confirmed !== 'host' && confirmed !== 'guest') || confirmed === role) return;
+    role = confirmed;
+    patch({ role });
+    deps.onEvent({ type: 'role-changed', role });
   }
 
   /* ==========================================================================
@@ -491,6 +500,7 @@ export function createConnectionManager(deps: ConnectionManagerDeps): Connection
         break;
 
       case 'resumed': {
+        adoptRole(msg.role);
         const peerLeft = hasPeer && msg.peerPresent === false;
         hasPeer = msg.peerPresent ?? hasPeer;
         peerId = msg.peerId;
@@ -527,8 +537,10 @@ export function createConnectionManager(deps: ConnectionManagerDeps): Connection
           if (role === 'host') runP2pStep();
           break;
         }
-        // 宽限期内本端 DC 已断（但状态仍停在 CONNECTED）：对手回来了，立刻重建直连
-        if (snap.state === 'CONNECTED' && !deps.p2p.isDcOpen()) {
+        // 双方刷新时，首次 offer 可能发给尚未恢复的旧座位；对手上线后重发协商。
+        // 已连接但 DC 断开时同样进入恢复；加入方继续只等待房主的 offer。
+        const needsOffer = snap.state === 'NEGOTIATING' && role === 'host';
+        if ((snap.state === 'CONNECTED' || needsOffer) && !deps.p2p.isDcOpen()) {
           onP2pLost('ICE_FAILED');
         }
         break;
@@ -546,6 +558,7 @@ export function createConnectionManager(deps: ConnectionManagerDeps): Connection
       case 'peer-left':
         // 只在宽限期超时后才会到达（Q-A 已回签）：对手真的走了 → 清盘
         clearAllTimers();
+        adoptRole(msg.role);
         if (dispatch({ type: 'PEER_GONE', at: now() })) {
           deps.onEvent({ type: 'peer-gone' });
           rearmRoom();

@@ -102,7 +102,7 @@ export function createLobbyRuntime(options: Options) {
     if (disposed) return;
     if (e.type === 'msg' && serverMessage(e)) return;
     if (e.type === 'msg' && restoreSeat && e.msg.t === 'resumed') {
-      const saved = restoreSeat; restoreSeat = null;
+      const saved = { ...restoreSeat, role: e.msg.role ?? restoreSeat.role }; restoreSeat = null;
       adopt({ ...saved, token: e.msg.token }); options.onRestored?.();
       if (saved.role === 'host' && e.msg.peerPresent) {
         gameEvent?.({ type: 'msg', msg: { t: 'peer-joined', peerId: 'restored-peer', name: '对手' } });
@@ -117,7 +117,10 @@ export function createLobbyRuntime(options: Options) {
         role: e.msg.t === 'created' ? 'host' : 'guest' }; options.onSeat?.(currentSeat);
     }
     if (e.type === 'msg' && e.msg.t === 'resumed' && currentSeat) {
-      currentSeat = { ...currentSeat, token: e.msg.token }; options.onSeat?.(currentSeat);
+      currentSeat = { ...currentSeat, token: e.msg.token, role: e.msg.role ?? currentSeat.role }; options.onSeat?.(currentSeat);
+    }
+    if (e.type === 'msg' && e.msg.t === 'peer-left' && currentSeat && e.msg.role) {
+      currentSeat = { ...currentSeat, role: e.msg.role }; options.onSeat?.(currentSeat);
     }
     if (e.type === 'open') {
       attempts = 0; mustReconnect = false; enter();

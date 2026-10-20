@@ -254,6 +254,44 @@ async function waitForServer(url, timeoutMs = 15000) {
     assert.equal(pwned, null, 'SVG 内嵌脚本不得被执行！');
     console.log('  ok - SVG 成功降级为安全下载卡片，同源脚本执行被彻底阻止！');
 
+    console.log('--- 5. 验证录音期间换房不会向新对手发送旧录音 ---');
+    await pageA.evaluate(() => {
+      const getUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async constraints => {
+        const stream = await getUserMedia(constraints);
+        window.__recordingTracks = stream.getTracks();
+        return stream;
+      };
+    });
+    await pageA.click('#chat-voice-btn');
+    await pageA.waitForSelector('#chat-record-send');
+    const previousRoom = await pageA.locator('#room-code-text').innerText();
+    await pageA.getByRole('tab', { name: '对局', exact: true }).click();
+    await pageA.click('#create-room-btn');
+    await pageA.waitForFunction(old => window.__gomoku.room && window.__gomoku.room !== old && !window.__gomoku.connected, previousRoom);
+    await pageA.waitForFunction(() => window.__recordingTracks.every(track => track.readyState === 'ended'));
+    assert.equal(await pageA.locator('#chat-record-send').count(), 0, '换房必须取消旧录音');
+
+    const ctxC = await browser.newContext({ permissions: ['microphone'], viewport: { width: 1280, height: 800 } });
+    const pageC = await ctxC.newPage();
+    await pageC.goto(BASE);
+    if (await pageC.locator('#lobby-page').count()) await pageC.getByRole('button', { name: /返回棋盘/ }).click();
+    await pageC.locator('[data-online-tab="room"]').click();
+    await pageC.fill('#room-input', await pageA.locator('#room-code-text').innerText());
+    await pageC.click('#join-room-btn');
+    await Promise.all([pageA, pageC].map(page => page.waitForFunction(() => window.__gomoku.connected, null, { timeout: 15000 })));
+    await pageA.getByRole('tab', { name: /聊天/ }).click();
+    await pageC.getByRole('tab', { name: /聊天/ }).click();
+    assert.equal(await pageC.locator('#chat-list audio').count(), 0, '新对手不得收到上一房间的录音');
+    await pageA.waitForFunction(() => !document.getElementById('chat-voice-btn').disabled);
+    await pageA.click('#chat-voice-btn');
+    await pageA.waitForSelector('#chat-record-send');
+    await wait(700);
+    await pageA.click('#chat-record-send');
+    await pageC.locator('#chat-list audio').waitFor({ timeout: 15000 });
+    assert.equal(await pageC.locator('#chat-list audio').count(), 1, '新会话仍可正常发送新录音');
+    console.log('  ok - 三人换房取消旧录音、释放麦克风，新会话只收到新录音');
+
     console.log('\n========================================');
     console.log('  🎉 全部真实 P2P 富媒体传输端到端验收通过！');
     console.log('========================================');

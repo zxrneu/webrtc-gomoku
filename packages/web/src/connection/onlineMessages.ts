@@ -13,7 +13,7 @@
  */
 
 import type { GameState, PlayerColor } from '@webrtc-gomoku/core';
-import { applyMove, create as createGame, currentColor, undo as undoMove, BLACK, WHITE } from '@webrtc-gomoku/core';
+import { applyMove, currentColor, BLACK, WHITE } from '@webrtc-gomoku/core';
 import type { Capabilities, GameMessage } from '@webrtc-gomoku/shared';
 import { normalizeCapabilities } from '@webrtc-gomoku/shared';
 
@@ -21,6 +21,7 @@ import type { ModalState } from '../types';
 import { sounds } from '../audio';
 import type { WebRTCClient } from '../webrtc';
 import type { ConnectionApi } from './useConnection';
+import type { GameRequests } from './gameRequests';
 
 /** 换边协商阶段（ref 承载，避免闭包过期） */
 export type SwapPhase = 'idle' | 'outgoing' | 'incoming';
@@ -56,6 +57,7 @@ export interface OnlineMessageDeps {
   readonly awaitingColorRef: { current: boolean };
   readonly connRef: { current: ConnectionApi | null };
   readonly clientRef: { current: WebRTCClient | null };
+  readonly requests?: GameRequests;
 }
 
 /**
@@ -82,10 +84,11 @@ export function createOnlineMessageHandler(deps: OnlineMessageDeps): (msg: GameM
     swapPhaseRef,
     awaitingColorRef,
     connRef,
-    clientRef,
+    requests,
   } = deps;
 
   return (msg: GameMessage): void => {
+    if (requests?.handle(msg)) return;
     switch (msg.t) {
       case 'hello':
         setPeerName(msg.name || '对手');
@@ -108,6 +111,7 @@ export function createOnlineMessageHandler(deps: OnlineMessageDeps): (msg: GameM
         }
         break;
       case 'swap-req':
+        if (requests?.hasPending()) { connRef.current?.send({ t: 'swap-no' }); return; }
         if (gameRef.current.over) { connRef.current?.send({ t: 'swap-no' }); return; }
         if (swapPhaseRef.current === 'outgoing') {
           if (isHostRef.current) {
@@ -179,35 +183,6 @@ export function createOnlineMessageHandler(deps: OnlineMessageDeps): (msg: GameM
       case 'media-cancel':
       case 'media-ack':
         onMediaFrame?.(msg);
-        break;
-      case 'undo-req':
-        if (swapPhaseRef.current !== 'idle') { connRef.current?.send({ t: 'undo-no' }); return; }
-        setModal({
-          open: true, title: '对方申请悔棋', text: '对手希望能撤回最后一手，是否同意？',
-          onOk: () => { setModal((m) => ({ ...m, open: false })); setGame((g) => { undoMove(g); return { ...g }; }); clientRef.current?.sendMessage({ t: 'undo-ok' }); addSysMsg('你同意了对方的悔棋申请'); },
-          onNo: () => { setModal((m) => ({ ...m, open: false })); clientRef.current?.sendMessage({ t: 'undo-no' }); addSysMsg('你拒绝了对方的悔棋申请'); },
-        });
-        break;
-      case 'undo-ok':
-        setGame((g) => { undoMove(g); return { ...g }; });
-        showToast('对方同意了悔棋'); addSysMsg('对方同意了悔棋申请');
-        break;
-      case 'undo-no':
-        showToast('对方拒绝了悔棋申请'); addSysMsg('对方拒绝了悔棋申请');
-        break;
-      case 'restart-req':
-        if (swapPhaseRef.current !== 'idle') { connRef.current?.send({ t: 'restart-no' }); return; }
-        setModal({
-          open: true, title: '对方申请重新开始', text: '对手希望能重开一局，是否同意？',
-          onOk: () => { setModal((m) => ({ ...m, open: false })); setGame(createGame()); clientRef.current?.sendMessage({ t: 'restart-ok' }); addSysMsg('对局已重新开始'); },
-          onNo: () => { setModal((m) => ({ ...m, open: false })); clientRef.current?.sendMessage({ t: 'restart-no' }); addSysMsg('你拒绝了对方的重开申请'); },
-        });
-        break;
-      case 'restart-ok':
-        setGame(createGame()); showToast('对方同意重开一局'); addSysMsg('对局已重新开始');
-        break;
-      case 'restart-no':
-        showToast('对方拒绝了重开申请'); addSysMsg('对方拒绝了重开申请');
         break;
       case 'bye':
         // 对手主动 bye → 交给编排器收敛为 PEER_GONE（禁止在这里自己改连接状态）

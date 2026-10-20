@@ -76,6 +76,113 @@ function guestConnected(ctx: Ctx): void {
 const sentTypes = (ctx: Ctx): string[] => ctx.signal.sent.map((m) => m.t);
 
 describe('orchestrator · 重连缺陷回归', () => {
+  it('双方刷新时初次 offer 早于对手恢复，peer-online 触发重新协商并对齐棋谱', () => {
+    const ctx = setup();
+    ctx.moves.push({ x: 7, y: 7, c: 1 });
+    ctx.manager.createRoom('A8B2');
+    ctx.signal.open();
+    ctx.signal.server({ t: 'created', room: 'A8B2', peerId: 'p1', token: 'tk1' });
+    // 大厅恢复房主座位时会合成 peer-joined；此刻对手的旧连接已离线。
+    ctx.signal.server({ t: 'peer-joined', peerId: 'p2', name: '对手' });
+    expect(ctx.manager.getStatus().state).toBe('NEGOTIATING');
+    expect(ctx.p2p.attached).toEqual([true]);
+
+    ctx.signal.server({ t: 'peer-online' });
+    ctx.clock.advance(0);
+
+    expect(ctx.p2p.restartIceCalls).toBe(1);
+    expect(ctx.manager.getStatus().state).toBe('P2P_RECOVERING');
+    ctx.p2p.openDc();
+    const sync = ctx.p2p.sent.find(message => message.t === 'sync');
+    expect(sync).toMatchObject({ t: 'sync', moves: [{ x: 7, y: 7, c: 1 }] });
+    if (!sync || sync.t !== 'sync') throw new Error('应发送恢复棋谱');
+    ctx.p2p.emit({ type: 'msg', msg: { t: 'sync', moves: [], rev: sync.rev, ack: true } });
+    expect(ctx.manager.getStatus().state).toBe('CONNECTED');
+    expect(ctx.moves).toEqual([{ x: 7, y: 7, c: 1 }]);
+  });
+
+  it('加入方协商中收到 peer-online 仍只等待房主 offer', () => {
+    const ctx = setup();
+    ctx.manager.joinRoom('A8B2');
+    ctx.signal.open();
+    ctx.signal.server({ t: 'joined', room: 'A8B2', peerId: 'p2', token: 'tk1' });
+    ctx.signal.server({ t: 'signal', data: { kind: 'offer', sdp: 'v=0' } });
+    expect(ctx.manager.getStatus().state).toBe('NEGOTIATING');
+
+    ctx.signal.server({ t: 'peer-online' });
+    ctx.clock.advance(0);
+
+    expect(ctx.manager.getStatus().state).toBe('NEGOTIATING');
+    expect(ctx.p2p.restartIceCalls).toBe(0);
+    expect(ctx.p2p.rebuildCalls).toEqual([]);
+    expect(ctx.p2p.attached).toEqual([]);
+  });
+
+  it('数据通道已打开时收到 peer-online 不重复协商', () => {
+    const ctx = setup();
+    hostConnected(ctx);
+
+    ctx.signal.server({ t: 'peer-online' });
+    ctx.clock.advance(0);
+
+    expect(ctx.manager.getStatus().state).toBe('CONNECTED');
+    expect(ctx.p2p.restartIceCalls).toBe(0);
+    expect(ctx.p2p.rebuildCalls).toEqual([]);
+    expect(ctx.p2p.attached).toEqual([true]);
+  });
+
+  it('对手离开只发一次清理副作用，不用 room-ready 擦掉刚生成的离开提示', () => {
+    const ctx = setup(); guestConnected(ctx);
+    const readyBefore = ctx.events.filter(e => e.type === 'room-ready').length;
+    ctx.signal.server({ t: 'peer-left', role: 'host' });
+    expect(ctx.events.filter(e => e.type === 'peer-gone')).toHaveLength(1);
+    expect(ctx.events.filter(e => e.type === 'room-ready')).toHaveLength(readyBefore);
+    expect(ctx.events).toContainEqual({ type: 'role-changed', role: 'host' });
+  });
+  it('房主离开后按服务端确认提升为房主并向新玩家发起协商', () => {
+    const ctx = setup();
+    guestConnected(ctx);
+
+    ctx.signal.server({ t: 'peer-left', role: 'host' });
+    ctx.signal.server({ t: 'peer-joined', peerId: 'p3', name: '新对手' });
+
+    expect(ctx.manager.getStatus().role).toBe('host');
+    expect(ctx.p2p.attached).toEqual([true]);
+    expect(ctx.events).toContainEqual({ type: 'role-changed', role: 'host' });
+  });
+
+  it('恢复座位时采用服务端确认的房主角色且保留已有棋谱', () => {
+    const ctx = setup();
+    guestConnected(ctx);
+    ctx.moves.push({ x: 7, y: 7, c: 1 });
+    const readyBefore = ctx.events.filter(e => e.type === 'room-ready').length;
+    ctx.signal.drop();
+    ctx.clock.advance(500);
+    ctx.signal.open();
+
+    ctx.signal.server({ t: 'resumed', room: 'A8B2', peerId: 'p2', token: 'tk2',
+      peerPresent: true, role: 'host' });
+
+    expect(ctx.manager.getStatus().role).toBe('host');
+    expect(ctx.events).toContainEqual({ type: 'role-changed', role: 'host' });
+    expect(ctx.p2p.sent).toContainEqual({ t: 'sync', moves: [{ x: 7, y: 7, c: 1 }], rev: 1 });
+    expect(ctx.events.filter(e => e.type === 'room-ready')).toHaveLength(readyBefore);
+    expect(ctx.moves).toEqual([{ x: 7, y: 7, c: 1 }]);
+  });
+
+  it('旧服务端未确认角色时恢复仍沿用原角色', () => {
+    const ctx = setup();
+    guestConnected(ctx);
+    ctx.signal.drop();
+    ctx.clock.advance(500);
+    ctx.signal.open();
+
+    ctx.signal.server({ t: 'resumed', room: 'A8B2', peerId: 'p2', token: 'tk2', peerPresent: true });
+
+    expect(ctx.manager.getStatus().role).toBe('guest');
+    expect(ctx.events.some(e => e.type === 'role-changed')).toBe(false);
+  });
+
   it('首次建房握手失败后自动重试仍发送 create', () => {
     const ctx = setup();
     ctx.manager.createRoom('A8B2', '房主');

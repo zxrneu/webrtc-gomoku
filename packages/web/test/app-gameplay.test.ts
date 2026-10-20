@@ -9,6 +9,7 @@ import type { ConnectionApi, UseConnectionOptions } from '../src/connection/useC
 import { App } from '../src/App';
 import { Board } from '../src/components/Board/Board';
 import { ConnectionPanel } from '../src/components/Connection/ConnectionPanel';
+import { Header } from '../src/components/Header/Header';
 import { ConfirmModal } from '../src/components/Modal/ConfirmModal';
 
 // Run App's real callbacks with persistent hook slots, without mounting a DOM or network.
@@ -62,8 +63,9 @@ function renderApp() {
   const tree = App({}) as ReactElement;
   return {
     board: propsOf(tree, Board),
-    panel: propsOf(tree, ConnectionPanel),
+    get panel() { return propsOf(tree, ConnectionPanel); },
     modal: propsOf(tree, ConfirmModal).modal,
+    header: propsOf(tree, Header),
   };
 }
 
@@ -83,8 +85,15 @@ function event(value: ConnSideEffect) {
 }
 
 function receive(message: GameMessage) {
+  if (message.t === 'undo-req' || message.t === 'restart-req') message = { ...message, requestId: 'peer-request' };
   connection.options?.onGameMessage(message);
   return renderApp();
+}
+
+
+function receiveReply(kind: 'undo' | 'restart') {
+  const request = vi.mocked(connection.api!.send).mock.calls.map(([msg]) => msg).filter(msg => msg.t === `${kind}-req`).at(-1);
+  return receive({ t: `${kind}-ok`, requestId: request && 'requestId' in request ? request.requestId : undefined });
 }
 
 describe('App gameplay coordination', () => {
@@ -134,7 +143,7 @@ describe('App gameplay coordination', () => {
     renderApp().panel.onToggleColor();
     receive({ t: 'restart-req' });
 
-    expect(connection.api?.send).toHaveBeenCalledWith({ t: 'restart-no' });
+    expect(connection.api?.send).toHaveBeenCalledWith({ t: 'restart-no', requestId: 'peer-request' });
     expect(renderApp().modal.open).toBe(false);
   });
 
@@ -143,7 +152,7 @@ describe('App gameplay coordination', () => {
     const app = receive({ t: 'undo-req' });
 
     expect(app.modal.title).toContain('换边');
-    expect(connection.api?.send).toHaveBeenCalledWith({ t: 'undo-no' });
+    expect(connection.api?.send).toHaveBeenCalledWith({ t: 'undo-no', requestId: 'peer-request' });
   });
 
   it('keeps a received swap dialog when a peer restart arrives', () => {
@@ -151,7 +160,7 @@ describe('App gameplay coordination', () => {
     const app = receive({ t: 'restart-req' });
 
     expect(app.modal.title).toContain('换边');
-    expect(connection.api?.send).toHaveBeenCalledWith({ t: 'restart-no' });
+    expect(connection.api?.send).toHaveBeenCalledWith({ t: 'restart-no', requestId: 'peer-request' });
   });
 
   it('rejects a swap that would replace another confirmation', () => {
@@ -196,6 +205,15 @@ describe('App gameplay coordination', () => {
     confirmation.onOk();
 
     expect(renderApp().panel.myColor).toBe(BLACK);
+  });
+
+  it('announces name and media capabilities when recovery establishes the first channel', () => {
+    event({ type: 'restored', via: 'ice-restart', movesSynced: 1 });
+
+    expect(connection.api?.send).toHaveBeenCalledWith(expect.objectContaining({
+      t: 'hello', name: expect.any(String),
+      capabilities: expect.objectContaining({ file: true, audio: expect.any(Boolean) }),
+    }));
   });
 
   it('reconciles the host color when the connection is restored', () => {
@@ -258,4 +276,104 @@ describe('App gameplay coordination', () => {
 
     expect(renderApp().panel.myColor).toBe(WHITE);
   });
+  it.each(['undo', 'restart'] as const)('ignores unsolicited %s confirmations', (kind) => {
+    renderApp().board.onMove(7, 7);
+    receive({ t: `${kind}-ok` });
+    expect(renderApp().board.moves).toHaveLength(1);
+  });
+
+  it.each(['undo', 'restart'] as const)('commits an accepted %s only once', (kind) => {
+    renderApp().board.onMove(7, 7);
+    const app = renderApp();
+    if (kind === 'undo') app.board.onUndo(); else app.board.onRestart();
+    receiveReply(kind);
+    expect(renderApp().board.moves).toHaveLength(0);
+    renderApp().board.onMove(8, 8);
+    receive({ t: `${kind}-ok` });
+    expect(renderApp().board.moves).toHaveLength(1);
+  });
+
+  it.each(['undo', 'restart'] as const)('preserves the board when %s confirmation cannot be sent', (kind) => {
+    renderApp().board.onMove(7, 7);
+    const modal = receive({ t: `${kind}-req` }).modal;
+    vi.mocked(connection.api!.send).mockReturnValue(false);
+    modal.onOk();
+    expect(renderApp().board.moves).toHaveLength(1);
+  });
+
+  it('ignores an old restart dialog after a new room is ready', () => {
+    renderApp().board.onMove(7, 7);
+    const oldModal = receive({ t: 'restart-req' }).modal;
+    event({ type: 'room-ready', room: 'NEXT', role: 'host' });
+    setConnected(true).board.onMove(8, 8);
+    oldModal.onOk();
+    expect(renderApp().board.moves).toHaveLength(1);
+  });
+
+  it.each(['undo', 'restart'] as const)('invalidates %s confirmations when a move changes the board', (kind) => {
+    renderApp().board.onMove(7, 7);
+    const app = renderApp();
+    if (kind === 'undo') app.board.onUndo(); else app.board.onRestart();
+    receive({ t: 'move', x: 8, y: 8 });
+    receive({ t: `${kind}-ok` });
+    expect(renderApp().board.moves).toHaveLength(2);
+  });
+
+  it.each(['undo', 'restart'] as const)('invalidates incoming %s dialogs after a move', (kind) => {
+    renderApp().board.onMove(7, 7);
+    const oldModal = receive({ t: `${kind}-req` }).modal;
+    receive({ t: 'move', x: 8, y: 8 });
+    oldModal.onOk();
+    expect(renderApp().board.moves).toHaveLength(2);
+  });
+
+  it('ignores restart confirmation after switching modes and back', () => {
+    renderApp().board.onMove(7, 7);
+    renderApp().board.onRestart();
+    renderApp().header.onModeChange('ai');
+    renderApp().header.onModeChange('online');
+    receive({ t: 'restart-ok' });
+    expect(renderApp().board.moves).toHaveLength(1);
+  });
+
+  it('does not arm a restart whose request could not be sent', () => {
+    renderApp().board.onMove(7, 7);
+    vi.mocked(connection.api!.send).mockReturnValue(false);
+    renderApp().board.onRestart();
+    receive({ t: 'restart-ok' });
+    expect(renderApp().board.moves).toHaveLength(1);
+  });
+
+  it('invalidates restart confirmation across a data channel disconnect', () => {
+    renderApp().board.onMove(7, 7);
+    renderApp().board.onRestart();
+    connection.options?.onP2pDisconnected?.();
+    setConnected(false);
+    setConnected(true);
+    receive({ t: 'restart-ok' });
+    expect(renderApp().board.moves).toHaveLength(1);
+  });
+
+  it('pauses local moves while a restart request is awaiting a reply', () => {
+    renderApp().board.onRestart();
+    renderApp().board.onMove(7, 7);
+    expect(renderApp().board.moves).toHaveLength(0);
+    const request = vi.mocked(connection.api!.send).mock.calls.find(([msg]) => msg.t === 'restart-req')?.[0];
+    receive({ t: 'restart-no', requestId: request && 'requestId' in request ? request.requestId : undefined }).board.onMove(7, 7);
+    expect(renderApp().board.moves).toHaveLength(1);
+  });
+
+  it('updates the restored role before a following effect in the same event loop', () => {
+    connection.options?.onEvent({ type: 'role-changed', role: 'guest' });
+    connection.options?.onEvent({ type: 'restored', via: 'rebuild', movesSynced: 0 });
+    expect(connection.api?.send).not.toHaveBeenCalledWith({ t: 'color', color: BLACK });
+    expect(renderApp().panel.isHost).toBe(false);
+  });
+
+  it('preserves the board when only the restored room role changes', () => {
+    renderApp().board.onMove(7, 7);
+    event({ type: 'role-changed', role: 'guest' });
+    expect(renderApp().board.moves).toHaveLength(1);
+  });
+
 });

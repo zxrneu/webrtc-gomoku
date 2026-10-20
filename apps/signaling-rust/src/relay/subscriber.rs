@@ -210,7 +210,10 @@ fn dispatch(payload: &str, delivery: &dyn LocalDelivery, node_id: &str, metrics:
         CrossKind::PeerJoined => {
             messages::peer_joined(from_peer.as_str(), msg.name.as_deref().unwrap_or_default())
         }
-        CrossKind::PeerLeft => messages::peer_left(),
+        CrossKind::PeerLeft => match msg.role.as_deref() {
+            Some("host") => messages::peer_left_with_role("host"),
+            _ => messages::peer_left(),
+        },
         CrossKind::PeerOffline => messages::peer_offline(msg.grace_sec.unwrap_or(60)),
         CrossKind::PeerOnline => messages::peer_online(),
         CrossKind::Signal => {

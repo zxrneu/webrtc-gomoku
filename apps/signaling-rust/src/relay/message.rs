@@ -48,6 +48,9 @@ pub struct CrossNodeMsg {
     /// Grace window in seconds (only for `peer-offline`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub grace_sec: Option<u32>,
+    /// Server-confirmed survivor role (only for `peer-left`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
 }
 
 impl CrossNodeMsg {
@@ -63,12 +66,19 @@ impl CrossNodeMsg {
             name: None,
             payload: None,
             grace_sec: None,
+            role: None,
         }
     }
 
     /// Attach a display name.
     pub fn with_name(mut self, name: &str) -> Self {
         self.name = Some(name.to_string());
+        self
+    }
+
+    /// Attach the server-confirmed role of the remaining member.
+    pub fn with_role(mut self, role: &str) -> Self {
+        self.role = Some(role.to_string());
         self
     }
 

@@ -53,6 +53,40 @@ describe('Shared Codec (Connection Code & Compression)', () => {
 });
 
 describe('GameMessage Codec & Validation', () => {
+  it.each([
+    null,
+    1,
+    { x: '0', y: 0, c: 1 },
+    { x: { valueOf: null, toString: null }, y: 0, c: 1 },
+    { x: 0.5, y: 0, c: 1 },
+    { x: 15, y: 0, c: 1 },
+    { x: 0, y: 0, c: 0 },
+  ])('sync 拒绝非法棋谱元素 %j', move => {
+    const raw = JSON.stringify({ t: 'sync', moves: [move] });
+    expect(decodeGameMessageSafe(raw)).toEqual({ ok: false, reason: 'invalid-fields' });
+    expect(() => decodeGameMessage(raw)).toThrow();
+  });
+
+  it.each([{ rev: -1 }, { rev: 0.5 }, { rev: '1' }, { ack: 'false' }])(
+    'sync 拒绝非法回执字段 %j', fields => {
+      expect(decodeGameMessageSafe(JSON.stringify({ t: 'sync', moves: [], ...fields })))
+        .toEqual({ ok: false, reason: 'invalid-fields' });
+    },
+  );
+
+  it('sync 拒绝超过棋盘容量的棋谱', () => {
+    const moves = Array.from({ length: 226 }, () => ({ x: 0, y: 0, c: 1 }));
+    expect(decodeGameMessageSafe(JSON.stringify({ t: 'sync', moves })))
+      .toEqual({ ok: false, reason: 'invalid-fields' });
+  });
+
+  it.each([
+    { t: 'sync', moves: [{ x: 0, y: 0, c: 1 }] },
+    { t: 'sync', moves: [], rev: 1, ack: true },
+  ])('sync 保留合法棋谱与旧版无 rev 消息 %j', msg => {
+    expect(decodeGameMessage(JSON.stringify(msg))).toEqual(msg);
+  });
+
   it('encode and decode color message roundtrip (BLACK and WHITE)', () => {
     const msgBlack = { t: 'color' as const, color: 1 as const };
     const encodedBlack = encodeGameMessage(msgBlack);
@@ -166,3 +200,17 @@ describe('decodeGameMessageSafe（R-P0-5 可忽略路径）', () => {
   });
 });
 
+
+describe('悔棋和重开 requestId', () => {
+  const types = ['undo-req', 'undo-ok', 'undo-no', 'restart-req', 'restart-ok', 'restart-no'] as const;
+  it.each(types)('%s 保留合法 requestId 和兼容旧消息结构', t => {
+    const message = { t, requestId: 'round-1_abc' };
+    expect(decodeGameMessage(JSON.stringify(message))).toEqual(message);
+    expect(decodeGameMessage(JSON.stringify({ t }))).toEqual({ t });
+  });
+  it.each(types)('%s 拒绝空、超长、非字符串及非法字符的 requestId', t => {
+    for (const requestId of ['', 'a'.repeat(65), 123, null, 'with space', '<script>']) {
+      expect(decodeGameMessageSafe(JSON.stringify({ t, requestId }))).toEqual({ ok: false, reason: 'invalid-fields' });
+    }
+  });
+});

@@ -88,6 +88,7 @@ pub struct FakeRelay {
     /// Ordered log of relay operations, e.g. `["join:AB12",
     /// "subscribe:AB12", "publish:AB12"]` (test observability for F5/F6).
     calls: Mutex<Vec<String>>,
+    published: Mutex<Vec<CrossNodeMsg>>,
 }
 
 impl FakeRelay {
@@ -106,12 +107,18 @@ impl FakeRelay {
             node_id: node_id.to_string(),
             cluster,
             calls: Mutex::new(Vec::new()),
+            published: Mutex::new(Vec::new()),
         })
     }
 
     /// Ordered operation log (F5: subscribe-before-publish ordering).
     pub fn call_log(&self) -> Vec<String> {
         self.calls.lock().expect("calls lock").clone()
+    }
+
+    /// Captured relay envelopes, for checking survivor targeting.
+    pub fn published_messages(&self) -> Vec<CrossNodeMsg> {
+        self.published.lock().expect("published lock").clone()
     }
 
     /// Room codes passed to [`Relay::refresh_rooms`] (F4: TTL keep-alive).
@@ -131,6 +138,10 @@ impl FakeRelay {
 impl Relay for FakeRelay {
     async fn publish(&self, msg: CrossNodeMsg) -> Result<(), RelayError> {
         self.record(&format!("publish:{}", msg.room));
+        self.published
+            .lock()
+            .expect("published lock")
+            .push(msg.clone());
         // Fan out to every *other* node, exactly like a Redis channel would.
         let nodes = self.cluster.nodes.lock().expect("nodes lock");
         for (node_id, delivery) in nodes.iter() {
@@ -195,15 +206,26 @@ impl Relay for FakeRelay {
         member: &str,
     ) -> Result<LeaveStatus, RelayError> {
         self.record(&format!("leave:{code}"));
+        let mut seats = self.cluster.seats.lock().expect("seats lock");
         let mut rooms = self.cluster.rooms.lock().expect("rooms lock");
         match rooms.get_mut(code.as_str()) {
             None => Ok(LeaveStatus::RoomDeleted),
             Some(members) => {
-                members.remove(member);
+                let removed = members.remove(member);
                 if members.is_empty() {
                     rooms.remove(code.as_str());
                     Ok(LeaveStatus::RoomDeleted)
                 } else {
+                    if removed {
+                        for remaining in members.iter() {
+                            if let Some((_, peer)) = remaining.split_once(':') {
+                                if let Some(seat) = seats.get_mut(&format!("{code}:{peer}")) {
+                                    seat.role = "host".into();
+                                }
+                                return Ok(LeaveStatus::Survivor(PeerId::new(peer).expect("peer")));
+                            }
+                        }
+                    }
                     Ok(LeaveStatus::Removed)
                 }
             }
@@ -346,7 +368,10 @@ fn dispatch(delivery: &dyn LocalDelivery, msg: &CrossNodeMsg) {
         CrossKind::PeerJoined => {
             messages::peer_joined(from_peer.as_str(), msg.name.as_deref().unwrap_or_default())
         }
-        CrossKind::PeerLeft => messages::peer_left(),
+        CrossKind::PeerLeft => match msg.role.as_deref() {
+            Some("host") => messages::peer_left_with_role("host"),
+            _ => messages::peer_left(),
+        },
         CrossKind::PeerOffline => messages::peer_offline(msg.grace_sec.unwrap_or(60)),
         CrossKind::PeerOnline => messages::peer_online(),
         CrossKind::Signal => {

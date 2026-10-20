@@ -37,20 +37,32 @@ mod tests {
     #[test]
     fn full_queue_reports_full() {
         let (tx, _rx) = bounded(1);
-        assert_eq!(try_enqueue(&tx, ServerMsg::PeerLeft), Enqueue::Accepted);
-        assert_eq!(try_enqueue(&tx, ServerMsg::PeerLeft), Enqueue::Full);
+        assert_eq!(
+            try_enqueue(&tx, ServerMsg::PeerLeft { role: None }),
+            Enqueue::Accepted
+        );
+        assert_eq!(
+            try_enqueue(&tx, ServerMsg::PeerLeft { role: None }),
+            Enqueue::Full
+        );
     }
 
     #[test]
     fn closed_queue_reports_closed() {
         let (tx, rx) = bounded(1);
         drop(rx);
-        assert_eq!(try_enqueue(&tx, ServerMsg::PeerLeft), Enqueue::Closed);
+        assert_eq!(
+            try_enqueue(&tx, ServerMsg::PeerLeft { role: None }),
+            Enqueue::Closed
+        );
     }
 
     #[test]
     fn capacity_is_at_least_one() {
         let (tx, _rx) = bounded(0);
-        assert_eq!(try_enqueue(&tx, ServerMsg::PeerLeft), Enqueue::Accepted);
+        assert_eq!(
+            try_enqueue(&tx, ServerMsg::PeerLeft { role: None }),
+            Enqueue::Accepted
+        );
     }
 }

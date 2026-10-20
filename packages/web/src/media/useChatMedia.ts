@@ -26,7 +26,7 @@ import {
 import type { ChatItem, ModalState } from '../types';
 import { sounds } from '../audio';
 import type { ConnectionApi } from '../connection/useConnection';
-import { localCapabilities } from './capabilities';
+import { localCapabilities, voiceMessageUnavailableReason } from './capabilities';
 import { chatTime, createTransferItem } from './chatItems';
 import { largeFileConfirmText, rejectText, transferFailText } from './copy';
 import type { MediaChannelPort } from './mediaChannel';
@@ -37,6 +37,7 @@ import { VoiceRecorder } from './voiceRecorder';
 /** 传给 Chat 组件的媒体能力与动作 */
 export interface ChatMediaApi {
   capabilities: Capabilities;
+  voiceUnavailableReason?: string;
   recording: { active: boolean; elapsedMs: number };
   onSendFile: (kind: 'image' | 'file', file: File) => void;
   onStartRecord: () => void;
@@ -84,6 +85,7 @@ export function useChatMedia(options: UseChatMediaOptions): ChatMediaController 
   const ackWaitersRef = useRef<Map<string, (result: LocalAckResult) => void>>(new Map());
   const urlsRef = useRef<Set<string>>(new Set());
   const recorderRef = useRef<VoiceRecorder | null>(null);
+  const recordingVersionRef = useRef(0);
   const receiverRef = useRef<MediaReceiver | null>(null);
   const sendFileRef = useRef<(kind: 'image' | 'file' | 'audio', file: File, durationMs?: number) => Promise<void>>(
     async () => {},
@@ -323,16 +325,18 @@ export function useChatMedia(options: UseChatMediaOptions): ChatMediaController 
   const stopRecording = useCallback(async (): Promise<void> => {
     const recorder = recorderRef.current;
     if (!recorder) return;
+    const version = recordingVersionRef.current;
     recorderRef.current = null;
     setRecording({ active: false, elapsedMs: 0 });
     try {
       const result = await recorder.stop();
+      if (version !== recordingVersionRef.current) return;
       const file = new File([result.blob], `语音消息-${Date.now()}.webm`, {
         type: result.mime || 'audio/webm',
       });
       await sendFileRef.current('audio', file, result.durationMs);
     } catch (err) {
-      showToast('录音失败：' + (err as Error).message);
+      if (version === recordingVersionRef.current) showToast('录音失败：' + (err as Error).message);
     }
   }, [showToast]);
   stopRecordingRef.current = () => {
@@ -349,14 +353,19 @@ export function useChatMedia(options: UseChatMediaOptions): ChatMediaController 
       return;
     }
     if (recorderRef.current) return;
+    const version = ++recordingVersionRef.current;
     const recorder = new VoiceRecorder();
-    recorder.onTick = (ms) => setRecording({ active: true, elapsedMs: ms });
-    recorder.onAutoStop = () => stopRecordingRef.current();
+    recorder.onTick = (ms) => {
+      if (version === recordingVersionRef.current) setRecording({ active: true, elapsedMs: ms });
+    };
+    recorder.onAutoStop = () => { if (version === recordingVersionRef.current) stopRecordingRef.current(); };
     recorderRef.current = recorder;
     try {
       await recorder.start();
+      if (version !== recordingVersionRef.current) return;
       setRecording({ active: true, elapsedMs: 0 });
     } catch (err) {
+      if (version !== recordingVersionRef.current) return;
       recorderRef.current = null;
       setRecording({ active: false, elapsedMs: 0 });
       showToast('无法开始录音：' + (err as Error).message);
@@ -364,6 +373,7 @@ export function useChatMedia(options: UseChatMediaOptions): ChatMediaController 
   }, [connected, capabilities.audio, showToast]);
 
   const cancelRecording = useCallback((): void => {
+    recordingVersionRef.current++;
     recorderRef.current?.cancel();
     recorderRef.current = null;
     setRecording({ active: false, elapsedMs: 0 });
@@ -409,6 +419,7 @@ export function useChatMedia(options: UseChatMediaOptions): ChatMediaController 
   }, []);
 
   const failAll = useCallback((): void => {
+    cancelRecording();
     receiverRef.current?.reset();
     for (const [, waiter] of ackWaitersRef.current) {
       waiter({ ok: false, reason: 'channel-closed' });
@@ -423,7 +434,7 @@ export function useChatMedia(options: UseChatMediaOptions): ChatMediaController 
           : item,
       ),
     );
-  }, [setMessages]);
+  }, [setMessages, cancelRecording]);
 
   const revokeAllUrls = useCallback((): void => {
     for (const url of urlsRef.current) URL.revokeObjectURL(url);
@@ -433,6 +444,7 @@ export function useChatMedia(options: UseChatMediaOptions): ChatMediaController 
   // 卸载清理：停止录音、回收 objectURL
   useEffect(
     () => () => {
+      recordingVersionRef.current++;
       recorderRef.current?.cancel();
       recorderRef.current = null;
       for (const [, waiter] of ackWaitersRef.current) {
@@ -448,6 +460,10 @@ export function useChatMedia(options: UseChatMediaOptions): ChatMediaController 
 
   return {
     capabilities,
+    voiceUnavailableReason: voiceMessageUnavailableReason({
+      connected, localAudio: local.audio, peerAudio: peerCaps?.audio ?? null,
+      secureContext: typeof window === 'undefined' || window.isSecureContext !== false,
+    }),
     recording,
     onSendFile: (kind, file) => {
       void sendFile(kind, file);

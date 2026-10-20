@@ -317,6 +317,14 @@ impl SeatRegistry {
         self.lock().remove(peer_id)
     }
 
+    /// Retire only the seat belonging to the room from which a peer migrated.
+    pub fn release_room(&self, room: &RoomCode, peer_id: &PeerId) {
+        let mut seats = self.lock();
+        if seats.get(peer_id).is_some_and(|seat| &seat.room == room) {
+            seats.remove(peer_id);
+        }
+    }
+
     /// Collect every seat whose grace window has elapsed, removing them.
     ///
     /// The caller is responsible for `leave` + broadcasting `peer-left`.
@@ -340,6 +348,14 @@ impl SeatRegistry {
     /// Read-only snapshot of a seat (diagnostics; never used for verification).
     pub fn peek(&self, peer_id: &PeerId) -> Option<Seat> {
         self.lock().get(peer_id).cloned()
+    }
+
+    /// Promote a remaining member without rotating credentials or changing grace state.
+    pub fn promote_host(&self, room: &RoomCode, peer_id: &PeerId) {
+        let mut seats = self.seats.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(seat) = seats.get_mut(peer_id).filter(|seat| &seat.room == room) {
+            seat.role = SeatRole::Host;
+        }
     }
 
     /// Whether `conn_id` is the connection that currently owns the seat.

@@ -4,11 +4,13 @@ const fs = require('node:fs');
 const { chromium } = require('playwright');
 const BASE = process.env.BASE || 'http://localhost:3000';
 (async () => {
-  const browser = await chromium.launch({ channel: 'chrome', args: ['--no-sandbox', '--disable-features=WebRtcHideLocalIpsWithMdns'] });
+  const browser = await chromium.launch({ channel: 'chrome', args: ['--no-sandbox', '--disable-features=WebRtcHideLocalIpsWithMdns',
+    '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
   const errors = [];
   try {
     async function player(name) {
-      const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+      // Permit local ICE interfaces even on hosts whose default route is a VPN; no real microphone is used.
+      const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, permissions: ['microphone'] });
       const page = await context.newPage();
       page.on('pageerror', e => errors.push(e.message));
       await page.goto(BASE); await page.locator('#lobby-panel').waitFor();

@@ -71,12 +71,14 @@
 
 .chatInputRow {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   flex-shrink: 0;
 }
 
 .chatInput {
   flex: 1;
+  flex-basis: 120px;
   min-width: 0;
   min-height: 44px;
   padding: 8px 12px;
@@ -144,6 +146,8 @@
 .iconBtn:hover:not(:disabled) { border-color: var(--accent); background: #fdf8f0; }
 .iconBtn:disabled { opacity: 0.5; cursor: not-allowed; }
 .iconBtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.voiceBtn { width: auto; padding: 0 10px; font-size: 13px; white-space: nowrap; }
+.voiceHint { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
 
 .mediaItem { display: flex; flex-direction: column; gap: 4px; max-width: 100%; }
 .mediaWho { font-size: 11px; color: var(--text-muted); }
@@ -216,6 +220,7 @@
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @media (max-width: 480px) {
   .iconBtn { width: 38px; min-height: 40px; font-size: 16px; }
+  .voiceBtn { width: auto; font-size: 13px; }
   .imageBubble { max-width: 180px; }
   .transferBubble { min-width: 160px; }
 }

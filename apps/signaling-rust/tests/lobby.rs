@@ -54,6 +54,31 @@ async fn state(r: &Router, c: &ConnCtx, rx: &mut mpsc::Receiver<ServerMsg>) -> V
 }
 
 #[tokio::test]
+async fn departed_host_leaves_a_public_room_owned_by_the_promoted_guest() {
+    let d = deps();
+    let r = Router::new(d.clone());
+    let (host, mut host_rx) = person(1);
+    let (guest, mut guest_rx) = person(2);
+    let (next, mut next_rx) = person(3);
+    enter(&r, &host, "松间").await;
+    enter(&r, &guest, "听雨").await;
+    enter(&r, &next, "新客").await;
+    send(&r, &host, json!({"t":"lobby-create","public":true})).await;
+    let code = last(&mut host_rx, "lobby-seat")["room"].clone();
+    send(&r, &guest, json!({"t":"lobby-join","room":code})).await;
+    frames(&mut guest_rx);
+
+    send(&r, &host, json!({"t":"leave"})).await;
+
+    let promoted = state(&r, &guest, &mut guest_rx).await;
+    assert_eq!(promoted["room"]["role"], "host");
+    assert_eq!(promoted["rooms"][0]["name"], "听雨");
+    assert_eq!(promoted["room"]["public"], true);
+    send(&r, &next, json!({"t":"lobby-join","room":code})).await;
+    assert_eq!(last(&mut next_rx, "lobby-seat")["role"], "guest");
+}
+
+#[tokio::test]
 async fn presence_names_are_unique_and_do_not_expose_seat_credentials() {
     let d = deps();
     let r = Router::new(d);

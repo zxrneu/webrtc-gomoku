@@ -169,7 +169,10 @@ fn local_delivery_delivers_to_a_specific_member() {
     table.join(&code("AB12"), b).expect("join");
 
     table.deliver(&code("AB12"), &peer("bbbbbbbb"), messages::peer_left());
-    assert_eq!(rb.try_recv().expect("b received"), ServerMsg::PeerLeft);
+    assert_eq!(
+        rb.try_recv().expect("b received"),
+        ServerMsg::PeerLeft { role: None }
+    );
     assert!(
         ra.try_recv().is_err(),
         "a must not receive a targeted message"
@@ -201,7 +204,10 @@ fn local_delivery_broadcasts_to_others() {
         Some(&peer("aaaaaaaa")),
         messages::peer_left(),
     );
-    assert_eq!(rb.try_recv().expect("b received"), ServerMsg::PeerLeft);
+    assert_eq!(
+        rb.try_recv().expect("b received"),
+        ServerMsg::PeerLeft { role: None }
+    );
     assert!(ra.try_recv().is_err(), "a was excluded");
 }
 

@@ -4,7 +4,6 @@ import { LobbyService } from './lobby/service';
 import os from 'node:os';
 import { WebSocketServer, WebSocket } from 'ws';
 import type {
-  ClientSignalingMsg,
   ServerErrorCode,
   ServerSignalingMsg,
 } from '@webrtc-gomoku/shared';
@@ -12,6 +11,7 @@ import { maskRoom } from '@webrtc-gomoku/shared';
 import { RoomRegistry, type LeaveResult, type RoomClient } from './rooms';
 import { SeatRegistry } from './grace';
 import { SeatOwners } from './seat-owners';
+import { decodeSignalingClient } from './signaling-codec';
 import { createHttpHandler, getCandidateDirs } from './http';
 
 /**
@@ -40,7 +40,10 @@ const GRACE_MS = GRACE_SECS * 1000;
 const SWEEP_INTERVAL_MS = 5000;
 
 /** 全局单例：房间注册中心簿记器 */
-const registry = new RoomRegistry();
+const registry = new RoomRegistry((peerId, room) => {
+  const seat = seats.promoteHost(peerId);
+  lobby.promoteHost(peerId, room, seat?.name);
+});
 /** 全局单例：座位保持与宽限期簿记器（v1.1） */
 const seats = new SeatRegistry({ graceMs: GRACE_MS });
 
@@ -164,28 +167,32 @@ wss.on('connection', (socket: WebSocket, request) => {
 
   // 监听客户端上行的信令指令
   ws.on('message', (raw) => {
-    let msg: ClientSignalingMsg;
+    let input: unknown;
     try {
-      msg = JSON.parse(raw.toString()) as ClientSignalingMsg;
+      input = JSON.parse(raw.toString());
     } catch {
       // 容错防范：恶意或残缺的非 JSON 格式数据直接忽略
       return;
     }
-    if (!msg || typeof msg.t !== 'string') return;
-    if (owner.isRevoked && msg.t !== 'ping') return;
+    if (typeof input !== 'object' || input === null || Array.isArray(input)) return;
+    const frame = input as Record<string, unknown>;
+    if (typeof frame.t !== 'string') return;
+    if (owner.isRevoked && frame.t !== 'ping') return;
 
-    if (msg.t.startsWith('lobby-')) {
-      lobby.handle({ ...asClient(ws), issueSeat: (room, name, role) => issueSeat(ws.__id!, room, name, role) }, msg);
+    if (frame.t.startsWith('lobby-')) {
+      lobby.handle({ ...asClient(ws), issueSeat: (room, name, role) => issueSeat(ws.__id!, room, name, role) }, frame);
       return;
     }
+    const msg = decodeSignalingClient(frame);
+    if (!msg) return sendError(ws, '未知消息类型');
 
     switch (msg.t) {
       // ---------------- 指令 ①：创建房间 ----------------
       case 'create': {
-        const res = registry.create(String(msg.room || '').toUpperCase(), asClient(ws));
+        const res = registry.create((msg.room ?? '').toUpperCase(), asClient(ws));
         if (res.ok && res.left) logLeave(res.left);
         if (!res.ok) return sendError(ws, res.message);
-        const name = String(msg.name || '').slice(0, 20);
+        const name = (msg.name ?? '').slice(0, 20);
         const token = issueSeat(ws.__id!, res.code, name, 'host');
         lobby.syncRoom(ws.__id!, name);
         send(ws, { t: 'created', room: res.code, peerId: ws.__id!, token });
@@ -195,10 +202,10 @@ wss.on('connection', (socket: WebSocket, request) => {
 
       // ---------------- 指令 ②：加入房间 ----------------
       case 'join': {
-        const res = registry.join(String(msg.room || '').toUpperCase(), asClient(ws));
+        const res = registry.join((msg.room ?? '').toUpperCase(), asClient(ws));
         if (res.ok && res.left) logLeave(res.left);
         if (!res.ok) return sendError(ws, res.message);
-        const name = String(msg.name || '').slice(0, 20);
+        const name = (msg.name ?? '').slice(0, 20);
         const token = issueSeat(ws.__id!, res.code, name, 'guest');
         lobby.syncRoom(ws.__id!, name);
         send(ws, { t: 'joined', room: res.code, peerId: ws.__id!, token });
@@ -240,9 +247,13 @@ wss.on('connection', (socket: WebSocket, request) => {
 
       // ---------------- 指令 ⑥：占回原座位（v1.1 增量，非幂等：成功后 token 轮换） ----------------
       case 'resume': {
-        const peerId = String(msg.peerId || '');
-        const reqRoom = String(msg.room || '').toUpperCase();
-        const token = String(msg.token || '');
+        if (registry.roomOf(ws.__id!)) {
+          send(ws, { t: 'error', code: 'RESUME_REJECTED', message: '房间已失效，请重新加入' });
+          break;
+        }
+        const peerId = msg.peerId;
+        const reqRoom = (msg.room ?? '').toUpperCase();
+        const token = msg.token;
         const result = seats.verify(peerId, reqRoom, token, Date.now());
 
         if (result !== 'ok') {
@@ -262,7 +273,8 @@ wss.on('connection', (socket: WebSocket, request) => {
         const newToken = seats.rotate(peerId, Date.now()) ?? '';
         seatOwners.claim(peerId, owner);
         const peers = registry.others(reqRoom, peerId);
-        send(ws, { t: 'resumed', room: reqRoom, peerId, token: newToken, peerPresent: peers.length > 0 });
+        send(ws, { t: 'resumed', room: reqRoom, peerId, token: newToken,
+          peerPresent: peers.length > 0, role: seats.peek(peerId)?.role });
         log(`srv.resume.ok room=${maskRoom(reqRoom)} peerId=${peerId} graceMs=${GRACE_MS}`);
 
         for (const peer of peers) {

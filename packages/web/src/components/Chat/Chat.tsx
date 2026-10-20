@@ -171,16 +171,18 @@ export const Chat: React.FC<ChatProps> = ({
           </>
         )}
 
-        {media && media.capabilities.audio && !recording && (
+        {media && !recording && (
           <button
             type="button"
             id="chat-voice-btn"
-            className={styles.iconBtn}
+            className={`${styles.iconBtn} ${styles.voiceBtn}`}
             aria-label="录制语音"
-            disabled={!connected}
+            aria-describedby={media.voiceUnavailableReason ? 'chat-voice-hint' : undefined}
+            title={media.voiceUnavailableReason ?? '录制并发送语音消息'}
+            disabled={!connected || !media.capabilities.audio}
             onClick={media.onStartRecord}
           >
-            🎤
+            <span aria-hidden="true">🎤</span> 语音消息
           </button>
         )}
 
@@ -220,6 +222,9 @@ export const Chat: React.FC<ChatProps> = ({
           </>
         )}
       </form>
+      {media?.voiceUnavailableReason && !recording && (
+        <p id="chat-voice-hint" className={styles.voiceHint}>{media.voiceUnavailableReason}</p>
+      )}
     </div>
   );
 };

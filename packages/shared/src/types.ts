@@ -57,31 +57,43 @@ export interface ChatMsg {
 /** 4. 请求悔棋：向对方发起撤销一步的申请 */
 export interface UndoReqMsg {
   t: 'undo-req';
+  /** 协商关联标识；旧版可省略，新端确认必须精确回显。 */
+  requestId?: string;
 }
 
 /** 5. 同意悔棋：对方点击“同意”，双方棋盘同步撤销一步 */
 export interface UndoOkMsg {
   t: 'undo-ok';
+  /** 协商关联标识；旧版可省略，新端确认必须精确回显。 */
+  requestId?: string;
 }
 
 /** 6. 拒绝悔棋：对方点击“拒绝” */
 export interface UndoNoMsg {
   t: 'undo-no';
+  /** 协商关联标识；旧版可省略，新端确认必须精确回显。 */
+  requestId?: string;
 }
 
 /** 7. 请求重新开局：一局结束后，申请再来一盘 */
 export interface RestartReqMsg {
   t: 'restart-req';
+  /** 协商关联标识；旧版可省略，新端确认必须精确回显。 */
+  requestId?: string;
 }
 
 /** 8. 同意重新开局：对方同意，重置棋盘与轮次 */
 export interface RestartOkMsg {
   t: 'restart-ok';
+  /** 协商关联标识；旧版可省略，新端确认必须精确回显。 */
+  requestId?: string;
 }
 
 /** 9. 拒绝重新开局 */
 export interface RestartNoMsg {
   t: 'restart-no';
+  /** 协商关联标识；旧版可省略，新端确认必须精确回显。 */
+  requestId?: string;
 }
 
 /** 10. 离开对局通知：某一方主动退出或关闭网页 */
@@ -353,6 +365,8 @@ export interface ServerPeerJoinedMsg {
 /** 服务端通知：对手已经离开房间或掉线 */
 export interface ServerPeerLeftMsg {
   t: 'peer-left';
+  /** 服务端确认的剩余玩家角色；旧服务端可省略。 */
+  role?: 'host' | 'guest';
 }
 
 /** 服务端转发来自对手的信令数据 */
@@ -411,6 +425,8 @@ export interface ServerResumedMsg {
   token: string;
   /** 当前是否仍有对手占座；缺省时兼容旧服务端，沿用本地记录。 */
   peerPresent?: boolean;
+  /** 服务端当前保存的座位角色，包含原房主离开后的角色提升。 */
+  role?: 'host' | 'guest';
 }
 
 /** 服务端下发的信令消息联合类型 */

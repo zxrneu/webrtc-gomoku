@@ -9,7 +9,7 @@
  */
 
 import type { GameState, Move } from '@webrtc-gomoku/core';
-import { applyMove, create as createGame } from '@webrtc-gomoku/core';
+import { applyMove, create as createGame, SIZE } from '@webrtc-gomoku/core';
 
 /** 对账方案 */
 export interface SyncPlan {
@@ -26,17 +26,25 @@ export interface SyncPlan {
 /** 重放结果 */
 export type ReplayResult = { ok: true; game: GameState } | { ok: false; at: number };
 
+function isMove(value: unknown): value is Move {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const move = value as Record<string, unknown>;
+  return typeof move.x === 'number' && Number.isInteger(move.x) && move.x >= 0 && move.x < SIZE &&
+    typeof move.y === 'number' && Number.isInteger(move.y) && move.y >= 0 && move.y < SIZE &&
+    (move.c === 1 || move.c === 2);
+}
+
 /**
- * 用 `core.applyMove` 确定性重放一份棋谱，逐手校验合法性。
+ * 用 `core.applyMove` 确定性重放一份棋谱，先校验外部字段再逐手检查规则。
  *
  * @param moves 待校验的棋谱
  * @returns 成功返回终局状态；失败返回第一手非法落子的**下标**（从 0 开始）
  */
-export function replayMoves(moves: readonly Move[]): ReplayResult {
+export function replayMoves(moves: readonly unknown[]): ReplayResult {
   const game = createGame();
   for (let index = 0; index < moves.length; index++) {
     const move = moves[index];
-    if (!move) return { ok: false, at: index };
+    if (!isMove(move)) return { ok: false, at: index };
     const result = applyMove(game, move.x, move.y, move.c);
     if (!result.ok) return { ok: false, at: index };
   }

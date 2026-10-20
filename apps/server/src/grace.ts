@@ -130,6 +130,14 @@ export class SeatRegistry {
     return token;
   }
 
+  /** 剩余玩家继任房主，重连时仍保留服务端角色。 */
+  promoteHost(peerId: string): Seat | null {
+    const seat = this.seats.get(peerId);
+    if (!seat) return null;
+    seat.role = 'host';
+    return { ...seat };
+  }
+
   /** 立即释放座位（主动 leave / 宽限超时） */
   release(peerId: string): void {
     this.seats.delete(peerId);

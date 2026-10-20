@@ -11,8 +11,9 @@
  * 3. 最终效果：把几千字符的 SDP 压缩到 600~700 字符以内，以字母 'Z' 开头，微信/短信单条即可发送，极佳兼容！
  */
 
-import { BLACK, WHITE } from '@webrtc-gomoku/core';
+import { BLACK, WHITE, SIZE } from '@webrtc-gomoku/core';
 import type { GameMessage } from './types';
+import { replayMoves } from './reconnect/sync';
 
 // ==========================================
 // 1. Base64URL 编解码工具函数
@@ -185,15 +186,19 @@ function validateGameMessage(obj: Record<string, unknown>): GameMessage {
         throw new Error('color 消息 color 字段必须为 1(黑) 或 2(白)');
       }
       return obj as unknown as GameMessage;
-    case 'swap-req':
-    case 'swap-ok':
-    case 'swap-no':
     case 'undo-req':
     case 'undo-ok':
     case 'undo-no':
     case 'restart-req':
     case 'restart-ok':
     case 'restart-no':
+      if (obj.requestId !== undefined && (typeof obj.requestId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(obj.requestId))) {
+        throw new Error('协商消息 requestId 必须为 1 到 64 位字母、数字、下划线或连字符');
+      }
+      return obj as unknown as GameMessage;
+    case 'swap-req':
+    case 'swap-ok':
+    case 'swap-no':
     case 'bye':
     case 'ping':
     case 'pong':
@@ -207,7 +212,15 @@ function validateGameMessage(obj: Record<string, unknown>): GameMessage {
       if (typeof obj.text !== 'string') throw new Error('chat 消息缺少合法的 text 字段');
       return obj as unknown as GameMessage;
     case 'sync':
-      if (!Array.isArray(obj.moves)) throw new Error('sync 消息缺少 moves 数组');
+      if (!Array.isArray(obj.moves) || obj.moves.length > SIZE * SIZE || !replayMoves(obj.moves).ok) {
+        throw new Error('sync 消息缺少合法棋谱');
+      }
+      if (obj.rev !== undefined && (typeof obj.rev !== 'number' || !Number.isSafeInteger(obj.rev) || obj.rev < 0)) {
+        throw new Error('sync 消息 rev 必须为非负安全整数');
+      }
+      if (obj.ack !== undefined && typeof obj.ack !== 'boolean') {
+        throw new Error('sync 消息 ack 必须为布尔');
+      }
       return obj as unknown as GameMessage;
     case 'media-meta': {
       if (typeof obj.id !== 'string' || !obj.id) throw new Error('media-meta 缺少合法的 id');

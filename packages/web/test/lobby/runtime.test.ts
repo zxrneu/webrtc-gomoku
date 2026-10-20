@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_POLICY, createConnectionManager, type LobbyState } from '@webrtc-gomoku/shared';
+import { DEFAULT_POLICY, createConnectionManager, type LobbySeat, type LobbyState } from '@webrtc-gomoku/shared';
 import { createLobbyRuntime } from '../../src/lobby/runtime';
 import { CollectingLogger, FakeClock, FakeP2p, FakeSignal } from '../../../shared/test/reconnect/fakes';
 
-function setup() {
+function setup(onSeat?: (seat: LobbySeat | null) => void) {
   const raw = new FakeSignal(); const clock = new FakeClock(); const p2p = new FakeP2p();
-  const runtime = createLobbyRuntime({ clock, name: '小明', browserId: 'browser', tabId: 'tab', url: 'ws://test/signal' });
+  const runtime = createLobbyRuntime({ clock, name: '小明', browserId: 'browser', tabId: 'tab', url: 'ws://test/signal', onSeat });
   const signal = runtime.attach(raw);
   const manager = createConnectionManager({ signal, p2p, clock, policy: DEFAULT_POLICY, random: () => .5,
     logger: new CollectingLogger(), signalUrl: 'ws://test/signal', getLocalMoves: () => [], onMovesReplaced: () => {},
@@ -19,6 +19,13 @@ function setup() {
 }
 
 describe('大厅与现有连接编排接线', () => {
+  it('房主离开后将提升的角色持久化，刷新不再沿用 guest', () => {
+    const changes: (LobbySeat | null)[] = [];
+    const t = setup(seat => changes.push(seat));
+    t.raw.server({ t: 'lobby-seat', room: 'A1B2', role: 'guest', peerId: 'b', token: 'secret' });
+    t.raw.server({ t: 'peer-left', role: 'host' });
+    expect(changes.at(-1)).toMatchObject({ room: 'A1B2', role: 'host', peerId: 'b' });
+  });
   it('忙碌状态同步不被未完成的操作请求拦截', () => {
     const t = setup(); t.runtime.send({ t: 'lobby-name', name: '改名' });
     expect(t.runtime.send({ t: 'lobby-ready', ready: true })).toBe(true);
@@ -130,6 +137,21 @@ describe('大厅与现有连接编排接线', () => {
 });
 
 describe('刷新后恢复服务端座位', () => {
+  it('恢复时采纳服务端提升后的角色，而非存储中的旧 guest', () => {
+    const raw = new FakeSignal(); const clock = new FakeClock(); const p2p = new FakeP2p();
+    const changes: (LobbySeat | null)[] = [];
+    const runtime = createLobbyRuntime({ clock, name: '小明', browserId: 'b', tabId: 't', url: 'ws://test/signal',
+      restoreSeat: { t: 'lobby-seat', room: 'A1B2', role: 'guest', peerId: 'b', token: 'old' },
+      onSeat: seat => changes.push(seat) });
+    const signal = runtime.attach(raw);
+    const manager = createConnectionManager({ signal, p2p, clock, policy: DEFAULT_POLICY, random: () => .5,
+      logger: new CollectingLogger(), signalUrl: 'ws://test/signal', getLocalMoves: () => [], onMovesReplaced: () => {},
+      onStatus: () => {}, onEvent: () => {}, onGameMessage: () => {}, isOnline: () => true });
+    runtime.ready(manager); runtime.enable(true); raw.open();
+    raw.server({ t: 'resumed', room: 'A1B2', peerId: 'b', token: 'new', peerPresent: true, role: 'host' });
+    expect(changes.at(-1)).toMatchObject({ role: 'host', token: 'new' });
+    expect(p2p.attached).toEqual([true]);
+  });
   it('凭证经服务端校验后才恢复原房主角色，不重复建房', () => {
     const raw = new FakeSignal(); const clock = new FakeClock(); const p2p = new FakeP2p();
     const runtime = createLobbyRuntime({ clock, name: '小明', browserId: 'browser', tabId: 'tab', url: 'ws://test/signal',

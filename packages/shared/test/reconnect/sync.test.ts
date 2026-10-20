@@ -12,6 +12,18 @@ function moves(...points: [number, number][]): Move[] {
 }
 
 describe('sync · replayMoves 确定性重放', () => {
+  it.each([
+    null,
+    1,
+    { x: '0', y: 0, c: 1 },
+    { x: { valueOf: null, toString: null }, y: 0, c: 1 },
+    { x: 0.5, y: 0, c: 1 },
+    { x: 0, y: 0, c: 0 },
+  ])('replayMoves 安全拒绝非法元素 %j', move => {
+    const list = [{ x: 7, y: 7, c: 1 }, move] as unknown as Move[];
+    expect(replayMoves(list)).toEqual({ ok: false, at: 1 });
+  });
+
   it('合法棋谱重放成功且手数一致', () => {
     const list = moves([7, 7], [8, 8], [7, 8]);
 

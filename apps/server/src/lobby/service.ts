@@ -272,6 +272,14 @@ export class LobbyService {
     this.revision++;
   }
 
+  promoteHost(id: string, room: string, name?: string): void {
+    const info = this.roomInfo.get(room);
+    if (!info) return;
+    info.host = id;
+    info.name = name || this.people.get(id)?.name || '棋友';
+    this.revision++;
+  }
+
   rebind(previous: string, restored: string): void {
     const p = this.people.get(previous);
     if (!p) return;

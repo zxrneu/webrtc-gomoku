@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use crate::metrics::names;
 use crate::protocol::{self, messages, Classification};
-use crate::relay::{CrossKind, CrossNodeMsg, JoinStatus};
+use crate::relay::{CrossKind, CrossNodeMsg, JoinStatus, LeaveStatus};
 use crate::rooms::{generate_room_code, PeerId, RoomCode, RoomError, MAX_ROOM_MEMBERS};
 
 use super::heartbeat;
@@ -44,6 +44,16 @@ pub struct Router {
 impl Router {
     /// Build a router over the connection dependencies.
     pub fn new(deps: ConnDeps) -> Self {
+        let seats = deps.seats.clone();
+        deps.rooms
+            .set_promotion_handler(std::sync::Arc::new(move |room, peer| {
+                seats.promote_host(room, peer);
+            }));
+        let seats = deps.seats.clone();
+        deps.rooms
+            .set_eviction_handler(std::sync::Arc::new(move |room, peer| {
+                seats.release_room(room, peer);
+            }));
         Self { deps }
     }
 
@@ -520,7 +530,7 @@ impl Router {
         let ttl = self.deps.cfg.snapshot().redis.room_ttl_secs;
 
         // [P1] Atomic resume & cross-node takeover (Issues 1 & 3)
-        let (new_token, _role) = if self.deps.relay.is_connected() {
+        let (new_token, role) = if self.deps.relay.is_connected() {
             let fresh_token = self.deps.seats.generate_token();
             match self
                 .deps
@@ -653,11 +663,16 @@ impl Router {
             Some(false)
         };
 
-        ctx.send(messages::resumed(
+        ctx.send(messages::resumed_with_role(
             code.as_str(),
             peer.as_str(),
             &new_token,
             peer_present,
+            if role == SeatRole::Host {
+                "host"
+            } else {
+                "guest"
+            },
         ));
         self.deps.metrics.inc_message(names::msg_type::RESUME);
 
@@ -706,25 +721,16 @@ impl Router {
 
 /// Shared leave routine used by both the router and the RAII guard.
 pub async fn do_leave(deps: &ConnDeps, peer: &PeerId, code: &RoomCode) {
+    let distributed = deps.relay.is_connected();
     let member = member_id(&deps.node_id, peer);
-    let _ = deps.relay.registry_leave(code, &member).await;
+    let survivor = match deps.relay.registry_leave(code, &member).await {
+        Ok(LeaveStatus::Survivor(peer)) => Some(peer),
+        _ => None,
+    };
 
     let outcome = deps.rooms.leave(code, peer);
     if outcome.destroyed {
         deps.relay.unsubscribe_room(code).await;
-    }
-    if outcome.remaining.is_empty() {
-        // No local peer left → the remaining peer (if any) is remote.
-        let msg = CrossNodeMsg::new(CrossKind::PeerLeft, code, &deps.node_id, peer);
-        if deps.relay.publish(msg).await.is_err() && !deps.relay.is_connected() {
-            deps.metrics.inc_error(names::err_kind::RELAY_UNAVAILABLE);
-        }
-    } else {
-        for handle in outcome.remaining {
-            if handle.send(messages::peer_left()) {
-                deps.metrics.inc_error(names::err_kind::SLOW_CLIENT);
-            }
-        }
     }
     deps.metrics.inc_message(names::msg_type::LEAVE);
     tracing::info!(
@@ -733,4 +739,32 @@ pub async fn do_leave(deps: &ConnDeps, peer: &PeerId, code: &RoomCode) {
         room = %code,
         "离开房间"
     );
+    if distributed && survivor.is_none() || !distributed && !outcome.removed {
+        return;
+    }
+    let remote_survivor = distributed
+        && !outcome
+            .remaining
+            .iter()
+            .any(|handle| survivor.as_ref() == Some(&handle.peer_id));
+    if remote_survivor {
+        // The confirmed survivor is not among the current local members.
+        let mut msg = CrossNodeMsg::new(CrossKind::PeerLeft, code, &deps.node_id, peer);
+        if let Some(survivor) = survivor {
+            msg = msg.with_role("host").with_target(&survivor);
+        }
+        if deps.relay.publish(msg).await.is_err() && !deps.relay.is_connected() {
+            deps.metrics.inc_error(names::err_kind::RELAY_UNAVAILABLE);
+        }
+    } else {
+        for handle in outcome.remaining {
+            if distributed && survivor.as_ref() != Some(&handle.peer_id) {
+                continue;
+            }
+            deps.seats.promote_host(code, &handle.peer_id);
+            if handle.send(messages::peer_left_with_role("host")) {
+                deps.metrics.inc_error(names::err_kind::SLOW_CLIENT);
+            }
+        }
+    }
 }

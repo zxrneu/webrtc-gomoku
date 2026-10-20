@@ -623,6 +623,7 @@ impl Lobby {
         }
     }
     fn expire(&mut self, deps: &ConnDeps) {
+        self.reconcile_hosts(deps);
         let now = self.now();
         let queue_len = self.queue.len();
         let room_len = self.rooms.len();
@@ -650,6 +651,38 @@ impl Lobby {
         self.cooldown.retain(|_, until| *until > now);
         self.rooms.retain(|code, _| deps.rooms.contains(code));
         if self.queue.len() != queue_len || self.rooms.len() != room_len {
+            self.invalidate();
+        }
+    }
+
+    fn reconcile_hosts(&mut self, deps: &ConnDeps) {
+        let mut changed = false;
+        for (code, info) in &mut self.rooms {
+            if deps
+                .seats
+                .peek(&info.host)
+                .is_some_and(|seat| seat.room == *code && seat.role == super::SeatRole::Host)
+            {
+                continue;
+            }
+            let replacement = deps
+                .rooms
+                .signal_targets(code, &info.host)
+                .into_iter()
+                .filter_map(|handle| deps.seats.peek(&handle.peer_id))
+                .find(|seat| seat.role == super::SeatRole::Host && seat.room == *code);
+            if let Some(seat) = replacement {
+                info.name = self
+                    .people
+                    .get(&seat.peer_id)
+                    .map(|p| p.name.clone())
+                    .filter(|name| !name.is_empty())
+                    .unwrap_or_else(|| seat.name.clone());
+                info.host = seat.peer_id;
+                changed = true;
+            }
+        }
+        if changed {
             self.invalidate();
         }
     }

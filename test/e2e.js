@@ -38,7 +38,8 @@ async function launchBrowser() {
     try {
       return await chromium.launch({
         ...opt,
-        args: ['--disable-features=WebRtcHideLocalIpsWithMdns', '--no-sandbox'],
+        args: ['--disable-features=WebRtcHideLocalIpsWithMdns', '--no-sandbox',
+          '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
       });
     } catch (e) { lastErr = e; }
   }
@@ -49,14 +50,14 @@ async function launchBrowser() {
   const browser = await launchBrowser();
 
   async function newPlayerPage(name) {
-    const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
+    const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 }, permissions: ['microphone'] });
     const page = await ctx.newPage();
     page.on('pageerror', (e) => console.error(`[${name} pageerror]`, e.message));
     await page.addInitScript((requireRelay) => {
       const send = RTCDataChannel.prototype.send;
       const create = RTCPeerConnection.prototype.createDataChannel;
       const NativePeer = RTCPeerConnection;
-      window.__gameplayTest = { hold: false, holdColor: false, queue: [], channels: [], peers: [], protocolOnly: false };
+      window.__gameplayTest = { hold: false, holdColor: false, queue: [], sent: [], channels: [], peers: [], protocolOnly: false };
       window.RTCPeerConnection = class extends NativePeer {
         constructor(config) {
           super(requireRelay ? { ...config, iceTransportPolicy: 'relay' } : config);
@@ -65,6 +66,7 @@ async function launchBrowser() {
       };
       RTCDataChannel.prototype.send = function (raw) {
         const message = typeof raw === 'string' ? JSON.parse(raw) : null;
+        if (message) window.__gameplayTest.sent.push(message);
         if (window.__gameplayTest.protocolOnly) return;
         if ((window.__gameplayTest.hold && ['swap-ok', 'move'].includes(message?.t)) ||
             (window.__gameplayTest.holdColor && message?.t === 'color')) {
@@ -130,6 +132,12 @@ async function launchBrowser() {
     dcState: window.__gomoku.dcState,
     pendingIce: window.__gomoku.pendingIce,
   }));
+
+  async function relayRequestMessage(from, to, type) {
+    const message = await from.evaluate((t) => window.__gameplayTest.sent.findLast(msg => msg.t === t), type);
+    if (!message?.requestId) throw new Error(`Missing correlated message: ${type}`);
+    await to.evaluate(msg => window.__gomoku.deliver(msg), message);
+  }
 
   console.log('== 阶段一：房间联机信令链路 ==');
   const pageA = await newPlayerPage('A');
@@ -204,7 +212,7 @@ async function launchBrowser() {
           peer.onconnectionstatechange = null;
           peer.oniceconnectionstatechange = null;
           if (peer.ondatachannel) {
-            const channel = { readyState: 'open', send() {}, close() {} };
+            const channel = { readyState: 'open', send(raw) { test.sent.push(JSON.parse(raw)); }, close() {} };
             peer.ondatachannel({ channel });
             channel.onopen?.();
           }
@@ -280,12 +288,12 @@ async function launchBrowser() {
   if (p2p) {
     await pageB.waitForSelector('#modal-mask:not(.hidden)', { timeout: 5000 });
   } else {
-    await pageB.evaluate(() => window.__gomoku.deliver({ t: 'restart-req' }));
+    await relayRequestMessage(pageA, pageB, 'restart-req');
     await pageB.waitForSelector('#modal-mask:not(.hidden)', { timeout: 5000 });
   }
   check('对端收到「重新开始」请求弹窗', true);
   await pageB.click('#modal-ok');
-  if (!p2p) await pageA.evaluate(() => window.__gomoku.deliver({ t: 'restart-ok' }));
+  if (!p2p) await relayRequestMessage(pageB, pageA, 'restart-ok');
   await pageA.waitForFunction(() => window.__gomoku.moves.length === 0, null, { timeout: 5000 });
   await pageB.waitForFunction(() => window.__gomoku.moves.length === 0, null, { timeout: 5000 });
   check('双方同意后棋盘重置', true);
@@ -306,11 +314,11 @@ async function launchBrowser() {
   if (p2p) {
     await pageB.waitForSelector('#modal-mask:not(.hidden)', { timeout: 5000 });
   } else {
-    await pageB.evaluate(() => window.__gomoku.deliver({ t: 'undo-req' }));
+    await relayRequestMessage(pageA, pageB, 'undo-req');
     await pageB.waitForSelector('#modal-mask:not(.hidden)', { timeout: 5000 });
   }
   await pageB.click('#modal-ok');
-  if (!p2p) await pageA.evaluate(() => window.__gomoku.deliver({ t: 'undo-ok' }));
+  if (!p2p) await relayRequestMessage(pageB, pageA, 'undo-ok');
   await pageA.waitForFunction(() => window.__gomoku.moves.length === 0, null, { timeout: 5000 });
   check('悔棋流程（请求-同意-回退）', true);
 
@@ -551,6 +559,25 @@ async function launchBrowser() {
   check(`对手离开后 B 状态提示「等待对手加入」（${afterB.status}）`, afterB.status.includes('等待对手加入'));
   check(`对手离开后 B 有「对手已离开」系统消息（${afterB.sysText}）`, afterB.sysText.includes('对手已离开'));
   check(`对手离开后 B 不是 FAILED（${afterB.state}）`, afterB.state === 'ROOM_WAITING');
+
+  console.log('== 阶段二·补：原房主离开后剩余玩家接待新对手 ==');
+  const replacement = await newPlayerPage('Replacement');
+  await replacement.fill('#name-input', '新对手');
+  await replacement.fill('#room-input', room);
+  await replacement.click('#join-room-btn');
+  await Promise.all([
+    pageB.waitForFunction(() => window.__gomoku.connected, null, { timeout: P2P_TIMEOUT }),
+    replacement.waitForFunction(() => window.__gomoku.connected, null, { timeout: P2P_TIMEOUT }),
+  ]);
+  check('原 guest 晋升房主后与新 guest 建立真实 P2P', true);
+  const black = (await state(pageB)).myColor === 1 ? pageB : replacement;
+  const white = black === pageB ? replacement : pageB;
+  await clickCell(black, 7, 7, 1);
+  await white.waitForFunction(() => window.__gomoku.moves.length === 1, null, { timeout: 5000 });
+  check('角色交接后双方落子同步', (await state(black)).myColor !== (await state(white)).myColor);
+  await replacement.click('#create-room-btn');
+  await pageB.waitForFunction(() => !window.__gomoku.connected && window.__gomoku.connState === 'ROOM_WAITING', null, { timeout: 8000 });
+  await replacement.context().close();
 
   console.log('== 阶段二·补2：输错房号不会把自己踢出当前房间 ==');
   // 验证本测试的房间仍能接入和协商，避免依赖会被其他玩家/宽限回收影响的全局房间数。
