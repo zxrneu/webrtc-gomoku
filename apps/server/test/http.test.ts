@@ -71,6 +71,16 @@ describe('HTTP 静态服务与健康检查 - P0 / P1 / P2 安全与回归测试'
   });
 
   describe('P0: 畸形编码防 DoS 崩溃', () => {
+    it.each(['/%00', '/assets/a%00.js', '/%2e%2e%2f%00'])('含空字节的路径 %s 返回 400 且服务仍可处理后续请求', async (url) => {
+      const handler = createHttpHandler({ registry: { roomCount: 0 }, publicDir });
+
+      const res = await dispatchRequest(handler, { url });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body).toBe('Bad Request');
+      expect((await dispatchRequest(handler, { url: '/healthz' })).statusCode).toBe(200);
+    });
+
     it('畸形百分号编码路径（如 /%）返回 400 Bad Request 而非抛出异常崩溃', async () => {
       const handler = createHttpHandler({
         registry: { roomCount: 0 },

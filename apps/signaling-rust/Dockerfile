@@ -30,6 +30,7 @@ WORKDIR /build
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.base.json ./
 COPY packages ./packages
 COPY apps ./apps
+COPY tooling ./tooling
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @webrtc-gomoku/web build
 

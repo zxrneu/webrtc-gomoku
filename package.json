@@ -1,6 +1,6 @@
 {
   "name": "webrtc-gomoku-monorepo",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "description": "WebRTC P2P 联机五子棋 (TypeScript + pnpm workspace + React + CSS Modules)",
   "scripts": {

@@ -1,6 +1,6 @@
 {
   "name": "@webrtc-gomoku/server",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Signaling and static file server for WebRTC Gomoku",
   "main": "./dist/server.js",
   "types": "./dist/server.d.ts",

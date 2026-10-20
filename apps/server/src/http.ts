@@ -72,6 +72,8 @@ export function createHttpHandler(options: HttpHandlerOptions): http.RequestList
     try {
       const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
       pathname = decodeURIComponent(url.pathname);
+      // fs.readFile 对空字节路径会同步抛错，必须在进入文件系统前拒绝。
+      if (pathname.includes('\0')) throw new Error('Invalid path');
     } catch {
       // 安全防护 P0：恶意畸形 URI 编码（如 /% 或 /%zz）返回 400，防止未捕获异常导致 Node.js 进程崩溃
       res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
