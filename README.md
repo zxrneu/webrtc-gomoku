@@ -87,6 +87,12 @@ pnpm run build    # 构建所有包并生成 dist/gomoku-standalone.html
 网络说明：**同一局域网或双方可达 IPv6 时自动直连**；
 连不上时面板会给出原因诊断。也可从 GitHub Release 直接下载现成单文件。
 
+## 局域网 HTTPS 与语音消息
+
+Node、Rust 构建版与 Vite 开发版均支持配置证书启动 HTTPS，网页与信令使用同一端口的 HTTPS/WSS。局域网发送语音时，双方设备都需要信任证书并允许麦克风访问；普通局域网 HTTP 仍可下棋，但无法录音。证书生成、手机信任、启动命令及公网反代见 **[HTTPS 与语音配置](docs/https.md)**。
+
+运行 `pnpm https:setup` 可直接下载 mkcert 二进制、配置本机 CA 并生成局域网证书；可用 `--ip 192.168.1.100` 指定地址。Node 使用 `pnpm build && pnpm start:https`，Rust 使用 `pnpm build:web && pnpm start:https:rust`，默认访问证书覆盖的局域网 IP 的 HTTPS 3443 端口。
+
 ## 本地开发与测试
 
 ```bash
@@ -123,7 +129,7 @@ pnpm ai:verify /tmp/proof.json
 ```
 
 - 本机测试：开两个浏览器标签访问 `http://localhost:3000`，一个创建房间、一个加入
-- 手机/其他设备：访问启动日志里打印的局域网地址，如 `http://<你的局域网IP>:3000`
+- 手机/其他设备：普通下棋可访问日志中的局域网 HTTP 地址；发送语音请按 [HTTPS 配置](docs/https.md)使用受信任 HTTPS 地址
 - 单元测试：`pnpm test`（2026-10-20：Vitest 70 个文件、1042 项通过，包含规则、协议、大厅、断线重连与 AI）。Rust 另运行 `cargo test --manifest-path apps/signaling-rust/Cargo.toml`（同日 254 项通过）。
 - E2E 测试：`pnpm test:e2e`（Playwright 覆盖 P2P 对局、信令、换房/换边、AI、聊天与富媒体、大厅邀请/匹配/恢复和分页）。容量与已知问题复现命令见[大厅复审](docs/m6-lobby/capacity-review.md)。
 
@@ -192,7 +198,7 @@ cargo run --release            # 前台运行；容器化部署见上文方式�
 - `/healthz`、`/metrics`、`/config`（STUN/TURN 动态下发）
 - 完整部署/运维文档：`apps/signaling-rust/README.md`、`docs/m3-rust-signaling/deploy.md`
 
-**生产建议**：用 Nginx 反代到 3000 端口并配置 HTTPS（腾讯云免费证书或 Let's Encrypt）。HTTPS 下 WebRTC 更稳定，也能避免浏览器对非安全上下文的限制。
+**生产 HTTPS**：可使用带公共 CA 证书的反向代理，或 Node/Rust 原生 TLS。仓库包含 Caddy 配置与完整的 [HTTPS 部署和语音权限说明](docs/https.md)。
 
 ## 网络环境说明（IPv4 / IPv6 / NAT）
 

@@ -15,3 +15,10 @@ crates/*/target/
 # 本地 UI 检查与单文件构建中间产物
 .playwright-cli/
 packages/web/dist-standalone/
+
+# 本地 HTTPS 证书与私钥（不提交、不通过静态目录提供）
+.certs/
+*.pem
+*.key
+*.p12
+*.pfx

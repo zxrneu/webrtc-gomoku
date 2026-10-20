@@ -20,6 +20,8 @@ use tracing_subscriber::{fmt, reload, EnvFilter};
 
 use gomoku_signaling::config::{env, Config, ConfigSnapshot, EnvSource, ProcessEnv};
 use gomoku_signaling::http::router::build_router;
+use gomoku_signaling::http::server::{serve_with_tls, ServerTransport};
+use gomoku_signaling::http::tls::{load_tls_config, repository_root};
 use gomoku_signaling::http::{static_files, AppState, LogLevelSetter};
 use gomoku_signaling::metrics::Metrics;
 use gomoku_signaling::relay;
@@ -33,6 +35,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. 加载不可变配置快照
     let snapshot = Config::load()?;
     let cfg = snapshot.snapshot();
+    let tls_root = repository_root(&ProcessEnv, &std::env::current_dir()?);
+    let tls = load_tls_config(&ProcessEnv, &tls_root)?;
+    let protocol = if tls.is_some() { "https" } else { "http" };
+    let signal_protocol = if tls.is_some() { "wss" } else { "ws" };
 
     // 2. 初始化结构化日志输出（支持热更新 filter 级别）
     let log_setter = init_tracing(&cfg.logging.level, &cfg.logging.format);
@@ -107,7 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = build_router(state.clone());
     let addr = format!("{}:{}", cfg.server.host, cfg.server.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    tracing::info!(addr = %addr, "信令服务器已启动");
+    tracing::info!(url = %format!("{protocol}://{addr}"), signal = %format!("{signal_protocol}://{addr}/signal"), "信令服务器已启动");
 
     // 监听停机广播的接收端
     let shutdown_wait = {
@@ -119,10 +125,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 启动 HTTP 服务并在后台轮询连接
     let handshake_timeout = Duration::from_secs(cfg.timeouts.ws_handshake_timeout_secs);
-    let mut serve_handle = tokio::spawn(gomoku_signaling::http::serve(
-        listener,
+    let mut serve_handle = tokio::spawn(serve_with_tls(
+        ServerTransport {
+            tcp: listener,
+            tls,
+            handshake_timeout,
+        },
         app,
-        handshake_timeout,
         shutdown_wait,
     ));
 

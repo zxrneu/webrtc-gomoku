@@ -5,6 +5,10 @@
 
 ---
 
+## HTTPS 与局域网语音
+
+支持原生 HTTPS + WSS，未设置证书时保持 HTTP 默认。示例：从仓库根执行 `TLS_CERT_FILE=.certs/lan-cert.pem TLS_KEY_FILE=.certs/lan-key.pem PORT=3443 pnpm start`。两项配置缺一或不可读时拒绝启动。证书创建、手机信任、开发/公网配置见 [HTTPS 与语音说明](../../docs/https.md)。
+
 ## 服务大厅与会话防护
 
 独立 `/lobby` 页面支持在线棋友、定向邀请、快速匹配与公开建房。已登记的大厅会话每秒最多处理 30 个请求；超出返回 `RATE_LIMITED`，满一秒恢复，其他会话不受影响。每 IP 最多 10 个连接、每浏览器最多 2 个大厅会话等配额仍同时生效。
@@ -182,7 +186,9 @@ pnpm --filter @webrtc-gomoku/server start
 
 | 环境变量 | 默认值 | 作用说明 |
 | :--- | :--- | :--- |
-| `PORT` | `3000` | HTTP 与 WebSocket 监听端口 |
+| `PORT` | `3000` | HTTP/HTTPS 与 WS/WSS 共用的监听端口 |
+| `TLS_CERT_FILE` | 未设置 | PEM 证书链文件；与私钥同时设置时启用 HTTPS/WSS |
+| `TLS_KEY_FILE` | 未设置 | PEM 私钥文件；相对路径均以仓库根为基准 |
 | `HOST` | `0.0.0.0` | 绑定的网络接口（`0.0.0.0` 允许局域网外部设备访问） |
 
 ---

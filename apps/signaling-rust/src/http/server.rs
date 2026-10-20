@@ -12,6 +12,7 @@
 
 use std::future::Future;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::body::Body;
@@ -20,7 +21,10 @@ use axum::Router;
 use hyper::body::Incoming;
 use hyper::service::service_fn;
 use hyper_util::rt::{TokioIo, TokioTimer};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
+use tokio::task::JoinSet;
+use tokio_rustls::{rustls::ServerConfig, TlsAcceptor};
 use tower::Service;
 
 /// Serve `app` on `listener` until `shutdown` resolves.
@@ -32,29 +36,74 @@ pub async fn serve<F>(listener: TcpListener, app: Router, handshake_timeout: Dur
 where
     F: Future<Output = ()>,
 {
+    serve_with_tls(
+        ServerTransport {
+            tcp: listener,
+            tls: None,
+            handshake_timeout,
+        },
+        app,
+        shutdown,
+    )
+    .await;
+}
+
+/// Startup transport settings; application routes and socket peer identity are unchanged.
+pub struct ServerTransport {
+    pub tcp: TcpListener,
+    pub tls: Option<Arc<ServerConfig>>,
+    pub handshake_timeout: Duration,
+}
+
+/// Serve optional TLS and cancel incomplete TLS handshakes when shutdown resolves.
+pub async fn serve_with_tls<F>(transport: ServerTransport, app: Router, shutdown: F)
+where
+    F: Future<Output = ()>,
+{
     tokio::pin!(shutdown);
+    let mut handshakes = JoinSet::new();
+    let acceptor = transport.tls.map(TlsAcceptor::from);
+    let timeout = transport.handshake_timeout;
     loop {
         tokio::select! {
             _ = &mut shutdown => break,
-            accepted = listener.accept() => {
-                let (stream, peer) = match accepted {
-                    Ok(pair) => pair,
-                    Err(_) => continue,
-                };
-                let app = app.clone();
-                tokio::spawn(serve_connection(stream, peer, app, handshake_timeout));
+            completed = handshakes.join_next(), if !handshakes.is_empty() => {
+                if let Some(Ok(Some((stream, peer)))) = completed {
+                    tokio::spawn(serve_connection(stream, peer, app.clone(), timeout));
+                }
+            }
+            accepted = transport.tcp.accept() => {
+                let Ok((stream, peer)) = accepted else { continue; };
+                if let Some(acceptor) = acceptor.clone() {
+                    handshakes.spawn(async move {
+                        accept_tls(stream, acceptor, timeout).await.map(|stream| (stream, peer))
+                    });
+                } else {
+                    tokio::spawn(serve_connection(stream, peer, app.clone(), timeout));
+                }
             }
         }
     }
+    handshakes.abort_all();
+    while handshakes.join_next().await.is_some() {}
+}
+
+async fn accept_tls(
+    stream: tokio::net::TcpStream,
+    acceptor: TlsAcceptor,
+    timeout: Duration,
+) -> Option<tokio_rustls::server::TlsStream<tokio::net::TcpStream>> {
+    tokio::time::timeout(timeout, acceptor.accept(stream))
+        .await
+        .ok()?
+        .ok()
 }
 
 /// Drive a single connection to completion.
-async fn serve_connection(
-    stream: tokio::net::TcpStream,
-    peer: SocketAddr,
-    app: Router,
-    handshake_timeout: Duration,
-) {
+async fn serve_connection<S>(stream: S, peer: SocketAddr, app: Router, handshake_timeout: Duration)
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     let io = TokioIo::new(stream);
     let service = service_fn(move |req: hyper::Request<Incoming>| {
         let mut app = app.clone();

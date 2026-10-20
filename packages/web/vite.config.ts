@@ -3,8 +3,9 @@ import react from '@vitejs/plugin-react';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 import path from 'node:path';
 import fs from 'node:fs';
+import { loadTlsOptions } from '../../tooling/tls.mjs';
 
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ mode, command }) => ({
   define: { __LOBBY_ENABLED__: mode !== 'standalone' },
   plugins: [
     react(),
@@ -33,6 +34,7 @@ export default defineConfig(({ mode }) => ({
     },
   },
   server: {
+    https: command === 'serve' ? loadTlsOptions(process.env, path.resolve(__dirname, '../..')) : undefined,
     port: 5173,
     proxy: {
       '/signal': {

@@ -1,5 +1,7 @@
 # @webrtc-gomoku/web
 
+HTTPS 与局域网语音配置见 [部署说明](../../docs/https.md)。Vite 支持开发证书，网页与信令代理使用 HTTPS/WSS。
+
 > 现代响应式 WebRTC 五子棋前端界面与客户端对局引擎。  
 > 基于 **React 19 + TypeScript + CSS Modules + Vite** 构建，支持 WebSocket 房间信令与纯前端离线单文件运行。
 

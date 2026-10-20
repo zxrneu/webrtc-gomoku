@@ -1,7 +1,7 @@
-import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { LobbyService } from './lobby/service';
 import os from 'node:os';
+import path from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import type {
   ServerErrorCode,
@@ -13,6 +13,8 @@ import { SeatRegistry } from './grace';
 import { SeatOwners } from './seat-owners';
 import { decodeSignalingClient } from './signaling-codec';
 import { createHttpHandler, getCandidateDirs } from './http';
+import { createTransportServer } from './tls';
+import { loadTlsOptions } from '../../../tooling/tls.mjs';
 
 /**
  * 扩展 WebSocket 实例类型，附带连接诊断与身份标识属性
@@ -119,7 +121,10 @@ function sendError(ws: ExtendedWebSocket, message: string) {
  * 1. HTTP 静态资源服务与健康检查
  * ============================================================================ */
 const candidateDirs = getCandidateDirs();
-const server = http.createServer(createHttpHandler({ registry, candidateDirs, lobby: true }));
+const tls = loadTlsOptions(process.env, path.resolve(__dirname, '../../..'));
+const protocol = tls ? 'https' : 'http';
+const signalProtocol = tls ? 'wss' : 'ws';
+const server = createTransportServer(createHttpHandler({ registry, candidateDirs, lobby: true }), tls);
 
 /* ============================================================================
  * 2. WebSocket WebRTC 信令中继转发管道 (/signal)
@@ -375,11 +380,11 @@ function lanAddresses(): string[] {
  * 5. 监听端口启动与控制台友好指引
  * ============================================================================ */
 server.listen(PORT, HOST, () => {
-  log(`信令服务器已启动: http://${HOST}:${PORT}`);
+  log(`信令服务器已启动: ${protocol}://${HOST}:${PORT}`);
   for (const ip of lanAddresses()) {
-    log(`  局域网访问: http://${ip}:${PORT} （手机/其他设备用这个地址）`);
+    log(`  局域网访问: ${protocol}://${ip}:${PORT} （手机/其他设备用这个地址）`);
   }
-  log(`  WebSocket 信令通道: ws://<地址>/signal`);
+  log(`  WebSocket 信令通道: ${signalProtocol}://<地址>/signal`);
 });
 
 /**

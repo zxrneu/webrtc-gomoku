@@ -1,0 +1,6 @@
+# 使用前将 GOMOKU_DOMAIN 设置为指向本机的公网域名；详见 docs/https.md。
+{$GOMOKU_DOMAIN} {
+    @internal path /admin /admin/* /metrics
+    respond @internal 403
+    reverse_proxy 127.0.0.1:3000
+}

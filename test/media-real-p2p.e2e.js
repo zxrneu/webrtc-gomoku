@@ -12,12 +12,15 @@
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const http = require('node:http');
+const https = require('node:https');
+const fs = require('node:fs');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 const { chromium } = require('playwright');
 
 const PORT = 3105;
-const BASE = `http://127.0.0.1:${PORT}`;
+const BASE = process.env.MEDIA_BASE || `http://127.0.0.1:${PORT}`;
+const ignoreHTTPSErrors = process.env.E2E_IGNORE_HTTPS_ERRORS === '1';
 
 function sha256Hex(buf) {
   return crypto.createHash('sha256').update(buf).digest('hex');
@@ -32,7 +35,9 @@ async function waitForServer(url, timeoutMs = 15000) {
   while (Date.now() - start < timeoutMs) {
     try {
       await new Promise((resolve, reject) => {
-        const req = http.get(url, (res) => {
+        const transport = url.startsWith('https:') ? https : http;
+        const ca = process.env.TLS_CA_FILE ? fs.readFileSync(process.env.TLS_CA_FILE) : undefined;
+        const req = transport.get(url, { ca }, (res) => {
           if (res.statusCode && res.statusCode < 500) resolve();
           else reject(new Error(`Status ${res.statusCode}`));
         });
@@ -49,12 +54,12 @@ async function waitForServer(url, timeoutMs = 15000) {
 
 (async () => {
   console.log('--- 启动独立信令与静态文件服务 (PORT=' + PORT + ') ---');
-  const serverProc = spawn(process.execPath, [path.join(__dirname, '../apps/server/dist/server.js')], {
+  const serverProc = process.env.MEDIA_BASE ? undefined : spawn(process.execPath, [path.join(__dirname, '../apps/server/dist/server.js')], {
     env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  serverProc.stdout.on('data', (d) => process.stdout.write(`[Server] ${d}`));
-  serverProc.stderr.on('data', (d) => process.stderr.write(`[Server ERR] ${d}`));
+  serverProc?.stdout.on('data', (d) => process.stdout.write(`[Server] ${d}`));
+  serverProc?.stderr.on('data', (d) => process.stderr.write(`[Server ERR] ${d}`));
 
   let browser;
   try {
@@ -71,8 +76,8 @@ async function waitForServer(url, timeoutMs = 15000) {
       ],
     });
 
-    const ctxA = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-    const ctxB = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const ctxA = await browser.newContext({ ignoreHTTPSErrors, viewport: { width: 1280, height: 800 } });
+    const ctxB = await browser.newContext({ ignoreHTTPSErrors, viewport: { width: 1280, height: 800 } });
     // 授予麦克风权限
     await ctxA.grantPermissions(['microphone'], { origin: BASE });
     await ctxB.grantPermissions(['microphone'], { origin: BASE });
@@ -85,6 +90,10 @@ async function waitForServer(url, timeoutMs = 15000) {
     console.log('--- 打开客户端并建立房间连接 ---');
     await pageA.goto(BASE);
     await pageB.goto(BASE);
+    for (const page of [pageA, pageB]) {
+      assert.equal(await page.evaluate(() => window.isSecureContext), true, '录音页面必须为安全上下文');
+      assert.equal(await page.evaluate(() => typeof navigator.mediaDevices?.getUserMedia), 'function');
+    }
     for (const page of [pageA, pageB]) {
       if (await page.locator('#lobby-page').count()) await page.getByRole('button', { name: /返回棋盘/ }).click();
       if (await page.locator('[data-online-tab="room"]').count()) await page.locator('[data-online-tab="room"]').click();
@@ -272,7 +281,7 @@ async function waitForServer(url, timeoutMs = 15000) {
     await pageA.waitForFunction(() => window.__recordingTracks.every(track => track.readyState === 'ended'));
     assert.equal(await pageA.locator('#chat-record-send').count(), 0, '换房必须取消旧录音');
 
-    const ctxC = await browser.newContext({ permissions: ['microphone'], viewport: { width: 1280, height: 800 } });
+    const ctxC = await browser.newContext({ ignoreHTTPSErrors, permissions: ['microphone'], viewport: { width: 1280, height: 800 } });
     const pageC = await ctxC.newPage();
     await pageC.goto(BASE);
     if (await pageC.locator('#lobby-page').count()) await pageC.getByRole('button', { name: /返回棋盘/ }).click();
@@ -297,7 +306,7 @@ async function waitForServer(url, timeoutMs = 15000) {
     console.log('========================================');
   } finally {
     if (browser) await browser.close();
-    serverProc.kill('SIGTERM');
+    serverProc?.kill('SIGTERM');
   }
 })().catch((err) => {
   console.error('\n❌ 真实 P2P E2E 验证失败:', err);

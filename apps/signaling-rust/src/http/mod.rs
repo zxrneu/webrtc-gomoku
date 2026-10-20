@@ -7,6 +7,7 @@ pub mod mime;
 pub mod router;
 pub mod server;
 pub mod static_files;
+pub mod tls;
 pub mod ws;
 
 pub use crate::state::{AppState, LogLevelSetter};

@@ -1,7 +1,33 @@
 # gomoku-signaling (Rust)
 
+HTTPS 与局域网语音配置见 [部署说明](../../docs/https.md)。Rust 支持原生 HTTPS/WSS，也可使用反向代理统一管理公网证书。
+
 > 高性能 WebRTC 五子棋房间信令与单页客户端托管服务（M3 v2.0，Rust 重写版）。  
 > 基于 **Rust 2021 + Tokio 异步多线程运行时 + Axum 0.7 + Hyper 1.0** 构建。10 万长连接是设计目标，尚无对应压测验收；大厅配额和实测范围见下文。
+
+## 原生 HTTPS 与局域网语音
+
+当前入口依赖 Unix 信号处理，以下 Rust 服务命令适用于 macOS/Linux；Windows 可使用 Node HTTPS 服务。
+
+完成 [证书配置与设备信任](../../docs/https.md)后，从仓库根运行 `pnpm build:web && pnpm start:https:rust`；也可显式启动（同样需要先构建前端）：
+
+```bash
+TLS_CERT_FILE=.certs/lan-cert.pem TLS_KEY_FILE=.certs/lan-key.pem \
+  GOMOKU_REDIS_ENABLED=false GOMOKU_HOST=0.0.0.0 GOMOKU_PORT=3443 GOMOKU_PUBLIC_DIR=packages/web/dist \
+  cargo run --manifest-path apps/signaling-rust/Cargo.toml
+```
+
+网页、`/config`、`/healthz` 和 WSS `/signal` 共用 3443 端口。浏览器访问证书 SAN 包含的 `https://局域网IP:3443/lobby`，手机仍需信任 CA 并允许麦克风访问。
+
+| 环境变量 | 说明 |
+|---|---|
+| `TLS_CERT_FILE` | PEM 证书链，与私钥成对配置时启用 HTTPS |
+| `TLS_KEY_FILE` | 匹配的未加密 PEM 私钥；支持 rustls 可读取的 PKCS#8/PKCS#1/SEC1 格式 |
+| `GOMOKU_REPO_ROOT` | 可选证书路径根；仓库内默认从工作目录向上发现 workspace，独立部署默认工作目录 |
+
+两项 TLS 变量均未配置时保留 HTTP/WS；只配置一项、不可读、PEM 无效或密钥不匹配均在监听前报错退出，不降级为 HTTP。相对路径不依赖编译机器目录；也可通过环境变量注入外部证书绝对路径。TLS 1.2/1.3 使用 rustls 的安全默认套件，ALPN 提供 HTTP/1.1，以兼容现有 WebSocket Upgrade。TLS 握手受现有 `ws_handshake_timeout_secs` 限制，停机取消未完成握手，已连接 WSS 继续使用原有关闭/排空机制。
+
+TLS 文件和环境变量在进程启动时读取，不属于 SIGHUP 或管理端配置热重载项；更新证书后重启。其他配置热重载行为保持原有规则。公网证书自动续期可交给 [Caddy 反代](../../docs/https.md#5-公网生产域名--caddy-tls-终止)。
 
 ## 服务大厅（首版）
 
@@ -254,7 +280,7 @@ cargo build --release --locked
 | Linux arm64（鲲鹏 / Ampere / 苹果 M 系列虚机） | `aarch64-unknown-linux-gnu` | 或 musl 静态版 |
 | Linux 静态通用（老发行版 / Alpine） | `x86_64-unknown-linux-musl` | **推荐**：无 glibc 依赖 |
 | macOS Apple Silicon | `aarch64-apple-darwin` | M 系列 Mac 原生 |
-| Windows | `x86_64-pc-windows-msvc` | 产物为 `.exe`，功能一致 |
+| Windows | `x86_64-pc-windows-msvc` | 当前入口仍需适配 Unix 信号处理；可先使用 Node 服务 |
 
 **部署：二进制 + `public/` 两步走**
 
