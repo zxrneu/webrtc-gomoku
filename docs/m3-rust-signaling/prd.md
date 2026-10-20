@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |---|---|
-| 里程碑 | M3 · v2.0（ROADMAP.md / MILESTONES.md） |
+| 里程碑 | M3 · v2.0（ROADMAP.md） |
 | 作者 | 许清楚（Xu）· 产品经理 |
 | 状态 | 待评审（架构师 / 工程师 / QA 会签） |
 | 语言 | 中文 |
@@ -145,6 +145,8 @@ M1 体验增强 → M2 TS 工程化 → M3 Rust 信令服务器 → M4 多端分
 ## 4. 协议与 API 契约
 
 ### 4.1 v1 兼容性声明（协议冻结）
+
+下表描述 v1 兼容基线。当前 Node / Rust 还支持重连协议中的 `ping`、`pong`、`resume`、`resumed`、`peer-offline`、`peer-online`，以及可选的座位凭证与错误码；具体契约见[重连协议设计](../reconnect/architecture.md#4-协议增量设计v11)和 `packages/shared/src/types.ts`。大厅增量见[大厅需求](../m6-lobby/prd.md)。
 
 | 维度 | 约束 |
 |---|---|
@@ -406,9 +408,3 @@ stun:stun1.l.google.com:19302, stun:stun2.l.google.com:19302
 - **QA**：§7 DoD 为验收基线；协议兼容用例可直接复用 `test/` 与 vitest 现有客户端仿真。
 
 ---
-
-## 修订记录
-
-| 日期 | 修订 | 说明 |
-|---|---|---|
-| 2026-10-17 | v1.1 增量（reconnect）：新增 `ping`/`pong`/`resume`/`resumed`/`peer-offline`/`peer-online`（WS）与 `sync`（DC），`error` 增可选 `code`，`created`/`joined` 增可选 `token` —— 见 `docs/reconnect/architecture.md` §4；**纯增量，旧客户端忽略未知 `t` 不受影响**（原 §4.1「M3 不新增 WS 消息类型」就此收窄为「M3 自身不新增」，重连增量另行回签）；Rust 端对齐清单见 `docs/reconnect/rust-alignment.md`（P1，本期不动 `apps/signaling-rust/`）。 |

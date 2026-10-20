@@ -258,4 +258,4 @@ systemctl cat gomoku-signaling
 | 状态页显示多个 Rust 条目 | 对比 PID / SPID，先分辨进程与 Tokio 线程 |
 | 两个 Mihomo 条目 | 对照 service MainPID 与各 PID 的 systemd 归属，区分受管实例和旧登录会话实例 |
 
-更广泛的 HTTPS 与麦克风权限说明见 [HTTPS 配置](https.md)，TURN 历史故障与恢复记录见 [TURN 排障](turn-relay-recovery.md)。
+更广泛的 HTTPS 与麦克风权限说明见 [HTTPS 配置](https.md)，跨网络中继的部署与验收见 [TURN 配置](turn.md)。

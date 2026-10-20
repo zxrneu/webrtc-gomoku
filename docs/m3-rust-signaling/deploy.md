@@ -75,7 +75,7 @@ readinessProbe:
 
 > `/healthz` 返回 `{ok, rooms, uptime}`，字段与 v1 一致；`rooms` 实时取 `RoomTable::len()`。**不要**用 `/metrics` 做探针（其文本量随指标基数增长）。
 
-`/healthz` 只验证 HTTP 存活，不能代替大厅业务探测。大厅压测曾出现健康检查正常、列表查询因协调锁等待约 27 秒的情况。部署与压测应另外检查 `/signal` 上的列表查询、邀请入座及恢复；修复与对比见[大厅容量复审](../m6-lobby/capacity-review.md)。
+`/healthz` 只验证 HTTP 存活，不能代替大厅业务探测。部署与压测应另外检查 `/signal` 上的列表查询、邀请入座及恢复；测试命令见[大厅说明](../m6-lobby/README.md#测试)。
 
 ---
 
@@ -191,7 +191,7 @@ net.core.wmem_max = 16777216
 
 容器/进程层面：
 
-- `limits.max_connections` 默认 100000，这是通用信令配额与设计目标，尚未通过对应规模压测。大厅另有 2000 会话及 1000 房间的准入边界；按实际出口带宽和业务负载验收，不用连接配置推定承载量。大厅本地实测与复现命令见[容量复审](../m6-lobby/capacity-review.md)。
+- `limits.max_connections` 默认 100000，这是通用信令配额与设计目标，尚未通过对应规模压测。大厅另有 2000 会话及 1000 房间的准入边界；按实际出口带宽和业务负载验收，不用连接配置推定承载量。压力测试命令见[大厅说明](../m6-lobby/README.md#测试)。
 - 若采用 `jemalloc` 特性（`--features jemalloc`），可降低长时间运行下的内存碎片。
 
 ---

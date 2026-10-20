@@ -137,7 +137,7 @@ TLS_CERT_FILE=.certs/lan-cert.pem TLS_KEY_FILE=.certs/lan-key.pem pnpm dev --hos
 
 客户端直接访问 `https://你的域名/lobby`，自动使用 `wss://你的域名/signal`，无需改前端配置。Rust 如配置 Origin 白名单，应加入完整的 `https://你的域名`；只有在后端回环绑定、防火墙隔离并确认所有请求都来自可信代理时，才启用 `GOMOKU_TRUST_PROXY_HEADERS=true` 获取真实客户端 IP。Node 参考服务按 socket IP 限制连接数，反代后多用户共享代理 IP 的 10 连接配额，面向多用户部署优先使用 Rust。
 
-该示例负责应用 HTTPS，P2P 直连仍受 NAT/防火墙影响；跨网络连接失败时参考 [TURN 排障](turn-relay-recovery.md)。服务与 TLS 证书的部署、系统信任修改均由部署者按自己的环境执行。
+该示例负责应用 HTTPS，P2P 直连仍受 NAT/防火墙影响；跨网络连接失败时参考 [TURN 配置](turn.md)。服务与 TLS 证书的部署、系统信任修改均由部署者按自己的环境执行。
 
 ## 6. 语音权限与排障
 

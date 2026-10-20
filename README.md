@@ -29,20 +29,9 @@
 
 `pnpm build` 分别生成在线版本 `packages/web/dist/index.html` 和剔除大厅的单文件 `dist/gomoku-standalone.html`。文档入口见 [服务大厅](docs/m6-lobby/README.md)。
 
-Rust 大厅已改为定向即时通知与每秒合并发布：无状态变化不广播，浏览器仍每 5 秒单独查询。每节点最多 2000 个大厅会话，大厅准入在本节点总房间数达到 1000 时拒绝；这些配额不代表生产容量承诺。本地 2 CPU / 512MiB Linux 实例中，2000 会话、100 个公开房间的消息正文下行从约 208Mbps 降至 48Mbps；频繁变更时仍有全量推送开销。环境、限制和已知问题见[容量复审](docs/m6-lobby/capacity-review.md)，后续工作见[大厅待办](docs/m6-lobby/tasks.md)。
+Rust 大厅使用定向即时通知与每秒合并发布：无状态变化不广播，浏览器仍每 5 秒单独查询。每节点最多 2000 个大厅会话，大厅准入在本节点总房间数达到 1000 时拒绝；实际承载量需按部署环境验证。运行边界与测试命令见[大厅说明](docs/m6-lobby/README.md)。
 
-## 里程碑
-
-详细路线图见 **[ROADMAP.md](ROADMAP.md)**，当前进度：
-
-| 里程碑 | 内容 | 状态 |
-|--------|------|------|
-| **M1 · v1.2** | 扫码配对（双向二维码）/ 文件传输 / 语音 / 视频，零服务器 | [x] 扫码已完成 |
-| **M2 · v1.3** | 全量 TypeScript + pnpm workspace + React 19 + CSS Modules + 单文件打包 | [x] 已完成 |
-| **M3 · v2.0** | 信令服务器 Rust 重写（tokio + axum + Redis）+ STUN/TURN 动态下发 | [x] 已交付（`4e13b98`；10 万连接为设计目标，压测报告与多架构 CI 后置） |
-| **M4 · v3.0** | App 打包（PWA → Tauri/Capacitor）、微信小程序/小游戏、广告变现 | 规划中 |
-| **M5 · v2.1** | 本地人机对战（最强人机）：PNS 证明数搜索 + 威胁依赖分析 + 3 档难度 + 胜法证书体系 | [x] 已完成 |
-| **M6 · 服务大厅** | 独立页面、在线棋友、邀请/匹配/公开组房、刷新恢复 | [x] 首版与 Rust 广播修复已提交；已知问题与流量优化见[待办](docs/m6-lobby/tasks.md) |
+使用、部署与设计说明见[文档导航](docs/README.md)，后续功能范围见[路线图](ROADMAP.md)。
 
 > 公网 IPv4 NAT 穿透（双方在不同家庭宽带后）：代码已内置腾讯/阿里公共 STUN 尽力尝试，
 > 成功率取决于 NAT 类型，**不在当前版本的支持承诺范围内**。
@@ -132,8 +121,8 @@ pnpm ai:verify /tmp/proof.json
 
 - 本机测试：开两个浏览器标签访问 `http://localhost:3000`，一个创建房间、一个加入
 - 手机/其他设备：普通下棋可访问日志中的局域网 HTTP 地址；发送语音请按 [HTTPS 配置](docs/https.md)使用受信任 HTTPS 地址
-- 单元测试：`pnpm test`（2026-10-20：Vitest 70 个文件、1042 项通过，包含规则、协议、大厅、断线重连与 AI）。Rust 另运行 `cargo test --manifest-path apps/signaling-rust/Cargo.toml`（同日 254 项通过）。
-- E2E 测试：`pnpm test:e2e`（Playwright 覆盖 P2P 对局、信令、换房/换边、AI、聊天与富媒体、大厅邀请/匹配/恢复和分页）。容量与已知问题复现命令见[大厅复审](docs/m6-lobby/capacity-review.md)。
+- 单元测试：`pnpm test`，包含规则、协议、大厅、断线重连与 AI。Rust 另运行 `cargo test --manifest-path apps/signaling-rust/Cargo.toml`。
+- E2E 测试：`pnpm test:e2e`（Playwright 覆盖 P2P 对局、信令、换房/换边、AI、聊天与富媒体、大厅邀请/匹配/恢复和分页）。大厅专项与压力测试见[大厅说明](docs/m6-lobby/README.md#测试)。
 
 ## 架构
 
@@ -272,12 +261,11 @@ webrtc-gomoku/
 ├── apps/
 │   ├── server/       # @webrtc-gomoku/server: Node 信令服务器（fallback，协议参考实现）
 │   └── signaling-rust/  # M3 v2.0 Rust 信令服务器（tokio+axum+Redis，含 Docker/compose）
-├── docs/m3-rust-signaling/ # M3 契约文档：prd / architecture / tasks / deploy + 类图时序图
+├── docs/             # 需求、架构、部署与运维说明；入口为 docs/README.md
 ├── public/           # legacy 单文件版页面（app.js / game-core.js / qrcode / jsqr；test:legacy 的测试对象）
 ├── test/             # e2e.js / qr-scan 等 Playwright 脚本
 ├── dist/             # 构建产物（单文件版，随 Release 分发）
 ├── ROADMAP.md        # 路线图 / 里程碑
-├── MILESTONES.md     # 里程碑执行计划与优先级
 └── package.json
 ```
 

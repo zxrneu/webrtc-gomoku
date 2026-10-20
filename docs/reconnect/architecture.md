@@ -4,11 +4,10 @@
 |---|---|
 | 里程碑 | 稳定连接 · v1.1（协议增量版） |
 | 作者 | 高见远（Gao）· 架构师 |
-| 状态 | 待工程师 / QA 会签 |
+| 状态 | 重连模块设计参考；具体行为以源码和测试为准 |
 | 契约来源 | `docs/reconnect/prd.md`（许清楚 · 产品经理，已冻结需求侧约束） |
 | 仓库铁律 | `AGENTS.md`（TDD 先行 / SOLID / 依赖单向 `web → shared → core` / core、shared 零 IO、禁 `console.log`、禁 `any` 逃逸） |
-| 已拍板前提 | D1 协议纯增量 · D2 重试参数 · D3 房主权威续局 · D4 宽限期锁落子 · D5 刷新不续局 · D6 本期只改 TS 服务端 |
-| 任务拆解 | `docs/reconnect/tasks.md` |
+| 已拍板前提 | D1 协议纯增量 · D2 重试参数 · D3 房主权威续局 · D4 宽限期锁落子 · D5 刷新不续局 |
 | 语言 | 中文 |
 
 > **本次改造不新增任何运行时依赖**（PRD §7）。`package.json` diff 必须为空：定时器、随机、日志、WebSocket、RTCPeerConnection 全部用平台原生能力 + 注入接缝实现。
@@ -500,7 +499,7 @@ export interface ConnectionManager {
 export function createConnectionManager(deps: ConnectionManagerDeps): ConnectionManager;
 ```
 
-> 注意：**没有 `start(role, room)`**（PRD 草案里的那个）。`createRoom` / `joinRoom` 才是真实入口（`App.tsx:632-658` 现状就是这两个动作），`start` 语义模糊且无法表达「房号由用户输入」。这是对 PRD R7 草案签名的**精确化**，需要产品/QA 知会（见 §12）。
+> 入口为 `createRoom` / `joinRoom`，分别表达建房和使用用户输入的房号加入；不提供 `start(role, room)`。
 
 ### 2.10 web 层模块
 
@@ -1281,7 +1280,7 @@ export function useConnection(o: {
 | `ping` 无回（旧客户端不发 ping） | 服务端不主动要求 | — | 否 |
 | `{t:'error'}` 带 `code` | 下发 | 只读 `message`（`App.tsx:616`） | 否 |
 
-**⚠️ 唯一的语义变化**：旧客户端不再在断线 0s 收到 `peer-left`，而是 60s 后收到（或一直不收到，若对手 resume 成功）。净效果是**更好**（不再 3 秒抖动就清盘），但**严格来说改变了「旧客户端行为不变」的字面承诺**。已在 §12 列为待回签事项 Q-A。
+**⚠️ 唯一的语义变化**：旧客户端不再在断线 0s 收到 `peer-left`，而是 60s 后收到（或一直不收到，若对手 resume 成功）。净效果是**更好**（不再 3 秒抖动就清盘），但**严格来说改变了「旧客户端行为不变」的字面承诺**。旧客户端应按这一时序验证兼容性。
 
 ### 10.3 新客户端 ↔ 旧客户端（同一局对弈）
 
@@ -1316,33 +1315,3 @@ export function useConnection(o: {
 | M6 零依赖 | §0 声明 + 全部用原生 API |
 
 ---
-
-## 12. 待明确事项（只列影响实现、我无法自行决定的）
-
-> D1–D6 已拍板，不在此重复。以下 3 条**必须在 T01 开工前回签**，否则相应实现会返工。
-
-| # | 问题 | 我的默认立场 | 影响 |
-|---|---|---|---|
-| **Q-A** | **旧客户端 ↔ 新服务端**：断线时新服务端只发 `peer-offline`（旧客户端忽略 → UI 静默 60s），还是**同时**发一条 `peer-left` 兼容旧客户端（但会立刻清掉旧客户端的棋盘，等于保留 F6 的误伤）？ | **只发 `peer-offline`**。理由：旧客户端最多延迟 60s 收到 `peer-left` 后清盘，体验优于「3 秒抖动就清盘」；且 v1 客户端已在前端 `if/else` 链中天然忽略未知 `t`，不崩。代价是「旧客户端行为不变」的字面承诺被放宽为「不崩、不更差」。 | 服务端 `server.ts` 的 close 分支（1 处分支）+ §10.2 矩阵 |
-| **Q-B** | **`sync` 的回执**：D1 冻结的消息集里 `sync` 是单向 `{t:'sync', moves}`。房主无法确认加入方已应用 → 会过早 `isPlayable` 或需要盲等超时。我提议**复用同一 `t`**，加可选 `rev`/`ack` 字段（`{t:'sync', moves:[], rev:12, ack:true}`）作为回执，不新增消息类型。 | **批准该增补**（仍是纯增量：旧客户端忽略未知字段）。若否决，则房主侧退化为「发完 sync 后固定等 800ms 即视为恢复」，M2 的 100% 一致性无法被证明。 | `types.ts` 的 `SyncMsg` 字段 + 编排器 `SYNCED` 判定 |
-| **Q-C** | **协议 v1.1 与 Rust 端的对齐归属**：本期不改 `apps/signaling-rust`（D6）。谁维护「Rust 待对齐清单」并保证契约不漂移？ | `packages/shared/src/types.ts` 为**唯一契约源**；`docs/reconnect/rust-alignment.md` 记录 v1.1 增量清单（含 `protocol/messages.rs` 需新增的 6 个变体与 `grace` 语义），列为 **P1 后续任务**，由下一期 M3 迭代承接。若产品要求本期必须同步 Rust，则 D6 需重开（工作量 +1 个任务）。 | `docs/reconnect/rust-alignment.md`（T05 产出）+ 是否需要新任务 |
-
-**已自行决定、不需要回签的边界**（记录在此避免反复讨论）：
-
-1. `totalWindowMs` 口径以代码实测为准（≈47.5s，PRD 的 45s 是约数），不新增决策。
-2. `DC_NOT_OPEN` 不计 attempt，只触发一次 P2P 检测。
-3. 未知错误码一律 `SERVER_REJECTED`（终态 + 原文），永不死循环。
-4. `connected` prop 名保留、值改为 `isPlayable`（不动 4 个既有组件）。
-5. 对手宽限锁落子不进 `isPlayable`，在 UI 层与 `peerOfflineInMs` 合成。
-
----
-
-### 回签（主理人 Qi）· 2026-10-17
-
-| # | 结论 | 落地约束 |
-|---|---|---|
-| **Q-A** | **批准**：新服务端在断线时**只发 `peer-offline`**，不发 `peer-left`；`peer-left` 仅在宽限期（60s）**超时**后补发（对旧客户端的兜底，**必须保留**）。 | `server.ts` 的 `onDisconnect` 只广播 `peer-offline{graceSec}`；`sweep` 定时器到期时调 `registry.leave`，由 `rooms.leave` 发 `peer-left`。旧客户端最坏 60s 后清盘，不崩、不更差。 |
-| **Q-B** | **批准**：`sync` **复用同一个 `t`**，新增可选 `rev`（number，房主棋谱版本）与 `ack`（boolean）。加入方回执为 `{t:'sync', moves:[], rev:<原样> , ack:true}`。**不新增消息类型**。 | `types.ts` 的 `SyncMsg` 只加这两个可选字段；房主以 `rev` 匹配回执，超时按「已恢复但未确认」兜底（`finishRestore(0)`）。 |
-| **Q-C** | **批准**：`packages/shared/src/types.ts` 是**唯一契约源**；`docs/reconnect/rust-alignment.md` 记录 Rust 待对齐清单，列为 **P1**。**本期绝对不改 `apps/signaling-rust/`**。 | 本轮 `git status` 中 `apps/signaling-rust/` 与 `packages/core/` 必须为空；Rust 侧改动全部顺延到下一期 M3 迭代。 |
-
-> 以上三条为**冻结决策**，实现侧不得再自行调整；如需变更，须重新回签并同步更新 `tasks.md` 的偏差记录。

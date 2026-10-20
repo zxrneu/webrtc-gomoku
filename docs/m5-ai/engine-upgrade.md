@@ -69,15 +69,6 @@ pnpm ai:verify /tmp/double-three.proof.json
 
 搜索模式：`fours` 只找连续冲四，`threats` 包含活三，`complete` 枚举全部攻击点。三种模式都完整验证防守。`complete` 仍受深度、时间、节点预算限制，不代表已经解出空盘。
 
-## 验证记录
+## 测试
 
-- 分片与不分片落点一致，连续冲四与 PNS 可暂停、恢复、取消，极小分片仍能推进。
-- 四方向、长连、双活三全应手证明、对手反杀、证书篡改、非法棋谱、预算耗尽均有单测覆盖。
-- 固定至少一个进攻局面和一个防守局面，证明新算法（PNS+活三）在**相同节点预算**下显著优于旧算法（DFS）。
-- 战术基准集 20/20 题全数通过（一步成五 ×4、堵成五 ×4、活三防守 ×4、双三双四 ×4、三步连杀 ×4）。
-- 浏览器验证 Worker 复用、取消、重开、HTTP 离线、`file://` 离线及无 Worker 回退；原有双人联机端到端回归通过。
-- `pnpm build`、全量 655 项单测通过（耗时约 3s）；全部联机及 AI 端到端测试（`node test/ai-e2e.js` + `node test/e2e.js`）全绿。
-- Monorepo 全部包（`core`、`shared`、`web`、`server`）通过 `tsc --noEmit` 严格类型检查，0 错误。
-- 本机 Chrome 实测 Worker 模式下主线程定时器最大间隔 13–17ms，未观测到超过 100ms 的主线程任务。
-
-运行：`pnpm build && pnpm test`，浏览器回归：先 `pnpm start`，再 `pnpm test:e2e`。浏览器测试支持 Playwright Chromium 或系统 Chrome。
+运行 `pnpm build && pnpm test`；浏览器回归先启动 `pnpm start`，再运行 `pnpm test:e2e`。测试覆盖搜索分片、取消与恢复、胜法证书复验、Worker 与离线模式。
