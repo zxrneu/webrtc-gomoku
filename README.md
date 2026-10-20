@@ -4,7 +4,7 @@
 
 > 第一原则不变：单文件微信互发永远可用。可选的「房间联机」（自动牵线）现在由 **M3 v2.0 Rust 信令服务器**承载（`apps/signaling-rust`），不需要时一行部署都不用做。
 
-## 当前支持（v2.0）
+## 当前支持
 
 - **同一局域网直连**：同一 WiFi/内网下 IPv4 host 候选直连，无需任何服务器
 - **可达 IPv6 直连**：双方全球单播 IPv6（`2408:`/`2409:` 等）端到端可达，
@@ -13,6 +13,7 @@
 - **扫码配对**：双向二维码 + BarcodeDetector/jsQR 双模识别 + 相册兜底
 - **对局功能**：15×15 棋盘、回合制、悔棋（需对方同意）、重新开始、最后一手标记、
   胜利连线高亮、对局聊天、掉线提示、音效开关、移动端自适应
+- **富媒体聊天**：图片、文件与最长 60 秒的语音消息，支持大文件接收确认、进度、取消和下载；使用与保存规则见[聊天说明](docs/chat-media.md)。实时语音和视频通话仍为后续规划。
 - **连接透明度**：连接成功后显示实际传输方式（IPv6 直连 / IPv4 直连 /
   NAT 穿透 / TURN 中继）；连不上时给出原因诊断
 - **STUN/TURN 动态下发（v2.0 新增）**：部署信令服务器后，ICE 服务器列表改由
@@ -84,45 +85,49 @@ Node、Rust 构建版与 Vite 开发版均支持配置证书启动 HTTPS，网�
 
 当前阿里云公网实例的证书签发、自动续签、进程说明与管理命令见 [阿里云运维手册](docs/aliyun-operations.md)。
 
-## 本地开发与测试
+## 快速开始与本地开发
 
-```bash
-# 启动前端开发服务器 (Vite)
-pnpm dev
+先安装 Git、Node.js 和 pnpm。普通前端与 Node 开发不需要 Rust、Redis、mkcert；使用 Rust 服务时再安装 Rust stable、rustfmt 和 Clippy。工具链入口为 [Node](https://nodejs.org/en/download)、[pnpm](https://pnpm.io/installation) 和 [rustup](https://rustup.rs/)。
 
-# 启动信令服务器 (开发模式，Node 版)
-pnpm dev:server
+| 工具 | 仓库依据与验证范围 |
+| --- | --- |
+| Node.js | 当前 Vite / Vitest 依赖声明支持 Node 18、20 或 22+；本地已验证 26.3.0，其他版本按锁文件安装后验证 |
+| pnpm | 锁文件格式为 9；本地已验证 9.15.4。仓库尚未用 `packageManager` 固定统一版本，Dockerfile 单独指定其构建版本 |
+| Rust（可选） | `apps/signaling-rust/rust-toolchain.toml` 选择 stable；本地已验证 rustc 1.96.1。Cargo 包声明的最低版本不等于整份锁定依赖均验证过该下限 |
+| 浏览器测试（可选） | Google Chrome 和 Playwright；HTTPS 集成测试还需要 OpenSSL，见[测试准备](docs/testing.md#准备环境) |
 
-# 或启动 Rust 版信令服务器 (M3，apps/signaling-rust)
-cargo run --manifest-path apps/signaling-rust/Cargo.toml
+在仓库根目录先执行一次安装、构建和单测。这里的命令使用 Bash / POSIX 环境变量写法；Windows 可用 WSL2，PowerShell 的 HTTPS 写法另见[证书说明](docs/https.md)。
 
-# 构建全部包 (Core, Shared, Web, Server) 并导出独立 HTML
-pnpm run build
-
-# 运行五子棋引擎与 Codec 单元测试 (Vitest)
+```sh
+node --version
+pnpm --version
+pnpm install --frozen-lockfile
+pnpm build
 pnpm test
-
-# 运行 legacy 单文件版引擎测试 (public/game-core.js)
-pnpm test:legacy
-
-# 运行二维码生成与摄像头/图片扫描自动化测试 (Playwright)
-pnpm test:qr
-
-# 运行信令与 P2P 对局端到端测试 (Playwright，默认指向 Node 版)
-PORT=3000 node apps/server/dist/server.js &
-pnpm test:e2e
-# 也可指向 Rust 版信令服务器（协议完全兼容，客户端零改动）：
-BASE=http://127.0.0.1:3000 node test/e2e.js
-
-# 离线求解与复验胜法证书（支持 algorithm: 'dfs' | 'pn'）
-pnpm ai:prove docs/m5-ai/examples/double-three.input.json /tmp/proof.json
-pnpm ai:verify /tmp/proof.json
 ```
 
-- 本机测试：开两个浏览器标签访问 `http://localhost:3000`，一个创建房间、一个加入
-- 手机/其他设备：普通下棋可访问日志中的局域网 HTTP 地址；发送语音请按 [HTTPS 配置](docs/https.md)使用受信任 HTTPS 地址
-- 单元测试：`pnpm test`，包含规则、协议、大厅、断线重连与 AI。Rust 另运行 `cargo test --manifest-path apps/signaling-rust/Cargo.toml`。
-- E2E 测试：`pnpm test:e2e`（Playwright 覆盖 P2P 对局、信令、换房/换边、AI、聊天与富媒体、大厅邀请/匹配/恢复和分页）。大厅专项与压力测试见[大厅说明](docs/m6-lobby/README.md#测试)。
+开发时打开两个终端，不要把前后端启动命令顺序放在同一前台终端等待：
+
+```bash
+# 终端一：Node 信令服务，默认 HTTP 3000
+pnpm dev:server
+
+# 终端二：Vite 前端，默认 HTTP 5173，代理后端 3000
+pnpm dev
+```
+
+访问 `http://localhost:5173/lobby`。验证生产构建时，停止开发后端并运行 `pnpm start`，访问 `http://localhost:3000/lobby`。用两个页面完成邀请或组房，再检查真实落子同步；单文件版按上文互发连接码连接。
+
+替换为 Rust 后端时，停止终端一的 Node 服务，在仓库根运行下面命令；Vite 仍使用 5173：
+
+```sh
+GOMOKU_PORT=3000 GOMOKU_REDIS_ENABLED=false GOMOKU_PUBLIC_DIR=packages/web/dist \
+  cargo run --locked --manifest-path apps/signaling-rust/Cargo.toml
+```
+
+如果服务端口改为其他值，要同步调整 Vite 代理；当前代理固定指向本机 3000。Ctrl-C 停止各前台服务。首次依赖安装后出现工作区模块缺失时重新执行 `pnpm build`；不要让 Node 和 Rust 同时占用 3000。局域网录音按 [HTTPS 配置](docs/https.md)启动，普通 LAN HTTP 无法录音。
+
+单测、Rust 质量检查、浏览器安装、Node / Rust E2E、单文件与真实 TURN 验收，统一见[测试与兼容性](docs/testing.md)。胜法证书 CLI 见 [AI 运行说明](docs/m5-ai/engine-upgrade.md#离线求解与复验)。
 
 ## 架构
 

@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+base=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+ip=$(cat "$base/ip")
+app=$(systemctl show gomoku-signaling --property=WorkingDirectory --value)
+owner=$(systemctl show gomoku-signaling --property=User --value)
+group=$(id -gn "$owner")
+source="$base/production/certificates/$ip"
+openssl x509 -in "$source.crt" -noout -checkip "$ip" >/dev/null
+openssl x509 -in "$source.crt" -noout -checkend 3600 >/dev/null
+cert_key=$(openssl x509 -in "$source.crt" -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum | cut -d' ' -f1)
+private_key=$(openssl pkey -in "$source.key" -pubout -outform DER | sha256sum | cut -d' ' -f1)
+test "$cert_key" = "$private_key"
+fingerprint=$(openssl x509 -in "$source.crt" -outform DER | sha256sum | cut -d' ' -f1)
+directory="$app/.certs"
+install -d -m 700 -o "$owner" -g "$group" "$directory" "$directory/releases" "$directory/releases/$fingerprint"
+install -m 600 -o "$owner" -g "$group" "$source.crt" "$directory/releases/$fingerprint/fullchain.pem"
+install -m 600 -o "$owner" -g "$group" "$source.key" "$directory/releases/$fingerprint/privkey.pem"
+previous=$(readlink "$directory/current" || true)
+target="releases/$fingerprint"
+if test "$previous" = "$target"; then exit 0; fi
+ln -s "$target" "$directory/current.next"
+mv -Tf "$directory/current.next" "$directory/current"
+if test "${1:-}" = --install-only; then exit 0; fi
+if systemctl restart gomoku-signaling && curl --noproxy '*' --resolve "$ip:443:127.0.0.1" -fsS --retry 12 --retry-connrefused --retry-delay 1 --connect-timeout 3 --max-time 5 "https://$ip/healthz" >/dev/null; then
+  printf 'TLS certificate installed: %s\n' "$fingerprint"
+  exit 0
+fi
+if test -n "$previous"; then
+  ln -s "$previous" "$directory/current.rollback"
+  mv -Tf "$directory/current.rollback" "$directory/current"
+  systemctl restart gomoku-signaling
+fi
+printf 'Certificate reload failed; restored previous certificate\n' >&2
+exit 1

@@ -1,5 +1,7 @@
 # gomoku-signaling (Rust)
 
+首次开发与测试见[快速开始](../../README.md#快速开始与本地开发)和[测试说明](../../docs/testing.md)；原生公网 HTTPS 的完整重建与 systemd 模板见[部署恢复](../../docs/production-recovery.md)。
+
 HTTPS 与局域网语音配置见 [部署说明](../../docs/https.md)。Rust 支持原生 HTTPS/WSS，也可使用反向代理统一管理公网证书。
 
 > 高性能 WebRTC 五子棋房间信令与单页客户端托管服务（M3 v2.0，Rust 重写版）。  

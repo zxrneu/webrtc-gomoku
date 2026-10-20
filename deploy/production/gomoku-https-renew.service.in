@@ -1,0 +1,10 @@
+[Unit]
+Description=Check Gomoku public IP certificate renewal
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart="@ACME_DIR@/renew"
+TimeoutStartSec=10min
+UMask=0077

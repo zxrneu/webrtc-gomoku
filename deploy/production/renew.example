@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+base=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+exec 9>"$base/renew.lock"
+flock -n 9 || exit 0
+ip=$(cat "$base/ip")
+test -n "$ip"
+if test -f "$base/acme.env"; then source "$base/acme.env"; fi
+if test -n "${GOMOKU_ACME_PROXY:-}"; then
+  export HTTPS_PROXY="$GOMOKU_ACME_PROXY" HTTP_PROXY="$GOMOKU_ACME_PROXY"
+fi
+export NO_PROXY="127.0.0.1,localhost,$ip"
+umask 077
+exec "$base/lego" run --server letsencrypt --path "$base/production" --account-id gomoku-ip --http --domains "$ip" --profile shortlived --accept-tos --no-random-sleep --deploy-hook "$base/install-certificate"

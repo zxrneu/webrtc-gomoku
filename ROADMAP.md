@@ -12,7 +12,7 @@
 | **v1.0.0** | 单文件 HTML（零依赖）+ 手动信令连接码；房间联机代码保留（需服务器） |
 | **v1.1.0** | 交互式邀请对局（创建房间/加入房间引导 + 微信发送提示 + 等待计时）；连接类型识别（IPv6/IPv4/NAT/TURN）；失败原因诊断 |
 | **v1.1.1** | 昵称入口外置；单文件版房间联机整组置灰；棋盘正方形自适应（修复手机端长方形）；IP ↔ IP 显示 |
-| **v1.2（M1 部分）** | 扫码配对：双向二维码 + BarcodeDetector/jsQR 降级 + 相册识别（F1）；文件传输/语音/视频未开始 |
+| **v1.2（M1 部分）** | 扫码配对：双向二维码 + BarcodeDetector/jsQR 降级 + 相册识别（F1）；图片、文件和语音消息已实现；实时语音/视频通话待实现 |
 | **v2.0（M3）** | Rust 信令服务器（tokio+axum+Redis）+ 三层配置 + `/config` 动态下发 STUN/TURN（客户端 ICE 去硬编码）；Node 版保留为 fallback |
 | **v2.1（M5）** | 本地人机对战（最强人机）：纯前端 Web Worker 搜索 + 主线程分片回退 + 证明数搜索 (PNS) 与威胁依赖分析 + 3 档难度 + 胜法证书体系 |
 | **M6 首版** | 独立服务大厅、在线棋友、定向邀请、快速匹配与公开房间；运行与测试见[大厅说明](docs/m6-lobby/README.md) |
@@ -40,20 +40,22 @@
 - **待实测**：微信「扫一扫」对非 URL 二维码只展示文本（需长按复制）——验证该链路是否可接受，还是引导 iOS 系统相机
 - **可选增强**：启用 GitHub Pages 托管同款页面后，二维码内容编码为 `https://<user>.github.io/webrtc-gomoku/?invite=<连接码>`，扫码后网页自动打开并预填。Pages 只是静态托管，不违反零信令服务器架构
 
-### F2 文件传输
+### F2 文件传输（按钮发送已实现）
 
-- **入口**：对局卡片聊天区附件图标按钮 + 拖拽文件到聊天区；仅 `connected` 可用
-- **协议**（走现有 DataChannel，二进制帧）：
-  - `{t:'file-meta', id, name, size, mime}` → `{t:'file-chunk', id, seq, data:ArrayBuffer}` → `{t:'file-end', id}` / `{t:'file-cancel', id}`
+当前操作和限制见[富媒体说明](docs/chat-media.md)。语音消息属于同一套附件能力，与下面的实时语音通话分别维护。
+
+- **入口**：对局卡片聊天区“发送图片 / 发送文件”按钮；双方完成连接和能力协商后可用。拖拽发送为后续项
+- **协议**（走现有 DataChannel，JSON 消息、分片数据为 base64url）：
+  - `media-meta` → `media-ack`（接收确认）→ `media-chunk` → `media-end` / `media-cancel`；字段与帧格式以 `packages/shared/src/types.ts` 为准
 - **规格**：
   - 分片 32KB（可配 16–64KB）
   - 流控：监控 `bufferedAmount`，>4MB 暂停发送，<1MB 续传
   - 分片循环中每次让出事件循环（`setTimeout 0`），保证落子/聊天不被堵死
-  - 全量 Blob 驻留内存；>500MB 发送前警告；File System Access API 流式写盘列为后置优化
-- **交互**：待发送卡片（文件名/大小）→ <50MB 默认自动接收，≥50MB 弹确认（复用现有弹窗）→ 进度（百分比 + 速率 + 预计剩余）+ 可取消 → 完成生成「保存文件」按钮，聊天区留存记录卡片可再次下载；对端掉线标记失败
-- **网络提示**：>100MB 建议局域网或 IPv6 环境（NAT 下受上行带宽限制）
+  - 全量 Blob 驻留内存；>500MiB 拒绝发送；File System Access API 流式写盘列为后置优化
+- **交互**：<50MiB 默认自动接收，≥50MiB 弹确认；传输卡片显示百分比与已传字节，可取消，完成后可下载；对端掉线标记失败。速率和预计剩余时间为后续增强。
+- **网络提示**：>100MiB 建议局域网或 IPv6 环境（NAT 下受上行带宽限制）
 
-### F3 语音（开麦）
+### F3 实时语音通话（待实现）
 
 - **入口**：对局卡片「麦克风」按钮，仅 connected 可用。状态机：关 → 请求权限中 → 开（可静音）→ 权限被拒（提示原因）
 - **行为**：本地静音/取消静音；对端语音经 remote `<audio>` 自动播放；开麦/关麦发系统消息通知对方
@@ -61,7 +63,7 @@
   - **后发起媒体的一方当 offerer**（避免 glare）
   - 重协商的 SDP offer/answer + trickle ICE **全部经 DataChannel 转发**（signaling over data channel），不再走微信互发
 - **权限时机**：连接建立后按需申请，绝不预申请
-- **安全上下文**：`getUserMedia` 要求 https/localhost——桌面 Chrome 的 file:// 实测可用；**Safari 与微信内置浏览器对 file:// 基本不支持**。被拒时 toast 明确提示「请用系统浏览器打开本文件」
+- **安全上下文**：实时通话实现时需要 HTTPS / localhost 与麦克风权限；`file://`、Safari 和微信内置浏览器的支持必须按真机测试确认，不由桌面 Chrome 的结果推定。已有语音消息的验证范围见[浏览器矩阵](docs/testing.md#浏览器与运行方式)。
 
 ### F4 视频
 
@@ -187,8 +189,8 @@ P2P 架构零服务器成本是核心优势；但小程序/小游戏形态绕不
 ## 近期 TODO（按顺序）
 
 - [x] **M1-F1** 扫码配对（双向二维码 + 扫码入口 + 密度治理）
-- [ ] **M1-F2** 文件传输（分片 + 流控 + 进度 + 取消）
-- [ ] **M1-F3** 语音（addTrack 重协商 + signaling over DataChannel）
+- [x] **M1-F2** 按钮发送图片 / 文件（分片、流控、接收确认、进度、取消）；拖拽和流式写盘后置
+- [ ] **M1-F3** 实时语音通话（addTrack 重协商 + signaling over DataChannel）；录制后发送的语音消息已实现
 - [ ] **M1-F4** 视频（布局 + 控制 + 保活）
 - [x] **M2** TypeScript 迁移 + pnpm workspace（React 19 + CSS Modules + Monorepo + Standalone 单文件打包）
 - [x] **M3** Rust 信令服务器（高并发 + 三层配置 + 配置下发客户端）——已交付 `4e13b98`；压测报告/CI 后置

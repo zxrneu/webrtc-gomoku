@@ -1,5 +1,7 @@
 # HTTPS、局域网语音与部署
 
+聊天操作与附件限制见[富媒体说明](chat-media.md)，浏览器测试与真机边界见[测试说明](testing.md#浏览器与运行方式)。公网 IP 原生 HTTPS 的完整安装、续签模板及迁移步骤见[公网重建与恢复](production-recovery.md)。
+
 局域网发送语音消息需要浏览器信任的 HTTPS 页面，并由用户允许麦克风访问。普通 `http://192.168.x.x` 可以联机下棋，但不满足录音的安全上下文要求；`http://localhost` 是本机开发的特殊情况，不能用于判断手机访问是否可录音。[浏览器说明](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia)
 
 Node 和 Rust 服务均支持同一端口提供 HTTPS 网页、`/config`、`/healthz` 和 WSS `/signal`。Vite 开发服务也支持 HTTPS。公网可选用下文的反向代理统一管理证书。所有命令均在仓库根执行，除明确标记的 PowerShell 外采用 Bash/Zsh 语法。

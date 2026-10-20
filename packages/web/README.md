@@ -2,6 +2,8 @@
 
 HTTPS 与局域网语音配置见 [部署说明](../../docs/https.md)。Vite 支持开发证书，网页与信令代理使用 HTTPS/WSS。
 
+首次安装与双终端启动见[快速开始](../../README.md#快速开始与本地开发)；附件和语音的操作、限制与保存规则见[聊天说明](../../docs/chat-media.md)，浏览器验证范围见[测试说明](../../docs/testing.md#浏览器与运行方式)。
+
 > 现代响应式 WebRTC 五子棋前端界面与客户端对局引擎。  
 > 基于 **React 19 + TypeScript + CSS Modules + Vite** 构建，支持 WebSocket 房间信令与纯前端离线单文件运行。
 
@@ -49,9 +51,9 @@ flowchart TD
     App --> Scanner
 
     subgraph 联机握手链路
-        Conn -->|信令模式| WS[WebSocket Client /ws]
+        Conn -->|信令模式| WS[WebSocket Client /signal]
         Conn -->|手动模式| QR[qr.ts 二维码生成/识别]
-        WS <-->|交换 SDP / ICE| Server[apps/server 信令服务]
+        WS <-->|交换 SDP / ICE| Server[Node / Rust 信令服务]
     end
 
     subgraph P2P 对局核心

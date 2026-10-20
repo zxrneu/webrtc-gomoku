@@ -197,7 +197,7 @@ test -x "$GOMOKU_ACME_DIR/lego"
 | `$GOMOKU_UNIT_DIR/gomoku-signaling.service.d/https.conf` | Rust TLS 与 443 端口配置 |
 | `$GOMOKU_UNIT_DIR/gomoku-https-renew.service` / `gomoku-https-renew.timer` | 续签任务与定时器 |
 
-应用目录和证书工具目录分别保存发布包与运维脚本。当前运维脚本已安装在服务器，没有随 `ab01f0b` 提交进入仓库；仓库中的 `scripts/setup-https.mjs` 是本地 mkcert 配置工具。
+应用目录和证书工具目录分别保存发布包与运维脚本。仓库现提供[参数化服务与续签模板](../deploy/production/)及[新服务器重建、升级与恢复步骤](production-recovery.md)。模板不会自动覆盖现网脚本；`scripts/setup-https.mjs` 仍仅用于本地 mkcert 配置。
 
 以下命令只查看公有证书信息，不输出私钥：
 
@@ -231,7 +231,7 @@ stat -c '%a %U:%G %n' "$GOMOKU_APP_DIR/.certs/current/privkey.pem"
 
 应用支持部分配置热重载，但端口、TLS 文件和 TLS 环境变量需要重启。配置项范围见 [Rust 运行说明](../apps/signaling-rust/README.md)。不要额外手工启动一个发布程序来代替 systemd 管理，否则可能与当前监听端口冲突。
 
-这次发布的过程是：本地重新构建前端和 Linux x86_64 musl 程序 → 打包并生成 SHA256 清单 → 上传校验 → 在服务器回环测试端口启动候选实例并检查 HTTPS 与页面哈希 → 备份旧版 → 原子替换程序和静态目录 → 重启正式服务 → 公网验证。保留了原 `config.toml` 内容与权限，续签材料没有打入公开发布包。
+重新发布的步骤是：本地重新构建前端和 Linux x86_64 musl 程序 → 打包并生成 SHA256 清单 → 上传校验 → 在服务器回环测试端口启动候选实例并检查 HTTPS 与页面哈希 → 备份旧版 → 停服并成组替换程序和静态目录 → 重启正式服务 → 公网验证。保留原 `config.toml` 内容与权限，续签材料不打入公开发布包。具体打包、校验、安装和回滚命令见[公网重建与恢复](production-recovery.md)。
 
 以后重新发布时，同样保留 `.certs/`、证书工具目录和 systemd 配置，避免整目录覆盖。旧服务备份与证书版本是两套独立的回退材料：
 
