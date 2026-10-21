@@ -12,11 +12,14 @@ export function LobbyPage(): React.JSX.Element | null {
       <a href="/lobby" onClick={e => { e.preventDefault(); lobby.openLobby(); }} className={styles.brand}>
         <span className={styles.brandStones} aria-hidden="true"><i /><i /></span><strong>五子棋</strong>
       </a>
-      <button id="lobby-board-btn" type="button" className={styles.backGame} onClick={() => lobby.openGame()}>{lobby.view.state?.room ? `继续对局 · ${lobby.view.state.room.code}` : '房间联机'} <span aria-hidden="true">↗</span></button>
+      {lobby.view.state?.room && <button id="lobby-board-btn" type="button" className={styles.backGame} onClick={() => lobby.openGame()}>
+        继续对局 · {lobby.view.state.room.code} <span aria-hidden="true">↗</span>
+      </button>}
     </header>
     <main className={styles.pageMain}>
       <LobbyPanel view={lobby.view} send={lobby.runtime.send} retry={lobby.retry} leave={lobby.leave}
-        playable={false} onAi={() => lobby.openGame('ai')} now={lobby.now} onRoom={lobby.openGame} onName={name => lobby.runtime.send({ t: 'lobby-name', name })} />
+        playable={false} onAi={() => lobby.openGame('ai')} now={lobby.now} onRoom={lobby.openGame} onJoin={lobby.runtime.joinRoom}
+        onName={name => lobby.runtime.send({ t: 'lobby-name', name })} />
     </main>
   </div>;
 }

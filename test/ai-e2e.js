@@ -6,6 +6,11 @@ const { pathToFileURL } = require('node:url');
 const { chromium } = require('playwright');
 const BASE = process.env.BASE || 'http://localhost:3000';
 
+async function enterAi(page) {
+  if (await page.locator('#lobby-page').isVisible()) await page.locator('#lobby-ai-btn').click();
+  else await page.click('#mode-ai-btn');
+}
+
 async function setAiColor(page, color) {
   await page.waitForFunction(() => window.__gomoku.mode === 'ai');
   const current = (await page.locator('#black-name').innerText()) === '我' ? 1 : 2;
@@ -92,11 +97,10 @@ async function exercise(browser, url, supportsWorker) {
   }, supportsWorker);
   try {
     await page.goto(url);
-    if (await page.locator('#lobby-page').count()) await page.locator('#lobby-board-btn').click();
     await page.waitForFunction(() => !!window.__gomoku);
     await context.setOffline(true);
     const beforeRequests = requests.length;
-    await page.click('#mode-ai-btn');
+    await enterAi(page);
     await settle(page, 1);
     await checkAiLayout(page);
     await page.evaluate(() => { window.__aiWorkerTest.maxGap = 0; window.__aiWorkerTest.longTasks = []; });
@@ -131,7 +135,7 @@ async function exercise(browser, url, supportsWorker) {
     const cancelledMoves = await page.evaluate(() => window.__gomoku.ai.moves.length);
     await page.waitForTimeout(200);
     assert.equal(await page.evaluate(() => window.__gomoku.ai.moves.length), cancelledMoves, '取消后不落旧子');
-    await page.click('#mode-ai-btn');
+    await enterAi(page);
     await settle(page, 5);
     await page.click('#ai-hint-btn');
     await page.waitForSelector('#ai-hint-explanation');
@@ -144,7 +148,7 @@ async function exercise(browser, url, supportsWorker) {
     assert.equal(await page.locator('#ai-hint-explanation').count(), 0, '重开取消提示');
     await page.click('#ai-hint-btn');
     await page.click('#mode-online-btn');
-    await page.click('#mode-ai-btn');
+    await enterAi(page);
     assert.equal(await page.locator('#ai-hint-explanation').count(), 0, '切模式取消提示');
     await setAiColor(page, 2);
     await setAiColor(page, 2);
@@ -194,8 +198,7 @@ async function exerciseHintRaces(browser) {
   const noHint = async () => assert.equal(await page.locator('#ai-hint-marker').count(), 0, '旧响应不能显示提示');
   try {
     await page.goto(BASE);
-    if (await page.locator('#lobby-page').count()) await page.locator('#lobby-board-btn').click();
-    await page.click('#mode-ai-btn');
+    await enterAi(page);
     await page.click('#ai-hint-btn');
     await pending(1);
     assert.match(await page.locator('#ai-hint-btn').innerText(), /深入分析/);
@@ -231,7 +234,7 @@ async function exerciseHintRaces(browser) {
     await pending(5);
     await page.click('#mode-online-btn');
     await release(4);
-    await page.click('#mode-ai-btn');
+    await enterAi(page);
     await noHint();
 
     await page.click('#ai-hint-btn');

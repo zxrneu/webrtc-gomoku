@@ -6,11 +6,13 @@ import { createLobbyId, lobbyIdentity, prepareLobbyWindow, readLobbySession, sav
 import { isLobbyName } from '@webrtc-gomoku/shared';
 import { LobbyPage } from './LobbyPage';
 import type { GameMode } from '../types';
+import { gamePage } from './navigation';
 import styles from './Lobby.module.css';
 
 interface LobbyContextValue {
   openLobby: () => void;
   openGame: (mode?: GameMode) => void;
+  selectMode: (mode: GameMode) => void;
   runtime: LobbyRuntime;
   view: LobbyView;
   now: number;
@@ -43,8 +45,13 @@ export function LobbyProvider({ children }: { children: React.ReactNode }) {
   const moves = useRef<readonly Move[]>(saved?.moves ?? []);
   const color = useRef<PlayerColor>(saved?.myColor ?? (saved?.seat.role === 'guest' ? WHITE : BLACK));
   const restored = useRef(!saved);
+  const selectedMode = useRef<GameMode>('online');
   const [page, setPage] = useState<'lobby' | 'game'>(() => location.pathname !== '/lobby' && (saved || new URLSearchParams(location.search).has('room')) ? 'game' : 'lobby');
-  const navigate = (next: 'lobby' | 'game') => { setPage(next); history.pushState({}, '', next === 'lobby' ? '/lobby' : '/'); };
+  const navigate = (next: 'lobby' | 'game') => {
+    setPage(next);
+    const path = next === 'lobby' ? '/lobby' : '/';
+    if (location.pathname !== path) history.pushState({}, '', path);
+  };
   const nameRef = useRef(saved?.name ?? '棋友');
   const [runtime] = useState(() => {
     const identity = lobbyIdentity(local, session, () => createLobbyId(bytes => crypto.getRandomValues(bytes)));
@@ -57,7 +64,11 @@ export function LobbyProvider({ children }: { children: React.ReactNode }) {
         const hadSeat = !!seat.current;
         const changedRoom = seat.current?.room !== value?.room;
         seat.current = value;
-        if (value && changedRoom) { navigate('game'); window.setTimeout(() => document.getElementById('mode-online-btn')?.click(), 0); }
+        if (value && changedRoom) {
+          selectedMode.current = 'online';
+          navigate('game');
+          window.setTimeout(() => document.getElementById('mode-online-btn')?.click(), 0);
+        }
         if (!value) {
           moves.current = []; restored.current = true; saveLobbySession(session, null);
           if (hadSeat) navigate('lobby');
@@ -95,18 +106,28 @@ export function LobbyProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
   useEffect(() => { try { local.setItem('gomoku:lobby-name', view.name); } catch { /* 临时昵称 */ } }, [view.name, local]);
   useEffect(() => {
-    const pop = () => setPage(location.pathname === '/lobby' ? 'lobby' : 'game');
+    const pop = () => {
+      const next = location.pathname === '/lobby' ? 'lobby' : gamePage(selectedMode.current, !!seat.current);
+      setPage(next);
+      if (next === 'lobby') history.replaceState({}, '', '/lobby');
+    };
     window.addEventListener('popstate', pop);
     if (page === 'lobby') history.replaceState({}, '', '/lobby');
     return () => window.removeEventListener('popstate', pop);
   }, []);
   const openLobby = () => navigate('lobby');
+  const selectMode = (mode: GameMode) => {
+    selectedMode.current = mode;
+    navigate(gamePage(mode, !!seat.current));
+  };
   const openGame = (mode: GameMode = 'online') => {
-    navigate('game');
-    window.setTimeout(() => document.getElementById(`mode-${mode}-btn`)?.click(), 0);
+    selectMode(mode);
+    if (gamePage(mode, !!seat.current) === 'game') {
+      window.setTimeout(() => document.getElementById(`mode-${mode}-btn`)?.click(), 0);
+    }
   };
   const value: LobbyContextValue = {
-    openLobby, openGame, runtime, view: configError ? { ...view, phase: 'offline', notice: '暂时无法连接大厅服务，请重试' } : view, now,
+    openLobby, openGame, selectMode, runtime, view: configError ? { ...view, phase: 'offline', notice: '暂时无法连接大厅服务，请重试' } : view, now,
     retry: () => { if (configError) setAttempt(v => v + 1); else runtime.retry(); },
     bind: (connection, callback) => { manager.current = connection; restore.current = callback; runtime.ready(connection); },
     persist: (current, myColor) => {

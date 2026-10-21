@@ -67,8 +67,7 @@ async function checkLayout(page, width, height, phase) {
       await a.screenshot({ path: `output/playwright/${prefix}-home-${width}x${height}.png` });
     }
     await a.setViewportSize({ width: 375, height: 667 });
-    await a.locator('#lobby-board-btn').click();
-    await a.locator('#create-room-btn').click();
+    await a.locator('#lobby-create').click();
     await a.waitForFunction(() => window.__gomoku.room.length === 4);
     const code = await a.locator('#room-code-text').innerText();
     await checkLayout(a, 320, 568, 'waiting');

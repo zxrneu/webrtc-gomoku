@@ -78,7 +78,7 @@ async function setAiColor(page, color) {
       assert.equal(await a.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     }
     await a.locator('#mode-online-btn').click();
-    await a.locator('[data-online-tab="lobby"]').click();
+    await a.locator('#lobby-page').waitFor();
     await a.setViewportSize({ width: 1440, height: 1000 });
     console.log('ok - 大厅手机端直接进入人机并真实落子，切回可返回大厅');
 

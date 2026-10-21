@@ -1,6 +1,9 @@
 'use strict';
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
+const { readFileSync } = require('node:fs');
+const path = require('node:path');
+const standalone = readFileSync(path.resolve(__dirname, '../dist/gomoku-standalone.html'), 'utf8');
 const BASE = process.env.BASE || 'http://localhost:3000';
 
 (async () => {
@@ -8,8 +11,9 @@ const BASE = process.env.BASE || 'http://localhost:3000';
   try {
     for (const width of [1440, 1024, 768, 375]) {
       const page = await browser.newPage({ viewport: { width, height: 900 } });
+      // 独立验证聊天组件的 Tab、焦点和消息行为；在线房间布局由 room-board 覆盖。
+      await page.route(new URL(BASE).href, route => route.fulfill({ status: 200, contentType: 'text/html', body: standalone }));
       await page.goto(BASE);
-      if (await page.locator('#lobby-page').count()) await page.locator('#lobby-board-btn').click();
       await page.waitForFunction(() => !!window.__gomoku);
       const gameTab = page.getByRole('tab', { name: '对局', exact: true });
       const chatTab = page.getByRole('tab', { name: /聊天/ });
@@ -101,13 +105,12 @@ const BASE = process.env.BASE || 'http://localhost:3000';
     // 以普通 HTTP 来源加载同一构建产物，复现局域网非安全来源的浏览器限制。
     const response = await browser.newContext();
     try {
-      const html = await (await response.request.get(BASE)).text();
+      const html = standalone;
       const page = await response.newPage();
       await page.route('http://gomoku-insecure.test/**', route => route.fulfill({
         status: 200, contentType: 'text/html; charset=utf-8', body: html,
       }));
       await page.goto('http://gomoku-insecure.test/');
-      if (await page.locator('#lobby-page').count()) await page.locator('#lobby-board-btn').click();
       await page.waitForFunction(() => !!window.__gomoku);
       assert.equal(await page.evaluate(() => window.isSecureContext), false);
       await page.evaluate(() => {

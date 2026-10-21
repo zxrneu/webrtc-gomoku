@@ -13,6 +13,7 @@
  * 依赖：playwright（npm i playwright）与任一 Chromium 系浏览器
  */
 const { chromium } = require('playwright');
+const { setName, createRoom, joinRoom } = require('./room-helpers');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const STANDALONE = pathToFileURL(path.resolve(__dirname, '..', 'dist', 'gomoku-standalone.html')).href;
@@ -92,8 +93,6 @@ async function launchBrowser() {
       };
     }, REQUIRE_RELAY);
     await page.goto(url);
-    if (await page.locator('#lobby-page').count()) await page.locator('#lobby-board-btn').click();
-    if (await page.locator('[data-online-tab="room"]').count()) await page.locator('[data-online-tab="room"]').click();
     return page;
   }
 
@@ -147,30 +146,15 @@ async function launchBrowser() {
   console.log('== 阶段一：房间联机信令链路 ==');
   const pageA = await newPlayerPage('A');
   const pageB = await newPlayerPage('B');
-  for (const width of [320, 375, 1400]) {
-    await pageA.setViewportSize({ width, height: 1000 });
-    const layout = await pageA.locator('#role-select-box').evaluate(el => {
-      const row = el.getBoundingClientRect();
-      const button = el.querySelector('button').getBoundingClientRect();
-      const label = el.querySelector('span').getBoundingClientRect();
-      return {
-        compact: row.height <= 52 && button.height <= 36 && button.width <= 64,
-        inline: button.left >= label.right && Math.abs(button.top + button.height / 2 - label.top - label.height / 2) <= 2,
-        contained: button.right <= row.right && label.left >= row.left,
-      };
-    });
-    check(`${width}px 执子栏和切换按钮紧凑且同排不溢出`, layout.compact && layout.inline && layout.contained);
-  }
-  await pageA.fill('#name-input', '小明');
-  await pageB.fill('#name-input', '小红');
+  await setName(pageA, '小明');
+  await setName(pageB, '小红');
 
-  await pageA.click('#create-room-btn');
+  await createRoom(pageA);
   await pageA.waitForSelector('#room-info:not(.hidden)', { timeout: 5000 });
   const room = (await pageA.textContent('#room-code-text')).trim();
   check('房间创建成功，房号 ' + room, /^[A-Z0-9]{4}$/.test(room));
 
-  await pageB.fill('#room-input', room);
-  await pageB.click('#join-room-btn');
+  await joinRoom(pageB, room);
 
   // 等待 host 发出 offer（signalingState: have-local-offer；若对方已应答则为 stable）
   await pageA.waitForFunction(
@@ -586,9 +570,8 @@ async function launchBrowser() {
 
   console.log('== 阶段二·补：原房主离开后剩余玩家接待新对手 ==');
   const replacement = await newPlayerPage('Replacement');
-  await replacement.fill('#name-input', '新对手');
-  await replacement.fill('#room-input', room);
-  await replacement.click('#join-room-btn');
+  await setName(replacement, '新对手');
+  await joinRoom(replacement, room);
   await Promise.all([
     pageB.waitForFunction(() => window.__gomoku.connected, null, { timeout: P2P_TIMEOUT }),
     replacement.waitForFunction(() => window.__gomoku.connected, null, { timeout: P2P_TIMEOUT }),

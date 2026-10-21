@@ -1,6 +1,6 @@
 /** 顶层协调器：联机、人机各自维护棋局；模式切换只改变视图。 */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useContext, useState, useEffect, useRef, useCallback } from 'react';
 import type { GameState, PlayerColor } from '@webrtc-gomoku/core';
 import {
   create as createGame,
@@ -30,6 +30,7 @@ import { createOnlineMessageHandler } from './connection/onlineMessages';
 import { useGameRequests } from './connection/gameRequests';
 import { useAiGame } from './ai/useAiGame';
 import { DIFFICULTY_LABELS } from './ai/aiLabels';
+import { LobbyContext } from './lobby/LobbyProvider';
 
 import { Header } from './components/Header/Header';
 import { Board } from './components/Board/Board';
@@ -50,6 +51,7 @@ import { Toast } from './components/Toast/Toast';
 import styles from './App.module.css';
 
 export const App: React.FC = () => {
+  const lobby = __LOBBY_ENABLED__ ? useContext(LobbyContext) : null;
   // 核心对局状态（联机）
   const [game, setGame] = useState<GameState>(() => createGame());
   const [myColor, setMyColor] = useState<PlayerColor>(BLACK);
@@ -64,6 +66,10 @@ export const App: React.FC = () => {
 
   /** 视图模式：'online' 联机（默认，保持老用户路径） | 'ai' 人机（纯本地） */
   const [mode, setMode] = useState<GameMode>('online');
+  const handleModeChange = (next: GameMode) => {
+    setMode(next);
+    lobby?.selectMode(next);
+  };
   /** 人机棋局编排：状态与副作用全部封装在 hook 内，联机路径不读它的 setter */
   const ai = useAiGame(mode);
 
@@ -722,7 +728,7 @@ export const App: React.FC = () => {
 
   return (
     <div className={styles.layout}>
-      <Header status={headerStatus} statusText={headerStatusText} mode={mode} onModeChange={setMode} compact={inRoom || mode === 'ai'}>
+      <Header status={headerStatus} statusText={headerStatusText} mode={mode} onModeChange={handleModeChange} compact={inRoom || mode === 'ai'}>
         {mode === 'ai' && <AiPanel api={ai} over={view.game.over} />}
       </Header>
 

@@ -11,7 +11,7 @@ const view: LobbyView = { phase: 'ready', name: '小明', pending: false, notice
   serverNow: 10000, revision: 1 } };
 function render(current = view) {
   return renderToStaticMarkup(React.createElement(LobbyPanel, { view: current, send: vi.fn(), retry: vi.fn(),
-    leave: vi.fn(), onRoom: vi.fn(), onName: vi.fn(), playable: false, now: 10000 }));
+    leave: vi.fn(), onRoom: vi.fn(), onJoin: vi.fn(), onName: vi.fn(), playable: false, now: 10000 }));
 }
 
 describe('大厅界面行为表达', () => {

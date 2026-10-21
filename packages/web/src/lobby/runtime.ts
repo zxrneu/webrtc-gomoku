@@ -115,6 +115,7 @@ export function createLobbyRuntime(options: Options) {
     if (enabled && e.type === 'msg' && (e.msg.t === 'created' || e.msg.t === 'joined') && e.msg.token) {
       currentSeat = { t: 'lobby-seat', room: e.msg.room, peerId: e.msg.peerId, token: e.msg.token,
         role: e.msg.t === 'created' ? 'host' : 'guest' }; options.onSeat?.(currentSeat);
+      update({ notice: '' });
     }
     if (e.type === 'msg' && e.msg.t === 'resumed' && currentSeat) {
       currentSeat = { ...currentSeat, token: e.msg.token, role: e.msg.role ?? currentSeat.role }; options.onSeat?.(currentSeat);
@@ -128,6 +129,10 @@ export function createLobbyRuntime(options: Options) {
     }
     if (enabled && (e.type === 'closed' || e.type === 'connect-timeout' || e.type === 'heartbeat-dead' || e.type === 'error')) lost();
     gameEvent?.(e);
+    if (enabled && e.type === 'msg' && e.msg.t === 'error') {
+      if (!currentSeat && manager?.getStatus().state === 'FAILED') manager.leave();
+      update({ notice: e.msg.message });
+    }
   }
   function send(msg: ClientLobbyMsg): boolean {
     if (!enabled || raw?.readyState !== 'open' || view.phase !== 'ready') return false;
@@ -176,6 +181,10 @@ export function createLobbyRuntime(options: Options) {
       if (supported) { connect(); poll(); } else { pollTimer = clear(pollTimer); }
     },
     send,
+    joinRoom(room: string) {
+      if (!/^[A-Z0-9]{4}$/.test(room) || view.phase !== 'ready' || view.pending) return;
+      manager?.joinRoom(room, view.name);
+    },
     retry() { attempts = 0; if (manager?.getStatus().state === 'FAILED') manager.retryNow(); else connect(); },
     dispose() {
       disposed = true; retryTimer = clear(retryTimer); pendingTimer = clear(pendingTimer); pollTimer = clear(pollTimer);

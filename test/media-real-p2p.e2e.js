@@ -1,4 +1,5 @@
 'use strict';
+const { setName, createRoom, joinRoom } = require('./room-helpers');
 /**
  * 真实 P2P 环境下的富媒体（图片、文件、语音）端到端传输验证
  *
@@ -94,24 +95,18 @@ async function waitForServer(url, timeoutMs = 15000) {
       assert.equal(await page.evaluate(() => window.isSecureContext), true, '录音页面必须为安全上下文');
       assert.equal(await page.evaluate(() => typeof navigator.mediaDevices?.getUserMedia), 'function');
     }
-    for (const page of [pageA, pageB]) {
-      if (await page.locator('#lobby-page').count()) await page.locator('#lobby-board-btn').click();
-      if (await page.locator('[data-online-tab="room"]').count()) await page.locator('[data-online-tab="room"]').click();
-    }
-
     await pageA.waitForFunction(() => !!window.__gomoku);
     await pageB.waitForFunction(() => !!window.__gomoku);
 
-    await pageA.fill('#name-input', 'HostA');
-    await pageB.fill('#name-input', 'GuestB');
+    await setName(pageA, 'HostA');
+    await setName(pageB, 'GuestB');
 
-    await pageA.click('#create-room-btn');
+    await createRoom(pageA);
     await pageA.waitForSelector('#room-info:not(.hidden)', { timeout: 8000 });
     const room = (await pageA.textContent('#room-code-text')).trim();
     console.log('  建房成功，房号:', room);
 
-    await pageB.fill('#room-input', room);
-    await pageB.click('#join-room-btn');
+    await joinRoom(pageB, room);
 
     console.log('  等待真实 P2P WebRTC DataChannel 连通...');
     await pageA.waitForFunction(() => window.__gomoku?.connected === true, null, { timeout: 15000 });
@@ -288,10 +283,7 @@ async function waitForServer(url, timeoutMs = 15000) {
     const ctxC = await browser.newContext({ ignoreHTTPSErrors, permissions: ['microphone'], viewport: { width: 1280, height: 800 } });
     const pageC = await ctxC.newPage();
     await pageC.goto(BASE);
-    if (await pageC.locator('#lobby-page').count()) await pageC.locator('#lobby-board-btn').click();
-    await pageC.locator('[data-online-tab="room"]').click();
-    await pageC.fill('#room-input', await pageA.locator('#room-code-text').innerText());
-    await pageC.click('#join-room-btn');
+    await joinRoom(pageC, await pageA.locator('#room-code-text').innerText());
     await Promise.all([pageA, pageC].map(page => page.waitForFunction(() => window.__gomoku.connected, null, { timeout: 15000 })));
 
     await pageA.getByRole('button', { name: /^打开聊天/ }).click();

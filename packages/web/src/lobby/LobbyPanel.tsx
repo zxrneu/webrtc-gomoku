@@ -10,6 +10,7 @@ interface Props {
   retry(): void;
   leave(): void;
   onRoom(): void;
+  onJoin(room: string): void;
   onName(name: string): void;
   playable: boolean;
   now: number;
@@ -73,7 +74,7 @@ export function LobbyPanel(props: Props): React.JSX.Element {
       <p>{now - state.match.since >= 30000 ? '对手有点难找，要不要自己开一桌？' : '找到棋友后，将自动进入房间'}</p>
       <button id="match-cancel" className={styles.secondary} disabled={view.pending} onClick={() => send({ t: 'lobby-match', action: 'leave' })}>
         {view.pending ? '正在取消…' : '取消匹配'}</button></div>
-      : <LobbyActions disabled={disabled} pending={view.pending} send={send} />}
+      : <LobbyActions disabled={disabled} pending={view.pending} send={send} onJoin={props.onJoin} />}
       {props.onAi && <button id="lobby-ai-btn" type="button" className={styles.aiEntry} onClick={props.onAi}>
         <span aria-hidden="true">◉</span><span><strong>人机对弈</strong><small>随时开局，与 AI 练棋</small></span>
       </button>}

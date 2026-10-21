@@ -19,6 +19,38 @@ function setup(onSeat?: (seat: LobbySeat | null) => void) {
 }
 
 describe('大厅与现有连接编排接线', () => {
+  it('按房号加入复用连接编排器，支持未在广场展示的房间', () => {
+    const t = setup();
+    t.runtime.joinRoom('A1B2');
+
+    expect(t.raw.sent).toContainEqual({ t: 'join', room: 'A1B2', name: '小明' });
+    expect(t.raw.sent).not.toContainEqual({ t: 'lobby-join', room: 'A1B2' });
+  });
+  it.each(['bad', '<img>', 'abc!'])('无效房号 %s 不发送加入请求', room => {
+    const t = setup();
+    t.runtime.joinRoom(room);
+
+    expect(t.raw.sent.filter(msg => msg.t === 'join')).toHaveLength(0);
+  });
+  it('按房号加入失败时大厅显示错误并保留原页面', () => {
+    const t = setup();
+    t.manager.joinRoom('ZZZZ', '小明');
+    t.raw.server({ t: 'error', code: 'ROOM_NOT_FOUND', message: '房间 ZZZZ 不存在' });
+
+    expect(t.runtime.getSnapshot().notice).toBe('房间 ZZZZ 不存在');
+    expect(t.runtime.getSnapshot().phase).toBe('ready');
+    expect(t.manager.getStatus().room).toBeNull();
+  });
+  it('房号重试成功后清除之前的错误提示', () => {
+    const t = setup();
+    t.manager.joinRoom('ZZZZ', '小明');
+    t.raw.server({ t: 'error', code: 'ROOM_NOT_FOUND', message: '房间 ZZZZ 不存在' });
+    t.manager.joinRoom('A1B2', '小明');
+    t.raw.server({ t: 'joined', room: 'A1B2', peerId: 'b', token: 'secret' });
+
+    expect(t.runtime.getSnapshot().notice).toBe('');
+    expect(t.manager.getStatus().room).toBe('A1B2');
+  });
   it('房主离开后将提升的角色持久化，刷新不再沿用 guest', () => {
     const changes: (LobbySeat | null)[] = [];
     const t = setup(seat => changes.push(seat));

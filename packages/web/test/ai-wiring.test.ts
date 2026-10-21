@@ -115,13 +115,19 @@ describe('人机模式的接线（T05）', () => {
     expect(code).toContain('mode === \'online\' && (');
   });
 
-  it('Header 挂载 ModeSwitch，模式是纯视图态（默认联机）', () => {
+  it('Header 默认联机，切换只更新模式与页面，不重置棋局或连接', () => {
     const header = codeOf(join('components', 'Header', 'Header.tsx'));
     const app = codeOf('App.tsx');
 
     expect(header).toContain('<ModeSwitch');
     expect(app).toContain("useState<GameMode>('online')");
-    expect(app).toContain('onModeChange={setMode}');
+    expect(app).toContain('onModeChange={handleModeChange}');
+    const change = blockAfter(app, 'const handleModeChange =');
+    expect(change).toContain('setMode(next)');
+    expect(change).toContain('lobby?.selectMode(next)');
+    expect(change).not.toContain('setGame(');
+    expect(change).not.toContain('conn.');
+    expect(change).not.toContain('ai.');
   });
 
   it('Board 新增的两个 props 全部可选（联机路径零改动）', () => {

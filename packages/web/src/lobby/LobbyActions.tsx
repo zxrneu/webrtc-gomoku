@@ -6,10 +6,11 @@ interface Props {
   disabled: boolean;
   pending: boolean;
   send(message: ClientLobbyMsg): boolean;
+  onJoin(room: string): void;
 }
 
 /** 开局和按房间号加入；表单仅发送经过校验的四位房号。 */
-export function LobbyActions({ disabled, pending, send }: Props) {
+export function LobbyActions({ disabled, pending, send, onJoin }: Props) {
   const [code, setCode] = useState('');
   const valid = /^[A-Z0-9]{4}$/.test(code);
   return <>
@@ -25,8 +26,11 @@ export function LobbyActions({ disabled, pending, send }: Props) {
     <button id="lobby-create" className={styles.create} disabled={disabled} onClick={() => send({ t: 'lobby-create', public: true })}>
       <span aria-hidden="true">＋</span><span><strong>{pending ? '正在处理…' : '创建房间'}</strong><small>创建公开房间，等棋友加入</small></span>
     </button>
-    <form className={styles.joinForm} aria-label="按房间号加入" action="/" method="get"
-      onSubmit={event => { if (!valid || disabled) event.preventDefault(); }}>
+    <form className={styles.joinForm} aria-label="按房间号加入"
+      onSubmit={event => {
+        event.preventDefault();
+        if (valid && !disabled) onJoin(code);
+      }}>
       <label htmlFor="lobby-room-code">已有房号，直接赴约<span className={styles.srOnly}>，四位房间号</span></label>
       <input name="room" id="lobby-room-code" value={code} maxLength={4} pattern="[A-Za-z0-9]{4}" placeholder="输入四位房间号"
         autoComplete="off" autoCapitalize="characters" spellCheck={false} disabled={disabled}
