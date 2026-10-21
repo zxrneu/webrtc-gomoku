@@ -107,15 +107,16 @@
   font-size: 13px;
   font-weight: 600;
   border-radius: var(--radius-sm);
-  background: var(--accent-hover);
+  background: var(--accent);
   color: #ffffff;
-  border: 1px solid var(--accent-hover);
+  border: 1px solid var(--accent);
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .btn:hover:not(:disabled) {
-  background: var(--accent);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .btn:disabled {
@@ -160,6 +161,7 @@
   background: transparent;
   color: var(--text-main);
 }
+/* 发送键与「我方气泡」同为主操作色，此前误用第三种绿 #2f8e67，同屏冲突 */
 .sendBtn {
   display: grid;
   place-items: center;
@@ -168,13 +170,13 @@
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: #2f8e67;
+  background: var(--accent);
   color: #fff;
   cursor: pointer;
 }
-.sendBtn:hover:not(:disabled) { background: #247550; }
-.sendBtn:disabled { background: #d9e8de; cursor: not-allowed; }
-.sendBtn:focus-visible { outline: 2px solid #2f8e67; outline-offset: 3px; }
+.sendBtn:hover:not(:disabled) { background: var(--accent-hover); }
+.sendBtn:disabled { background: #d9d2c6; cursor: not-allowed; }
+.sendBtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .voiceHint { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
 
 .mediaItem { display: flex; flex-direction: column; gap: 4px; max-width: 100%; }

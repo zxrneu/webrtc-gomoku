@@ -18,8 +18,10 @@ const { pathToFileURL } = require('node:url');
 const STANDALONE = pathToFileURL(path.resolve(__dirname, '..', 'dist', 'gomoku-standalone.html')).href;
 
 const BASE = process.env.BASE || 'http://localhost:3000';
-const CELL = 36;
-const PAD = 28;
+// 必须与 packages/web/src/components/Board/geometry.ts 的 CELL / PAD 保持一致，
+// 否则用 position 落子会点到相邻交叉点（画布分辨率仍是 560，中心点恒为 280）。
+const CELL = 34;
+const PAD = 42;
 const P2P_TIMEOUT = Number(process.env.P2P_TIMEOUT || 12000);
 const REQUIRE_RELAY = process.env.REQUIRE_RELAY === '1';
 const REQUIRE_P2P = REQUIRE_RELAY || process.env.REQUIRE_P2P === '1';

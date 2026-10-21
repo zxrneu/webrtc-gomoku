@@ -1,6 +1,17 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import type { Color, Move, PlayerColor, Point } from '@webrtc-gomoku/core';
 import { SIZE, BLACK, WHITE } from '@webrtc-gomoku/core';
+import {
+  CANVAS_SIZE,
+  CELL,
+  COLS,
+  LABEL_FONT_SIZE,
+  LABEL_INSET,
+  PAD,
+  STONE_RADIUS,
+  pixelToPoint,
+  pointToPixel,
+} from './geometry';
 import styles from './Board.module.css';
 
 /**
@@ -78,19 +89,11 @@ interface BoardProps {
  *    而 Canvas 是单层光栅位图，利用 GPU 2D 硬件加速，在 60FPS 下平滑绘制悬停虚影与光晕。
  * 2. 细腻质感：Canvas 支持原生径向渐变 (RadialGradient)、像素级阴影 (ShadowBlur) 与微小木纹线条。
  * 
- * 坐标系换算公式：
+ * 坐标系换算公式（常量与换算函数集中在 ./geometry，由单测守护）：
  * - 任意交叉点 (x, y) 对应的物理像素中心点为：
  *   px = PAD + x * CELL;
  *   py = PAD + y * CELL;
  */
-/** 每个网格间距（像素） */
-const CELL = 36;
-/** 棋盘边缘外留白边距（像素），留出空间给 A-O、1-15 坐标刻度显示 */
-const PAD = 28;
-/** Canvas 渲染视口的物理分辨率宽度与高度（560 x 560 像素） */
-const CANVAS_SIZE = (SIZE - 1) * CELL + PAD * 2; // (15 - 1) * 36 + 28 * 2 = 560
-/** 棋盘水平横轴坐标标记字母表（A 到 O，共 15 列） */
-const COLS = 'ABCDEFGHIJKLMNO';
 
 /**
  * 棋盘核心组件 (Board)
@@ -169,21 +172,22 @@ export const Board: React.FC<BoardProps> = ({
     }
 
     // 3. 绘制外围坐标标尺：水平方向 A-O，垂直方向 15-1（符合传统棋谱阅读习惯）
-    ctx.font = '10px -apple-system, sans-serif';
-    ctx.fillStyle = '#7a5924';
+    // 字号与内缩距离来自 geometry，保证刻度落在棋子外侧的留白带内，不被首行棋子遮挡
+    ctx.font = `${LABEL_FONT_SIZE}px -apple-system, sans-serif`;
+    ctx.fillStyle = '#5f4413';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
     for (let i = 0; i < SIZE; i++) {
       const p = PAD + i * CELL;
       const col = COLS[i] || '';
-      const row = String(15 - i);
+      const row = String(SIZE - i);
       // 上下边刻度 (A-O)
-      ctx.fillText(col, p, 12);
-      ctx.fillText(col, p, CANVAS_SIZE - 12);
+      ctx.fillText(col, p, LABEL_INSET);
+      ctx.fillText(col, p, CANVAS_SIZE - LABEL_INSET);
       // 左右边刻度 (15-1)
-      ctx.fillText(row, 12, p);
-      ctx.fillText(row, CANVAS_SIZE - 12, p);
+      ctx.fillText(row, LABEL_INSET, p);
+      ctx.fillText(row, CANVAS_SIZE - LABEL_INSET, p);
     }
 
     // 4. 绘制 15x15 网格线
@@ -223,7 +227,13 @@ export const Board: React.FC<BoardProps> = ({
       ctx.fill();
     }
 
-    // 7. 遍历全盘矩阵，绘制所有已落下的棋子
+    // 7. 获胜五子高亮：必须画在棋子之下，否则描边会横穿棋子像「划掉」。
+    // 做法是用一条半透明白色胶囊带把五子串起来（连线感），再给每颗子套深琥珀描边环。
+    if (winLine && winLine.length >= 5) {
+      drawWinHighlight(ctx, winLine);
+    }
+
+    // 8. 遍历全盘矩阵，绘制所有已落下的棋子
     for (let y = 0; y < SIZE; y++) {
       for (let x = 0; x < SIZE; x++) {
         const c = board[y]?.[x];
@@ -233,7 +243,7 @@ export const Board: React.FC<BoardProps> = ({
       }
     }
 
-    // 8. 绘制鼠标悬停磁吸预览虚影（半透明幽灵棋子）
+    // 9. 绘制鼠标悬停磁吸预览虚影（半透明幽灵棋子）
     // 触发条件：当前处于自己的回合、已连线、游戏未结束、且该交叉点尚未落子
     if (hoverPos && connected && !over && myTurn) {
       const { x, y } = hoverPos;
@@ -242,16 +252,10 @@ export const Board: React.FC<BoardProps> = ({
       }
     }
 
-    // 9. 获胜五子金色辉光连线（游戏决出胜负时高亮标出制胜五子）
-    if (winLine && winLine.length >= 5) {
-      drawWinLine(ctx, winLine);
-    }
-
     // 10. 最后一手落子醒目标记
     if (moves.length > 0) {
       const last = moves[moves.length - 1]!;
-      const lx = PAD + last.x * CELL;
-      const ly = PAD + last.y * CELL;
+      const { px: lx, py: ly } = pointToPixel(last.x, last.y);
       if (showMoveNumbers) {
         // 当开启手数显示时，最后一手标记在棋子右上角，避免遮挡中心数字
         ctx.beginPath();
@@ -290,9 +294,8 @@ export const Board: React.FC<BoardProps> = ({
    * 技巧：通过微小偏移绘制柔和投影，搭配偏心径向高光渐变，营造真实云子微凸的鹅卵石触感
    */
   function drawStone(ctx: CanvasRenderingContext2D, x: number, y: number, color: PlayerColor) {
-    const cx = PAD + x * CELL;
-    const cy = PAD + y * CELL;
-    const r = CELL * 0.44; // 棋子半径约为网格的一半微小收缩（防止棋子贴紧产生拥挤）
+    const { px: cx, py: cy } = pointToPixel(x, y);
+    const r = STONE_RADIUS;
 
     // 1. 棋子右下方柔和投影 (Drop Shadow)
     ctx.save();
@@ -332,9 +335,8 @@ export const Board: React.FC<BoardProps> = ({
    * 使用半透明透明度提示玩家如果点击此处将会落下的棋子颜色
    */
   function drawGhostStone(ctx: CanvasRenderingContext2D, x: number, y: number, color: PlayerColor) {
-    const cx = PAD + x * CELL;
-    const cy = PAD + y * CELL;
-    const r = CELL * 0.44;
+    const { px: cx, py: cy } = pointToPixel(x, y);
+    const r = STONE_RADIUS;
 
     ctx.save();
     ctx.beginPath();
@@ -352,31 +354,37 @@ export const Board: React.FC<BoardProps> = ({
   }
 
   /**
-   * 绘制获胜五子连线与金色光环
-   * 利用 Canvas 的 shadowBlur 与 shadowColor 原生实现光晕(Glow)特效
+   * 绘制获胜五子高亮（**必须画在棋子之前**，否则描边横穿棋子像「划掉」）
+   *
+   * 旧实现是 4px 金色实线穿过棋子中心，在木色上对比度仅 1.29:1，几乎看不见。
+   * 改为「半透明白色胶囊带 + 深琥珀描边环」：胶囊带负责连线感，
+   * 描边环负责逐颗强调，两者都落在棋子外缘，不遮挡棋子本体。
    */
-  function drawWinLine(ctx: CanvasRenderingContext2D, line: Point[]) {
+  function drawWinHighlight(ctx: CanvasRenderingContext2D, line: Point[]) {
+    const head = line[0];
+    const tail = line[line.length - 1];
+    if (!head || !tail) return;
+
     ctx.save();
-    ctx.strokeStyle = '#f59e0b'; // 琥珀金黄色
-    ctx.lineWidth = 4;
-    ctx.shadowColor = '#f59e0b';
-    ctx.shadowBlur = 10; // 金色发光效果
-
-    // 穿过五子中心的折线贯穿
+    // 1. 半透明暖白色胶囊带：把制胜五子串成一条高亮轨道
+    const from = pointToPixel(head[0], head[1]);
+    const to = pointToPixel(tail[0], tail[1]);
+    ctx.strokeStyle = 'rgba(255, 248, 230, 0.55)';
+    ctx.lineWidth = CELL * 0.98;
+    ctx.lineCap = 'round';
     ctx.beginPath();
-    const [p0, ...rest] = line;
-    if (p0) {
-      ctx.moveTo(PAD + p0[0] * CELL, PAD + p0[1] * CELL);
-      for (const p of rest) {
-        ctx.lineTo(PAD + p[0] * CELL, PAD + p[1] * CELL);
-      }
-      ctx.stroke();
-    }
+    ctx.moveTo(from.px, from.py);
+    ctx.lineTo(to.px, to.py);
+    ctx.stroke();
 
-    // 在每一个获胜棋子周围套上金色光圈
+    // 2. 每颗制胜棋子的深琥珀描边环（#92400e 在木色上对比度 > 6:1）
+    // 半径只比棋子大 2.5px：相邻环之间留出细微间隙，五颗连成一串「珠链」而不是糊成一片
+    ctx.strokeStyle = 'rgba(146, 64, 14, 0.92)';
+    ctx.lineWidth = 2;
     for (const [x, y] of line) {
+      const { px, py } = pointToPixel(x, y);
       ctx.beginPath();
-      ctx.arc(PAD + x * CELL, PAD + y * CELL, CELL * 0.48, 0, Math.PI * 2);
+      ctx.arc(px, py, STONE_RADIUS + 2.5, 0, Math.PI * 2);
       ctx.stroke();
     }
     ctx.restore();
@@ -392,8 +400,7 @@ export const Board: React.FC<BoardProps> = ({
     ctx.textBaseline = 'middle';
     for (let i = 0; i < movesList.length; i++) {
       const m = movesList[i]!;
-      const mx = PAD + m.x * CELL;
-      const my = PAD + m.y * CELL;
+      const { px: mx, py: my } = pointToPixel(m.x, m.y);
       const num = i + 1;
       ctx.font = num >= 100
         ? 'bold 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
@@ -411,29 +418,31 @@ export const Board: React.FC<BoardProps> = ({
   }, [drawBoard]);
 
   /**
-   * 处理鼠标/触控指针在棋盘上的移动事件（磁吸计算最近交叉点）
-   * 
-   * 关键技巧：处理 CSS 缩放自适应 (scale)
+   * 把指针事件换算成棋盘交叉点（处理 CSS 缩放自适应）
+   *
    * Canvas 内部固定为 560x560 逻辑像素，但在移动端屏幕上可能被 CSS 缩小（如 360px 宽度）。
    * 必须通过 `canvas.width / rect.width` 计算缩放比，否则点击和悬停点会整体偏移！
+   * 命中与吸附规则统一由 geometry.pixelToPoint 负责，绘制与交互共用同一套坐标。
    */
-  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  const toBoardPoint = (
+    e: React.PointerEvent<HTMLCanvasElement> | React.MouseEvent<HTMLCanvasElement>,
+  ) => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
     const scale = canvas.width / rect.width;
-    const cx = (e.clientX - rect.left) * scale;
-    const cy = (e.clientY - rect.top) * scale;
+    return pixelToPoint((e.clientX - rect.left) * scale, (e.clientY - rect.top) * scale);
+  };
 
-    // 磁吸四舍五入到最近的网格线索引 (0 ~ 14)
-    const x = Math.round((cx - PAD) / CELL);
-    const y = Math.round((cy - PAD) / CELL);
-
-    if (x >= 0 && x < SIZE && y >= 0 && y < SIZE) {
-      setHoverPos({ x, y });
-    } else {
-      setHoverPos(null);
-    }
+  /**
+   * 处理鼠标/触控指针在棋盘上的移动事件（磁吸计算最近交叉点）
+   * 同一交叉点内移动不触发重绘：整盘 225 颗棋子全量重绘没必要，也避免高频 pointermove 抖动
+   */
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const point = toBoardPoint(e);
+    setHoverPos((prev) =>
+      prev && point && prev.x === point.x && prev.y === point.y ? prev : point,
+    );
   };
 
   /**
@@ -447,18 +456,8 @@ export const Board: React.FC<BoardProps> = ({
    * 处理棋盘点击落子事件
    */
   const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const scale = canvas.width / rect.width;
-    const cx = (e.clientX - rect.left) * scale;
-    const cy = (e.clientY - rect.top) * scale;
-    const x = Math.round((cx - PAD) / CELL);
-    const y = Math.round((cy - PAD) / CELL);
-
-    if (x >= 0 && x < SIZE && y >= 0 && y < SIZE) {
-      onMove(x, y);
-    }
+    const point = toBoardPoint(e);
+    if (point) onMove(point.x, point.y);
   };
 
   return (

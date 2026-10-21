@@ -5,8 +5,10 @@
   --card-bg: rgba(255, 255, 255, 0.92);
   --card-border: #e6dcce;
   --text-main: #2b251f;
-  --text-muted: #7d7265;
-  --text-light: #9e9385;
+  /* 次要文字对比度：旧值 #7d7265 仅 4.25:1，12px 正文不达标；#6b6053 为 5.54:1 */
+  --text-muted: #6b6053;
+  /* 三级文字：旧值 #9e9385 仅 2.72:1；#746a5b 为 4.79:1，仍保持层级差异 */
+  --text-light: #746a5b;
   --accent: #b45309;
   --accent-hover: #92400e;
   --accent-soft: #fef3c7;
@@ -71,9 +73,24 @@ button {
   font-family: inherit;
   cursor: pointer;
   border: none;
-  outline: none;
 }
 
 input, textarea {
   font-family: inherit;
+}
+
+/**
+ * 全局键盘焦点环
+ * 此前 `button { outline: none }` 抹掉了 UA 焦点环，而只有部分组件自己补了
+ * :focus-visible，导致棋盘操作栏等处的按钮键盘完全不可见。这里统一兜底。
+ */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 棋盘画布本身也是可聚焦控件（房间页 tabIndex=0），焦点环略外扩以免压住棋子 */
+canvas:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
 }

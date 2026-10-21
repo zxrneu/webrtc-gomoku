@@ -201,7 +201,7 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   padding: 8px 16px;
   border-radius: var(--radius-sm);
@@ -261,7 +261,7 @@
 
 /* 当前回合与执子颜色提示 */
 .turnHint {
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-muted);
   display: flex;
