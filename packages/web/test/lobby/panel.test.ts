@@ -15,6 +15,23 @@ function render(current = view) {
 }
 
 describe('大厅界面行为表达', () => {
+  it('开局操作与棋友浏览各有独立的可访问区域', () => {
+    const html = render();
+    expect(html).toContain('aria-label="开局操作"');
+    expect(html).toContain('aria-label="棋友与房间"');
+    expect(html).toContain('落子，遇见棋友。');
+  });
+  it('房号输入有可见说明，帮助已有房号的玩家直接加入', () => {
+    const html = render();
+    expect(html).toContain('已有房号，直接赴约');
+    expect(html).toContain('来下一盘？');
+  });
+  it('匹配中仍保留独立的棋友浏览区域', () => {
+    const html = render({ ...view, state: { ...view.state!, match: { since: 0, expiresAt: 60000 } } });
+    expect(html).toContain('aria-label="棋友与房间"');
+    expect(html).toContain('取消匹配');
+    expect(html).not.toContain('id="quick-match"');
+  });
   it('首页提供房间号加入入口，并使用玩家能理解的统计', () => {
     const html = render();
     expect(html).toContain('id="lobby-room-code"');

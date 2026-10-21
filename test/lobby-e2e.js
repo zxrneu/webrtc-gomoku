@@ -85,8 +85,18 @@ async function setAiColor(page, color) {
     async function checkHierarchy(page) {
       const match = await page.locator('#quick-match').boundingBox();
       const create = await page.locator('#lobby-create').boundingBox();
-      assert.ok(Math.abs(match.height - create.height) <= 1, '匹配和开桌入口应等高');
-      assert.ok(Math.abs(match.width - create.width) <= 1, '匹配和开桌入口应等宽');
+      const launch = await page.getByRole('complementary', { name: '开局操作' }).boundingBox();
+      const browse = await page.getByRole('region', { name: '棋友与房间' }).boundingBox();
+      const mobile = page.viewportSize().width <= 600;
+      assert.ok(match.height >= 44 && create.height >= 44, '开局入口保留足够的点击面积');
+      if (mobile) {
+        assert.ok(match.width > create.width, '手机上快速匹配占整行，建房为次要入口');
+        assert.ok(browse.y >= launch.y + launch.height, '手机上先开局操作，再浏览棋友');
+        assert.ok(browse.y < 650, '手机上棋友列表不被开局操作推到过低的位置');
+      } else {
+        assert.ok(browse.x >= launch.x + launch.width, '桌面上左侧开局，右侧浏览棋友');
+        assert.ok(Math.abs(browse.y - launch.y) <= 1, '开局区与棋友区顶部对齐');
+      }
       for (const radio of await page.getByRole('radio').all()) {
         assert.ok((await radio.boundingBox()).height >= 38, '大厅内容切换入口应易于点击');
         assert.ok(await radio.evaluate(el => parseFloat(getComputedStyle(el).fontSize)) >= 14);

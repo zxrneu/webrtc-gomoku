@@ -49,8 +49,7 @@ export function LobbyPanel(props: Props): React.JSX.Element {
   const disabled = busy || view.phase !== 'ready';
   return <section id="lobby-panel" className={styles.panel} aria-label="服务大厅">
     <div className={styles.overview}>
-    <div className={styles.heading}><div><h2>棋友大厅</h2></div>
-      </div>
+    <div className={styles.heading}><h2>落子，遇见棋友。</h2></div>
     <Identity view={view} onName={props.onName} />
     <div className={styles.stats}>{state ? <><span className={styles.onlineDot} />在线 {state.online}<span>·</span>可加入 {state.waiting} 桌</>
       : view.phase === 'loading' ? '正在获取大厅状态…' : '暂时无法获取在线人数'}</div>
@@ -58,7 +57,9 @@ export function LobbyPanel(props: Props): React.JSX.Element {
     {view.phase === 'offline' && <div className={styles.empty}><strong>大厅暂时不可用</strong><p>检查网络后重新连接，或切换到手动信令。</p>
       <button onClick={props.retry} className={styles.secondary}>重试</button></div>}
     <div role="status" aria-live="polite" aria-atomic="true" className={styles.notice}>{view.notice}</div>
-    <div className={styles.launch}>
+    </div>
+    <div className={styles.content}>
+    <aside className={styles.launch} aria-label="开局操作">
     {state?.room ? <div className={styles.roomSummary}>
       <span className={styles.eyebrow}>你的房间</span><strong>{state.room.code}</strong>
       <p>{props.playable ? '对局已连接，轮到你时即可落子' : '正在等待对手或建立连接…'}</p>
@@ -76,8 +77,8 @@ export function LobbyPanel(props: Props): React.JSX.Element {
       {props.onAi && <button id="lobby-ai-btn" type="button" className={styles.aiEntry} onClick={props.onAi}>
         <span aria-hidden="true">◉</span><span><strong>人机对弈</strong><small>随时开局，与 AI 练棋</small></span>
       </button>}
-    </div>
-    </div><div className={styles.browse}>
+    </aside>
+    <section className={styles.browse} aria-label="棋友与房间">
     <div className={styles.listHead}><div role="radiogroup" aria-label="大厅内容" className={styles.sections}>
       <button role="radio" aria-checked={section === 'users'} onClick={() => select('users')}>在线棋友</button>
       <button role="radio" aria-checked={section === 'rooms'} onClick={() => select('rooms')}>房间广场</button></div>
@@ -85,7 +86,9 @@ export function LobbyPanel(props: Props): React.JSX.Element {
         onClick={() => send({ t: 'lobby-list', query, onlyAvailable, offset })}><svg width="18" height="18" viewBox="0 0 24 24"
         fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1" /></svg></button></div>
     {section === 'users' ? <>
-      <div className={styles.filters}><label className={styles.search}><span className={styles.srOnly}>搜索棋友昵称</span><input id="lobby-search" value={query} maxLength={40}
+      <div className={styles.filters}><label className={styles.search}><span className={styles.srOnly}>搜索棋友昵称</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></svg>
+        <input id="lobby-search" value={query} maxLength={40}
         placeholder="搜索棋友昵称" onChange={e => { setQuery(e.target.value); setOffset(0); }} /></label>
       <label className={styles.check}><input type="checkbox" checked={onlyAvailable} onChange={e => { setOnlyAvailable(e.target.checked); setOffset(0); }} />只看可邀请</label></div>
       <ul className={styles.list} aria-label="在线棋友列表">{users.map(user => <UserRow key={user.id} user={user} disabled={disabled} onInvite={() => send({ t: 'lobby-invite', target: user.id })} />)}</ul>
@@ -104,6 +107,8 @@ export function LobbyPanel(props: Props): React.JSX.Element {
       {state && roomLimit < state.rooms.length && <button className={styles.more} onClick={() => setRoomLimit(n => n + 20)}>加载更多房间</button>}
       {state && state.totalRooms > 100 && <p className={styles.countHint}>仅展示前 100 桌</p>}
     </>}
+    <p className={styles.footer}>相逢一局，落子无悔。</p>
+    </section>
     </div>
   </section>;
 }
@@ -112,7 +117,7 @@ function Identity({ view, onName }: Pick<Props, 'view' | 'onName'>) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(view.name);
   const invalid = !isLobbyName(draft);
-  if (!editing) return <div className={styles.identity}><span className={styles.avatar} aria-hidden="true" /><div><small>我的昵称</small><strong>{view.name}</strong></div>
+  if (!editing) return <div className={styles.identity}><span className={styles.avatar} aria-hidden="true">{view.name.slice(0, 1)}</span><div><small>我的昵称</small><strong>{view.name}</strong></div>
     <button className={styles.textButton} onClick={() => { setDraft(view.name); setEditing(true); }}>修改</button></div>;
   return <form className={styles.nameForm} onSubmit={e => { e.preventDefault(); if (!invalid) { onName(draft); setEditing(false); } }}>
     <label htmlFor="lobby-name">我的昵称</label><input id="lobby-name" value={draft} autoFocus aria-invalid={invalid}
@@ -125,7 +130,7 @@ function Identity({ view, onName }: Pick<Props, 'view' | 'onName'>) {
 
 function UserRow({ user, disabled, onInvite }: { user: LobbyUser; disabled: boolean; onInvite(): void }) {
   return <li className={styles.userRow}>
-    <span className={`${styles.avatar} ${styles.otherAvatar}`} aria-hidden="true" />
+    <span className={styles.avatar} aria-hidden="true">{user.name.slice(0, 1)}</span>
     <div className={styles.userText}><strong title={user.name}>{user.name}</strong>
       <span className={user.status === 'idle' ? styles.idle : styles.muted}>{labels[user.status]}</span></div>
     {user.status === 'idle' && <button className={styles.inviteButton} data-invite-user={user.id} disabled={disabled}
