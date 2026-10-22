@@ -124,3 +124,21 @@ pnpm ai:rust:work output/rust-solver/hints.json output/rust-solver/next.worklist
 DFPN 按证明数/反证数阈值深搜，复用完整 PNS 的全盘候选、规则压缩、置换图和独立证书链路。支持同一持久证明缓存，已证明子图可供后续引导搜索使用；清单保存引擎选择，后续可用 `--engine guided` 切回。DFPN 的预算单位为新增边展开，不能与引导搜索的工作量直接比较。
 
 独立 `dfpn INPUT OUTPUT` 支持 `--cache`、`--max-attacks`、`--max-nodes`、`--time-ms`，未找到证明输出 `gomoku-dfpn-search-v1`。当前原型保留完整 arena，并未实现 DFPN 的内存回收或执行现场 checkpoint；通过小残局独立穷举对照和全防守证书检查，不代表已经测得速度或内存优势。`work --engine dfpn` 每轮重建未完成任务的搜索图，只保留可复验的胜法子图。
+
+## 三方对弈实验
+
+求解器返回 `unknown` 时没有完整对弈策略。`examples/match-player.rs` 仅供比赛：先执行该局已验证的策略，再尝试原生战术求证和 DFPN；未知时依次选择立即成五、堵对手立即成五、现有原生棋形排序的首选点。兜底没有 Alpha-Beta 搜索，保持 `proofStatus: unknown`，不使用 TS 选点。比赛成绩反映这个适配器的表现，不等于纯证明算法的强弱，也不代表先手必胜已实现。
+
+从仓库根目录执行：
+
+```sh
+pnpm build:core
+cargo build --locked --release --manifest-path crates/gomoku-solver/Cargo.toml --example match-player
+node --import tsx scripts/ai-three-engine-match.mjs --output=output/ai-three-engine-matches
+```
+
+默认 24 局：每对引擎在空盘、6 手聚集局面、12 手分散局面各互换执色，以 500ms/手运行 18 局；空盘再以 3000ms/手互换执色运行 6 局。TS 与 Rust/WASM 均调用网页同一 Worker 处理器，并保留各自该局的策略缓存。原生适配器不加载外部开局提示或跨局证明缓存；战术搜索最多使用 75% 时间，DFPN 使用剩余时间，两阶段各最多 100000 个各自定义的节点单位。
+
+`--smoke` 改跑 6 局短成五局面，只检查链路。`--resume` 重新核对版本、二进制和赛程后跳过已完成对局；未完成局从头重赛，不能计作和棋。输出保存每手来源、实际墙钟耗时、证明状态、证书文件和完整棋谱；所有胜利证书经 TS 独立复验，每局重放至合法终局并再次按四方向计数。证明复验、策略序列化和进程通信可能使实际耗时超过搜索预算，逐手记录可用于检查。运行期间应避免并行编译和其他计时比赛。
+
+已完成的三方赛与双后端对照见 [AI 对弈实验归档](../../docs/m5-ai/experiments/README.md)，包含逐手棋谱、统计和三方赛的独立证明证书。

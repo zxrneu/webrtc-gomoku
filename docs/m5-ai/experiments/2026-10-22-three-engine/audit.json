@@ -1,0 +1,20 @@
+{
+  "verifiedAt": "2026-10-22T11:42:59.526Z",
+  "completedGames": 24,
+  "totalPlies": 1432,
+  "decidedPlies": 1324,
+  "terminalReplays": 24,
+  "proofMoves": 154,
+  "uniqueProofsVerifiedInTsAndRust": 108,
+  "proofOutcomeMismatches": 0,
+  "wasmScoredMoves": 441,
+  "unexpectedWasmFallbacks": 0,
+  "nativeSources": {
+    "ordering": 327,
+    "block": 52,
+    "proof": 8,
+    "cached-proof": 50
+  },
+  "nativeFallbackPercentage": 86.72768878718536,
+  "hardWebIdenticalAllMoves": true
+}
