@@ -78,9 +78,9 @@ BASE=http://127.0.0.1:3110 REQUIRE_P2P=1 pnpm test:e2e
 
 1. **不中转游戏数据**：信令服务器**完全不转发**五子棋的落子、悔棋、聊天等对局流量。
 2. **只负责建连握手**：两台浏览器在互联网两端无法感知对方的公网 IP 和 NAT 端口时，通过 WebSocket 连接信令服务交换双方的 **SDP（媒体协商描述）** 与 **ICE Candidate（网络打洞候选地址）**。
-3. **握手即脱离**：一旦两端完成打洞并建立起浏览器底层的 `RTCDataChannel` 点对点直连通道，信令服务器甚至断开也不会影响正在进行的对局！
+3. **持续维护会话**：P2P 建连后仍保留信令连接，用于心跳、座位恢复与重新协商。信令断开会进入重连状态并暂停落子，恢复连接和棋谱对账后继续对局。
 
-> ⚠️ **协议冻结红线**：协议（WS 消息集合 / 字段名 / 5 条标准错误文案）与前端 [`packages/shared/src/types.ts`](../../packages/shared/src/types.ts) **逐字节冻结对齐**，前端在 Node 版与 Rust 版之间切换时无需改动任何一行代码！
+> **协议兼容**：保留 v1 信令报文及标准错误文案；重连和大厅通过增量消息扩展。完整协议以 [`types.ts`](../../packages/shared/src/types.ts)、[大厅类型](../../packages/shared/src/lobby/types.ts)及两端编解码测试为准。
 
 ---
 
@@ -103,8 +103,8 @@ BASE=http://127.0.0.1:3110 REQUIRE_P2P=1 pnpm test:e2e
 ## 🌟 核心架构特性
 
 - ⚡️ **64 分片并发房间注册表（64-Shard Table）**：
-  - 在 10 万连接 / 5 万房间并发下，避免全局单一读写锁竞争；
-  - 房间号 Hash 取模路由至 64 个独立 `RwLock<HashMap>` 分片，搭配无锁 `AtomicU64` 计数器，保证多核心 CPU 算力线性释放。
+  - 按房间分片，减少所有房间竞争同一个锁的情况；
+  - 房间号 Hash 取模路由至 64 个独立 `RwLock<HashMap>` 分片，搭配 `AtomicU64` 计数器；实际吞吐与扩展性需压测验收。
 - 🧱 **SOLID 依赖反转设计（DIP & ISP）**：
   - 核心逻辑严格单向无环：`protocol ◄ rooms ◄ transport ◄ http ◄ main`；
   - `relay` 跨节点中继通过 [`rooms::LocalDelivery`](src/rooms/mod.rs) 特征反向回投，完全不反向依赖具体的传输实现。
@@ -112,14 +112,14 @@ BASE=http://127.0.0.1:3110 REQUIRE_P2P=1 pnpm test:e2e
   - 每个 WebSocket 拥有专属的有界通道 `mpsc::Sender<ServerMsg>`；
   - 采用非阻塞 `try_send`，在客户端网络拥塞导致队列堆满时立即标记熔断并切断连接，杜绝慢连接拖垮服务端内存。
 - 🚀 **性能优化 F4：后台 TTL 异步刷新（零 Redis RTT）**：
-  - 将高频落子通信热路径与 Redis 解耦，后台守护协程按 `room_ttl / 3` 周期批量刷新 Redis 键；
+  - 将信令转发热路径与 Redis TTL 刷新解耦，后台守护协程按 `room_ttl / 3` 周期批量刷新 Redis 键；落子走 P2P 通道；
   - 信令转发热路径 **0 额外 Redis 网络往返（RTT）**。
 - 🔄 **零停机配置热重载（SIGHUP Hot Reload）**：
   - 基于 `ArcSwap` 实现无锁原子配置快照切换；
   - 发送 `kill -HUP <pid>` 即可在线调整日志级别 (`tracing`) 与连接限流配额，无需断开用户对局。
 - 🛡️ **工业级静态托管与防护**：
-  - URI 畸形字符崩溃拦截（P0 400 Bad Request）；
-  - 基于 `path.relative` 的目录穿越渗透拦截（P2 403 Forbidden）；
+  - 百分号解码后检查目录穿越并返回 403；实现见 [`static_files.rs`](src/http/static_files.rs)；
+  - 与 Node 版不同，非法百分号转义保留原字符，不统一返回 400；无扩展名路径可能回退到 `index.html`；
   - 支持 SPA 单页应用 index.html 路由回退，提供标准 `/healthz` 与 `/metrics` Prometheus 指标。
 
 ---
@@ -136,7 +136,7 @@ flowchart TD
     end
 
     subgraph RustServer [Rust 信令服务 apps/signaling-rust]
-        HTTP[Axum HTTP /ws]
+        HTTP[Axum HTTP /signal]
         Static[static_files: 静态托管 + /healthz]
         Router[transport::router: 信令分发路由器]
         Shards[rooms::RoomTable: 64 分片并发房间表]
@@ -195,15 +195,26 @@ sequenceDiagram
     Note over A,B: 双方通过 RTCDataChannel 点对点直连对局 (落子/聊天完全不走服务器)
     end
 
-    Note over A,S: 5. 离线离开阶段
-    B->>S: [连接断开 / 显式 leave]
-    S->>S: 注销成员，若房间空则自动回收销毁
-    S-->>A: {"t":"peer-left"}
+    Note over A,S: 5. 断线恢复与离开
+    B->>S: [连接断开]
+    S-->>A: {"t":"peer-offline"}
+    Note over A,B: 保留座位，默认宽限期 60 秒；暂停落子
+    alt 宽限期内恢复
+        B->>S: {"t":"resume","room":"A8B2","peerId":"c2","token":"..."}
+        S-->>B: resumed（返回新 token）
+        S-->>A: {"t":"peer-online"}
+        Note over A,B: 重新协商并同步棋谱后继续
+    else 宽限期到期或显式 leave
+        S->>S: 释放座位，空房回收
+        S-->>A: {"t":"peer-left"}
+    end
 ```
 
 ---
 
 ## 📜 协议信令报文定义
+
+下表是 v1 兼容子集，不是当前完整消息清单。重连新增 `ping`/`pong`、`resume`/`resumed`、`peer-offline`/`peer-online`；`created`/`joined` 还携带本人恢复用的 `token`，`resumed` 包含轮换后的凭证及可选的 `peerPresent`/`role`，错误可带 `code`。大厅使用 `lobby-*` 消息，完整字段见上方类型链接。
 
 ### 客户端上行报文 (`ClientSignalingMsg`)
 
@@ -221,7 +232,7 @@ sequenceDiagram
 | `created` | `{ room: string, peerId: string }` | 房间创建成功回执，附带分配的临时 Peer ID |
 | `joined` | `{ room: string, peerId: string }` | 成功加入房间回执 |
 | `peer-joined` | `{ peerId: string, name: string }` | 向房主广播有对手进入对局 |
-| `peer-left` | 无 | 向对手广播当前房间有玩家离开/掉线 |
+| `peer-left` | `{ role?: 'host' \| 'guest' }` | 主动离开或恢复宽限期到期后通知对手 |
 | `signal` | `{ data: unknown }` | 透传来自对手的 SDP 或 ICE 打洞数据 |
 | `error` | `{ message: string }` | 业务错误通知（严格与 5 条标准文案对齐） |
 
@@ -232,16 +243,16 @@ sequenceDiagram
 ### 1. 本地运行
 
 ```bash
-cd apps/signaling-rust
-
-# 可选：自定义配置（不创建则全部使用内置默认值）
-cp config.example.toml config.toml
-
-cargo run --release
+# 在仓库根目录执行；首次先 pnpm install
+pnpm build:web
+GOMOKU_REDIS_ENABLED=false GOMOKU_PUBLIC_DIR=packages/web/dist \
+  cargo run --locked --release --manifest-path apps/signaling-rust/Cargo.toml
 # 日志：信令服务器已启动 addr=0.0.0.0:3000
 ```
 
-静态目录按 `[配置值, packages/web/dist, dist, public]` 顺序**回退探测**第一个存在的目录；前端产物请放到 `packages/web/dist`（或构建后复制到 `public/`）。
+可选配置：复制 `apps/signaling-rust/config.example.toml` 到 `apps/signaling-rust/config.toml`，并在启动时设置 `GOMOKU_CONFIG_FILE=apps/signaling-rust/config.toml`。默认配置路径是进程工作目录下的 `config.toml`。
+
+静态目录按 `[配置值, packages/web/dist, dist, public]` 顺序探测第一个存在的目录，**全部相对进程工作目录**。默认配置值是 `public`，根目录已有旧版 `public/` 时会优先选中它，所以以上命令显式指定当前前端产物；切勿在 `apps/signaling-rust` 下启动后期待自动找到仓库根的构建目录。
 
 ### 2. Docker Compose 一键起（服务 + Redis）
 
@@ -257,7 +268,8 @@ docker compose up --build
 
 ```bash
 # 在仓库根目录执行（build context = 仓库根，含前端构建阶段）
-docker buildx build --platform linux/amd64,linux/arm64 -t gomoku-signaling .
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -f apps/signaling-rust/Dockerfile -t gomoku-signaling .
 ```
 
 镜像以非 root（uid `10001`）运行，`HEALTHCHECK` 走 `/healthz`。
@@ -265,13 +277,13 @@ docker buildx build --platform linux/amd64,linux/arm64 -t gomoku-signaling .
 ### 4. 手动构建各平台二进制（免 Docker）
 
 适用于轻量服务器（如腾讯云/阿里云轻量应用服务器），无需安装 Docker。  
-依赖全部为纯 Rust（无 OpenSSL 等 C 依赖），Linux 下可**静态链接**，拷到同架构任何发行版都能跑。
+TLS 使用 rustls，无需 OpenSSL 运行时；`ring` 等构建依赖仍需要 C 编译工具链。默认 GNU 目标依赖目标机系统库；使用 musl 目标并配齐交叉编译工具链后，可构建静态版本。平台兼容性需在目标环境验证。
 
 ```bash
 # 目标机原生构建（最稳）：
-cd apps/signaling-rust
-cargo build --release --locked
-# 产物：target/release/gomoku-signaling
+cargo build --release --locked --manifest-path apps/signaling-rust/Cargo.toml
+# 仓库根目录执行；默认产物：apps/signaling-rust/target/release/gomoku-signaling
+# 设置了 CARGO_TARGET_DIR 时，按该变量调整产物路径
 ```
 
 **平台目标架构速查表**
@@ -291,12 +303,13 @@ cargo build --release --locked
 pnpm --filter @webrtc-gomoku/web build        # 产物在 packages/web/dist
 
 # 2. 组装部署目录
-mkdir -p /opt/gomoku
-cp target/release/gomoku-signaling /opt/gomoku/
-cp -r packages/web/dist/* /opt/gomoku/public/
+mkdir -p output/signaling-deploy/public
+cp apps/signaling-rust/target/release/gomoku-signaling output/signaling-deploy/
+cp -R packages/web/dist/. output/signaling-deploy/public/
 
 # 3. 单节点无 Redis 启动与验收
-GOMOKU_REDIS_ENABLED=false /opt/gomoku/gomoku-signaling &
+cd output/signaling-deploy
+GOMOKU_REDIS_ENABLED=false GOMOKU_PUBLIC_DIR=public ./gomoku-signaling &
 curl -s localhost:3000/healthz                # 期望 {"ok":true,...}
 ```
 
@@ -353,6 +366,8 @@ enabled = false
 - 数组类型环境变量采用**英文逗号分隔**（例如 `GOMOKU_CORS_ORIGINS=https://a,https://b`）；
 - 启动时执行严格的 **Fail-Fast 参数校验**（端口越界、超时为 0 等错误直接拒绝启动并明确指出原因）。
 
+热重载不是所有字段立即生效：监听地址、静态目录、CORS、消息大小、部分超时、日志格式、Redis 连接参数和节点 ID 需要重启；完整清单及生效边界见[部署说明](../../docs/m3-rust-signaling/deploy.md#4-信号与热重载)。TLS 配置始终只在启动时读取。
+
 | 配置键 | 环境变量 | 默认值 | 作用说明 |
 |---|---|---|---|
 | `server.host` | `GOMOKU_HOST` | `0.0.0.0` | 监听主机地址 |
@@ -395,11 +410,11 @@ enabled = false
 
 ```bash
 # 格式化与静态检查
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
+cargo fmt --manifest-path apps/signaling-rust/Cargo.toml --check
+cargo clippy --manifest-path apps/signaling-rust/Cargo.toml --all-targets -- -D warnings
 
 # 运行全量 Rust 单元与集成测试
-cargo test
+cargo test --manifest-path apps/signaling-rust/Cargo.toml
 ```
 
 ### 生产质量铁律

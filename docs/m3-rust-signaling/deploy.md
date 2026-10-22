@@ -39,7 +39,9 @@ GOMOKU_PORT=3000 \
 `Dockerfile` 为多阶段构建，运行时基于 `debian:bookworm-slim`，**非 root**（uid `10001`），内置 `HEALTHCHECK`。多架构：
 
 ```bash
-docker buildx build --platform linux/amd64,linux/arm64 -t gomoku-signaling:2.0.0 .
+# 在仓库根执行；构建上下文包含前端与 workspace 配置
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -f apps/signaling-rust/Dockerfile -t gomoku-signaling:2.0.0 .
 ```
 
 `docker-compose.yml` 一键起「signaling + redis」，并把 `config.example.toml` 以只读方式挂到 `/app/config.toml`。
@@ -48,8 +50,8 @@ docker buildx build --platform linux/amd64,linux/arm64 -t gomoku-signaling:2.0.0
 
 不想装 Docker 时，可在目标机原生构建或本机交叉编译（Linux 可选 musl 静态链接，无 glibc 依赖），
 部署 = 单个二进制 + `public/` 静态目录（web dist 内容）+ 可选 `config.toml`。
-完整命令、平台 target 速查表与 systemd 示例见
-[`../../apps/signaling-rust/README.md` §1.4](../../apps/signaling-rust/README.md)。
+完整命令与平台 target 速查表见
+[Rust README](../../apps/signaling-rust/README.md#4-手动构建各平台二进制免-docker)，systemd 模板见[部署恢复](../production-recovery.md)。
 
 ---
 
@@ -106,8 +108,9 @@ terminationGracePeriodSeconds: 25
 | `SIGTERM` / `SIGINT` | 优雅关闭（见 §3） |
 | `SIGHUP` | 热重载：重读 `config.toml` + 环境变量 → 校验 → 差异应用 |
 
-- **即时生效**：`logging.level`、`limits.*`、`cors.origins`、`ice.*`、`admin.token`。
-- **需重启**：`server.host`、`server.port`、`server.public_dir`、`redis.url`（`POST /admin/config` 会在 `restart_required` 中列出）。
+- **可热更新**：`logging.level`、`ice.*`、`admin.token`、连接/房间配额、`session.*`、WS 来源白名单与代理头设置等；具体应用范围以返回的 `applied` 为准。已有宽限期座位保留原到期时间，连接级参数按各处理器读取快照的时机生效。
+- **需重启**：`server.host`、`server.port`、`server.public_dir`、`cors.origins`、`timeouts.ws_handshake_timeout_secs`、`timeouts.shutdown_drain_secs`、`limits.max_message_bytes`、`logging.format`、`redis.enabled`、`redis.url`、`redis.pool_size`、`redis.channel_prefix`、`redis.connect_timeout_ms`、`cluster.node_id`。TLS 文件与环境变量也仅在启动时读取。
+- `POST /admin/config` 的 `restart_required` 会列出需重启项；变更分类以 [RESTART_KEYS](../../apps/signaling-rust/src/config/reload.rs) 为准，不能把整个 `limits.*` 或 CORS 都视为即时生效。管理 API 只改内存，持久化配置仍需修改配置文件；环境变量优先级最高。
 - 非法配置**拒绝应用**并保留旧快照，进程不崩溃。
 
 容器中触发 SIGHUP：

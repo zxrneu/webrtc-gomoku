@@ -3,16 +3,31 @@
 | 项 | 内容 |
 |---|---|
 | 语言 | 中文 |
-| 编程语言 | TypeScript strict（现状）；Rust + WASM 仅作 P2 备选 |
+| 编程语言 | 生产搜索为 TypeScript strict；已有独立 Rust/WASM 原型，尚未接入生产 |
 | 项目名称 | `gomoku_ai_perf` |
 | 作者 | 许清楚（Xu）· 产品经理 |
-| 状态 | 待架构师评审（本 PRD 只定义问题、目标与验收，不设计算法） |
+| 状态 | 历史优化需求；部分已实现，现状与可运行命令见下方说明 |
 | 落点 | `docs/ai-perf/prd.md` |
 | 原始需求复述 | 「rust 改写 AI 引擎，通过 webassembly 能提速吗？更多计算，不用计算 server 的情况下」→ 在**不增加任何服务端算力**的前提下，让浏览器里跑的 AI 在同一思考时长内**算得更多、下得更强**；Rust+WASM 是候选路线之一，需先证明 TS 侧已无低成本算力可榨。 |
 
+> **现状（2026-10-22）**：下方基线、热点占比、旧源码行号和优化收益为 2026-10-19 的历史记录，不是本次实测。当前最强档为 3000ms / 16 层 / 500000 常规节点，VCF/PNS 节点预算已解耦，默认分别 24000 / 80000，PNS 阶段上限 2000ms；Worker 默认分片 250ms。假设落子缓存和 scratch 缓冲已在实现中，见 [配置](../../packages/core/src/ai/config.ts)、[评估](../../packages/core/src/ai/evaluate.ts)与 [Worker](../../packages/web/src/ai/workerRuntime.ts)。这些实现不自动证明下述吞吐、命中率和所有性能目标达标。
+
+独立 Rust/WASM 原型已提供[差分报告](../m5-ai/differential-benchmark-report.md)，生产 `createSearchSession` 仍为 TypeScript。原型固定深度对比不能代替生产最强档的加速或棋力验收。
+
+当前可运行命令（仓库根目录）：
+
+```sh
+pnpm ai:bench --positions=20 --budget=3000 --seed=7 --difficulty=hard --json
+pnpm ai:verify docs/m5-ai/examples/double-three.proof.json
+mkdir -p output
+pnpm bench:differential --positions=10 --budget=3000 --output=output/ai-differential.md
+```
+
+`ai:bench` 仅解析 `--positions`、`--seed`、`--budget`、`--difficulty`、`--maxDepth`、`--maxNodes` 和 `--json`。原设想中的 `--suite`、`--report`、`--micro`、`--engine` 未实现，传入会被忽略，不能据此宣称执行了专项验收。当前统计不含 `phaseMs`、`slices` 或 `sliceOverheadMs`；CLI 同步调用 `step(32)`，不测浏览器宏任务空转。`ai:verify` 必须指定证书文件，不是无参数的全题集命令。
+
 ---
 
-## 0. 问题陈述（实测基线，2026-10-19 / Node 22 直跑 core / hard 档 / 3s 预算）
+## 0. 实施前问题快照（历史实测基线，2026-10-19 / Node 22 直跑 core / hard 档 / 3s 预算）
 
 | # | 现象 | 数据 | 产品含义 |
 |---|---|---|---|
@@ -30,16 +45,16 @@
 
 **一句话目标**：在**零服务端、单文件 HTML 可离线分发**不变的前提下，让 hard 档把 3s 预算真正用满，并把多出来的算力投到算杀上——使 AI 在**同一思考时长**内搜索产出与必胜捕捉率显著提升，且选点不退化。
 
-### 三个量化指标（全部可用 `pnpm ai:bench` / `pnpm test` 复现）
+### 三个量化目标（部分测量能力尚未实现，不表示已全部可复现）
 
 | # | 指标 | 现状 | 目标 | 口径 |
 |---|---|---|---|---|
 | **M1** | **预算利用率**（hard 档，20 个固定中局局面，3s 预算） | 49%（seed=7）；`cutoff='depth'` 占比 ≈100% | 有效局面 **≥85%** 的局面 `cutoff='time'`（即时间才是唯一终止原因）；`elapsedMs/3000` **P50 ≥0.85** | `stats().cutoff` 与 `stats().elapsedMs` |
 | **M2** | **有效吞吐 nps**（节点数 / 纯搜索耗时，剔除分片空转） | 常规 25k–38k；威胁重 4.8k–5.2k | 常规 **≥60k**；威胁重 **≥12k**（同一 20 局面集合的 P50） | `nodes / (elapsedMs - sliceOverheadMs)` |
-| **M3** | **算杀命中率**（固定 28 题算杀集：3 步内 VCF 12 题 + 5–9 步 PNS 16 题） | 基线由 P0-1 首次跑出并冻结为 `baseline.json` | 命中率 **≥90%（≥26/28）**，且单题算杀耗时 **P95 ≤1.8s** | `pnpm ai:bench --suite=killer` + `pnpm ai:verify` 证书校验 |
+| **M3** | **算杀命中率**（固定 28 题算杀集：3 步内 VCF 12 题 + 5–9 步 PNS 16 题） | 基线由 P0-1 首次跑出并冻结为 `baseline.json` | 命中率 **≥90%（≥26/28）**，且单题算杀耗时 **P95 ≤1.8s** | 待实现 killer 题集模式；已有证书可用下方 verify 命令复验 |
 
 **护栏指标（不得退化，任一不过即视为优化失败）**：
-- **G1 棋力不回退**：`packages/core/test/ai/bench-tactics.test.ts` 20 题 hard 档仍 **20/20**；`pnpm ai:verify` 全绿。
+- **G1 棋力不回退**：`packages/core/test/ai/bench-tactics.test.ts` 20 题 hard 档仍 **20/20**；`pnpm ai:verify docs/m5-ai/examples/double-three.proof.json` 全绿。
 - **G2 选点稳定**：40 个金标准局面（seed 1–40，3s 预算）首选手与冻结快照一致率 **≥95%**（≤2 处变化，且每处变化须人工复核为「不更差」）。
 - **G3 不卡顿**：单步 P95 **≤3.5s**、最坏 **≤4.2s**（含调度开销）；浏览器侧 `longtask(>100ms)` 计数 **= 0**。
 - **G4 保底不破**：`vite build` 产物仍可单文件离线运行；首屏新增网络请求 **= 0**；gzip 增量 **≤ +40KB**（P0/P1 阶段应为 0）。
@@ -89,16 +104,16 @@
 
 | ID | 验收标准 | 阈值 | 测量方法 |
 |---|---|---|---|
-| P0-1 | 台架可复现 | 同 seed 同局面两次运行，`depth/nodes` **完全一致**；`cutoff` 分布可输出 | `pnpm ai:bench --positions=20 --budget=3000 --seed=7 --json`（连跑 2 次 `diff`） |
+| P0-1 | 台架可复现 | 同 seed 生成相同局面；真实时间预算下 depth/nodes 可波动，不能要求逐字一致；确定性另用固定节点预算单测验证 | `pnpm ai:bench --positions=20 --budget=3000 --seed=7 --json`（比较局面与统计分布，不直接 diff 耗时/节点） |
 | P0-2 | 预算用满 | `cutoff='time'` 占比 ≥85%（20 局面）；`elapsedMs/3000` P50 ≥0.85；深度 ≥14 的局面 ≥50% | 同上，比对 `baseline.json` |
-| P0-3 | 空转下降 | `sliceOverheadMs / elapsedMs` **≤3%**（当前 ≈12%） | `pnpm ai:bench --report=slices`；浏览器侧 `pnpm test:e2e` 采样 longtask |
-| P1-1 | 热点下降且棋力不降 | 威胁局面 nps **≥12k**；G1 20/20；G2 一致率 ≥95% | `pnpm ai:bench --suite=threat` + `pnpm test` + 金标准比对 |
-| P1-2 | 同上 | `findWinningPoints` 单次调用平均耗时 **下降 ≥50%**（台架微基准） | `pnpm ai:bench --micro=findWinningPoints` |
+| P0-3 | 空转下降 | `sliceOverheadMs / elapsedMs` **≤3%**（当前 ≈12%） | 待增加分片统计与报告模式；浏览器侧按测试说明采样 longtask |
+| P1-1 | 热点下降且棋力不降 | 威胁局面 nps **≥12k**；G1 20/20；G2 一致率 ≥95% | 待实现 threat 题集模式；现有战术回归运行 `pnpm test` |
+| P1-2 | 同上 | `findWinningPoints` 单次调用平均耗时 **下降 ≥50%**（台架微基准） | 待实现 findWinningPoints 微基准模式 |
 | P1-3 | 分配下降 | 威胁局面 nps **≥15k**；GC 占比 **≤1.5%** | `node --cpu-prof` + 台架 nps |
-| P1-4 | 算杀更强 | M3 命中率 **≥90%（26/28）**；算杀耗时 P95 **≤1.8s**；`ai:verify` 全绿 | `pnpm ai:bench --suite=killer` + `pnpm ai:verify` |
+| P1-4 | 算杀更强 | M3 命中率 **≥90%（26/28）**；算杀耗时 P95 **≤1.8s**；`ai:verify` 全绿 | 待实现 killer 题集模式；证书按下方命令逐个复验 |
 | P1-5 | 差分一致 | 随机 1000 局面「增量窗口码 == 全量窗口码」**100% 一致** | `pnpm test`（新增差分用例） |
-| P2-1 | 不劣于 TS 且保底不破 | 同预算下 nps **≥ TS 版 ×1.5**，选点一致率 ≥95%；单文件产物 gzip 增量 ≤150KB 且断网可开局 | `pnpm ai:bench --engine=wasm` + `vite build` 体积对比 + Offline 手测 |
-| 全局 | 交付门禁 | `pnpm build && pnpm test` 全绿；`pnpm ai:verify` 全绿 | CI 命令 |
+| P2-1 | 不劣于 TS 且保底不破 | 同预算下 nps **≥ TS 版 ×1.5**，选点一致率 ≥95%；单文件产物 gzip 增量 ≤150KB 且断网可开局 | 独立原型使用 `pnpm bench:differential`；生产 WASM 模式未接入，不能据此验收该目标 |
+| 全局 | 交付门禁 | `pnpm build && pnpm test` 全绿；`pnpm ai:verify docs/m5-ai/examples/double-three.proof.json` 全绿 | CI 命令 |
 
 ---
 
@@ -107,7 +122,7 @@
 1. **不做服务端算力**：不引入远程推理、不新增 API、不用云函数。用户明确要求「不用计算 server」。
 2. **不引入需要联网/下载的模型**：不引第三方棋力库、不加载 NN 权重文件（与 P0-11「零重型依赖」一致）。
 3. **不破坏单文件零服务器保底**（`ROADMAP.md` 第一原则）：任何优化若导致必须联网取资源、或产物无法单文件离线运行，直接否决。
-4. **P0 阶段不动 Rust**：不装 `wasm-pack`、不建 `crates/`、不碰构建链。P2 只在 P0/P1 验收通过后立项。
+4. **原 P0 阶段范围**：当时不引入 Rust 构建链；当前已有独立 `crates/gomoku-kernel` 原型。生产搜索接入仍需另外验收。
 5. **不做「加常规搜索深度」**：F4 实测首选手 0 变化，明确不作为优化目标。
 6. **不改棋规/难度语义**：不改三档定位（easy 仍是弱）、不改 UI 交互与悔棋/重开语义。
 
@@ -125,7 +140,7 @@
 
 ---
 
-## 附：给架构师的 3 条硬约束（均已在源码核实，违反即返工）
+## 附：实施前源码观察（历史行号与约束，不代表当前实现）
 
 1. **算杀预算当前被常规预算夹住**：`search.ts:551` 与 `search.ts:585` 用 `Math.min(VCF_NODE_LIMIT|PNS_NODE_LIMIT, this.resolved.maxNodes)`，且 `stats().nodes` 把 negamax 与算杀节点合并计数（`search.ts:217`）。→ 只调 `PNS_NODE_LIMIT` 无效；「给算杀更多算力」必须**显式拆分两套预算与计数器**。
 2. **迭代加深步长为 2，且无每层时间分配**：`search.ts:294`（`currentDepth === 0 ? 2 : currentDepth + 2`）。`maxDepth=12` 实际只有 6 次迭代；解绑后若不做「每层预算分配/放弃整层」策略，第 14 层吃不下仍会回退到 12（F4 已验证）。→ 解绑必须与「层间预算」一起做，单独改参数无效。

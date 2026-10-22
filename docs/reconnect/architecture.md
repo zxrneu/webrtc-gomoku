@@ -7,10 +7,12 @@
 | 状态 | 重连模块设计参考；具体行为以源码和测试为准 |
 | 契约来源 | `docs/reconnect/prd.md`（许清楚 · 产品经理，已冻结需求侧约束） |
 | 仓库铁律 | `AGENTS.md`（TDD 先行 / SOLID / 依赖单向 `web → shared → core` / core、shared 零 IO、禁 `console.log`、禁 `any` 逃逸） |
-| 已拍板前提 | D1 协议纯增量 · D2 重试参数 · D3 房主权威续局 · D4 宽限期锁落子 · D5 刷新不续局 |
+| 已拍板前提 | D1 协议纯增量 · D2 重试参数 · D3 房主权威续局 · D4 宽限期锁落子 · D5 原为刷新不续局，已被大厅标签页恢复方案替代 |
 | 语言 | 中文 |
 
 > **本次改造不新增任何运行时依赖**（PRD §7）。`package.json` diff 必须为空：定时器、随机、日志、WebSocket、RTCPeerConnection 全部用平台原生能力 + 注入接缝实现。
+
+> **阅读边界（2026-10-22）**：本文保留初版模块拆分和接口草案，旧文件行号及性能估算不作为当前验收结果。当前状态机以 [shared/reconnect](../../packages/shared/src/reconnect/orchestrator.ts)和测试为准；刷新恢复以 [web/lobby](../../packages/web/src/lobby/storage.ts)为准。
 
 ---
 
@@ -819,7 +821,7 @@ export interface ServerJoinedMsg  { t:'joined';  room:string; peerId:string; tok
 [生成] created/joined 下发 → token = base64url(crypto.randomBytes(24))  (32 字符)
        服务端存 SeatRegistry.seats[peerId].token
        ↓
-[在线期] token 不轮换、不落盘、不进日志、不进 URL
+[在线期] token 不轮换；大厅会话可写入当前标签页 sessionStorage，不进日志或 URL
        ↓
 [socket 断开] markOffline → expiresAtMs = now + graceMs(60s)
        ↓
@@ -834,7 +836,7 @@ export interface ServerJoinedMsg  { t:'joined';  room:string; peerId:string; tok
 [主动 leave] release() 立即删除（不留座位、不发 peer-offline）
 ```
 
-**为什么单次使用 + 轮换**：token 只存在内存（D5 不落 `sessionStorage`），但若被同页面内的恶意脚本或浏览器扩展读取，轮换可把窗口限制在一次成功恢复内；同时避免「同一 token 被两个连接同时抢座」。
+**为什么单次使用 + 轮换**：大厅会话为支持刷新恢复，将 token 与座位、棋谱保存到当前标签页的 `sessionStorage`，恢复成功后更新凭证；主动离开或会话重置时清理。服务端轮换阻止旧凭证重复使用，但不能防止同源恶意脚本读取存储。存储不可用时降级为内存态。实现见 [storage.ts](../../packages/web/src/lobby/storage.ts)与 [runtime.ts](../../packages/web/src/lobby/runtime.ts)。
 **为什么不放 URL**：URL 会进浏览器历史、`Referer`、反代 access log、以及用户「复制邀请链接」时被分享出去（`App.tsx:899-902` 的邀请链接就是 `?room=`）——token 一旦进 URL 等于把座位公开。
 
 ### 4.4 服务端宽限期数据结构
@@ -1074,8 +1076,8 @@ sequenceDiagram
 **ADR-5 · 宽限期锁定落子（`isPlayable=false`）**
 若允许落子，恢复后 `sync` 必须回滚本地手（用户看到自己下的子消失）或强制对端接受（破坏房主权威）。两种结果都比「冻结 60s」差。锁定的代价是「对手最多等 60s」，且 UI 有倒计时可解释；换来 PRD M2 的「棋谱分叉 0 例」。P0 明确不做离线队列（R18 已后置）。
 
-**ADR-6 · token 只走内存、不进 URL、单次使用后轮换**
-URL 会进历史 / `Referer` / 反代日志 / 用户分享的邀请链接；`sessionStorage` 会在刷新后复活一个可能已失效的座位（D5 已决定不做刷新续局）。内存 + 轮换 = 攻击面最小，且与 D5 一致。
+**ADR-6 · token 不进 URL、日志；大厅标签页保存恢复凭证，成功恢复后轮换**
+URL 会进历史、`Referer`、反代日志和分享链接，因此不携带 token。原 D5「只走内存、刷新不续局」已被大厅迭代替代：`sessionStorage` 支持同标签页刷新后的恢复尝试，服务端仍校验座位、宽限期和 token，失效凭证不能恢复座位。
 
 **ADR-7 · 座位保持用「不调用 leave」实现，不重构房间结构**
 `rooms.ts` 的 `rooms: Map<code, Map<clientId, RoomClient>>` 天然就是「座位表」：断线时不删条目，座位就在；`send()` 到已关闭的 ws 会被 `server.ts:40-44` 的 `readyState` 检查静默丢弃，安全。恢复时只需 `rebind()` 换 `send` 目标。这样 `rooms.ts` 的 13 条既有测试**一条都不用改**，新增 3 条测 `rebind`。

@@ -21,7 +21,7 @@
 
 1. **不中转游戏数据**：信令服务器**完全不转发**五子棋的落子、悔棋、聊天等对局流量。
 2. **只负责建连握手**：两台浏览器在互联网两端无法感知对方的公网 IP 和 NAT 端口时，通过 WebSocket 连接信令服务交换双方的 **SDP（媒体协商描述）** 与 **ICE Candidate（网络打洞候选地址）**。
-3. **握手即脱离**：一旦两端完成打洞并建立起浏览器底层的 `RTCDataChannel` 点对点直连通道，信令服务器甚至断开也不会影响正在进行的对局！
+3. **持续维护会话**：棋步走 `RTCDataChannel`，信令连接继续用于心跳、座位与恢复。当前客户端在信令非主动断开后进入重连状态并暂停落子，恢复后再继续对局。
 
 ---
 
@@ -114,16 +114,25 @@ sequenceDiagram
     end
 
     Note over A,S: 6. 离线离开阶段
-    B->>S: [连接断开 / 显式 leave]
-    S->>S: 注销成员，若房间空则销毁房间
-    S-->>A: {"t":"peer-left"}
+    B->>S: [非主动连接断开]
+    S->>S: 保留座位，启动默认 60 秒宽限期
+    S-->>A: {"t":"peer-offline","graceSec":60}
+    alt 宽限期内恢复
+        B->>S: {"t":"resume","room":"A8B2","peerId":"c2","token":"..."}
+        S-->>B: {"t":"resumed","room":"A8B2","peerId":"c2","token":"新凭证"}
+        S-->>A: {"t":"peer-online"}
+        Note over A,B: 恢复直连并完成棋谱对账
+    else 宽限超时或主动 leave
+        S->>S: 释放座位，房间无人时销毁
+        S-->>A: {"t":"peer-left"}
+    end
 ```
 
 ---
 
 ## 📜 协议信令报文定义
 
-前后端通信统一采用 JSON 格式，判别属性为 `t`（Type）：
+前后端通信统一采用 JSON 格式，判别属性为 `t`（Type）。下表列出兼容 v1 的基础子集，当前还有心跳、座位恢复与大厅消息；完整字段以[共享信令类型](../../packages/shared/src/types.ts)和[大厅协议](../../packages/shared/src/lobby/types.ts)为准。
 
 ### 客户端上行报文 (`ClientSignalingMsg`)
 
@@ -141,9 +150,11 @@ sequenceDiagram
 | `created` | `{ room: string, peerId: string }` | 房间创建成功回执，附带分配的临时 Peer ID |
 | `joined` | `{ room: string, peerId: string }` | 成功加入房间回执 |
 | `peer-joined` | `{ peerId: string, name: string }` | 向房主广播有对手进入对局 |
-| `peer-left` | 无 | 向对手广播当前房间有玩家离开/掉线 |
+| `peer-left` | `{ role?: 'host' \| 'guest' }` | 主动离开或宽限超时后通知对手；可携带剩余玩家的新角色 |
 | `signal` | `{ data: unknown }` | 透传来自对手的 SDP 或 ICE 打洞数据 |
 | `error` | `{ message: string }` | 业务错误通知（如房间不存在、房间已满等） |
+
+当前增量协议：上行 `ping {ts?}`、`resume {room,peerId,token}`；下行 `pong {ts?}`、`peer-offline {graceSec}`、`peer-online`、`resumed {room,peerId,token,peerPresent?,role?}`。当前服务的 `created` / `joined` 还下发 `token`，`error` 可带 `code`；类型中的可选字段用于兼容旧服务。`resume` 成功后凭证轮换。大厅使用 `lobby-*` 消息，不能按上面的基础子集穷尽处理。
 
 ---
 
@@ -173,7 +184,7 @@ apps/server/
 pnpm --filter @webrtc-gomoku/server dev
 
 # 2. 运行自动化单元测试（Vitest 毫秒级测试套件）
-pnpm --filter @webrtc-gomoku/server test
+pnpm exec vitest run apps/server/test
 
 # 3. 生产打包构建（通过 tsup 打包成高性能纯 Node.js CJS 文件）
 pnpm --filter @webrtc-gomoku/server build

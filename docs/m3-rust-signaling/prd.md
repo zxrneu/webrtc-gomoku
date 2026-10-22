@@ -4,11 +4,13 @@
 |---|---|
 | 里程碑 | M3 · v2.0（ROADMAP.md） |
 | 作者 | 许清楚（Xu）· 产品经理 |
-| 状态 | 待评审（架构师 / 工程师 / QA 会签） |
+| 状态 | 历史 M3 需求基线；Rust 服务已实现，当前运行说明见 README 与部署文档 |
 | 语言 | 中文 |
 | 编程语言 | Rust（tokio + axum + tokio-tungstenite）+ Redis pub/sub |
 | 项目名称 | `gomoku-signaling-rust`（monorepo 内落点由架构师定，建议 `apps/signaling-rust` 或 `rust/`） |
 | 原始需求复述 | 将 M3 v2.0 信令服务器用 Rust 重写：支持单机 10 万+ WebSocket 长连接与万人级并发房间；全部可调参数经外部配置文件加载、禁止硬编码；明确架构/模块/核心数据结构需求；涵盖连接管理、消息路由、负载均衡与容错；给出性能优化策略要求；代码结构清晰、符合 Rust 最佳实践 |
+
+> **现状边界（2026-10-22）**：问题清单、容量目标和初版范围保留为历史需求，不能视为当前缺陷或压测结论。Rust 服务已包含重连、大厅和原生 HTTPS；当前命令、配置与能力边界见[服务 README](../../apps/signaling-rust/README.md)和[部署说明](deploy.md)。
 
 ---
 
@@ -91,7 +93,7 @@ M1 体验增强 → M2 TS 工程化 → M3 Rust 信令服务器 → M4 多端分
 | # | 需求 | 说明 |
 |---|---|---|
 | R12 | **`/metrics`（Prometheus）** | 指标清单见 §6.2 |
-| R13 | **热重载** | SIGHUP + `POST /admin/config`（Bearer 令牌）；除监听地址/端口外全部参数可热改 |
+| R13 | **热重载** | SIGHUP + `POST /admin/config`（Bearer 令牌）；仅允许可热重载字段，重启键与生效范围见 [部署说明](deploy.md#4-信号与热重载) |
 | R14 | **管理 API** | `GET /admin/config` 查看生效配置（脱敏）；POST 返回 `applied` / `restart_required` 字段清单 |
 | R15 | **CORS 白名单** | `GOMOKU_CORS_ORIGINS`；为空 = 仅同源 |
 | R16 | **结构化日志** | tracing；级别/格式可配；日志级别支持热改 |
@@ -151,7 +153,7 @@ M1 体验增强 → M2 TS 工程化 → M3 Rust 信令服务器 → M4 多端分
 | 维度 | 约束 |
 |---|---|
 | 帧格式 | JSON **文本帧**；不引入二进制帧、不引入子协议扩展 |
-| 消息集合 | v1 消息类型即完整集合，M3 **不新增 WS 消息类型**（跨节点/配置下发对客户端透明） |
+| 消息集合 | M3 初版保留 v1 子集；当前还包含重连与大厅增量消息，完整集合见[共享信令类型](../../packages/shared/src/types.ts)和[大厅类型](../../packages/shared/src/lobby/types.ts) |
 | 语义 | 全部字段名、字段类型、错误文案与 v1 逐字一致 |
 | 旧行为精确复刻 | ① 无法解析的 JSON 或缺字符串 `t` → **静默忽略**（不回 error）；② `signal` 的 `data` 为 falsy（缺失/`null`/空串）→ 静默丢弃；③ `create`/`join` 时已在房 → **先离开旧房**（旧房对端收到 `peer-left`）；④ 未知 `t` → `error` |
 | 连接路径 | `/signal`（不变） |
@@ -312,8 +314,7 @@ stun:stun1.l.google.com:19302, stun:stun2.l.google.com:19302
 
 ### 5.3 热重载边界
 
-- **可热改**：日志级别/格式、CORS、STUN/TURN、limits、超时（不含已建立连接的行为语义变更风险由实现方评估）、Redis 连接参数、admin token。
-- **不可热改（需重启，`restart_required`）**：`host`、`port`、`public_dir`、`redis_url`（连接池重建风险，实现方可评估后放宽）。
+当前边界见[部署说明](deploy.md#4-信号与热重载)及源码 [RESTART_KEYS](../../apps/signaling-rust/src/config/reload.rs)：监听地址、静态目录、CORS、消息大小、部分超时、日志格式、Redis 连接参数和节点 ID 需要重启；不能把整个 `limits`、`timeouts` 或 `redis` 分组视为立即生效。管理端 POST 仅修改内存配置，环境变量覆盖优先级最高，TLS 证书配置需重启。
 
 ---
 

@@ -9,7 +9,7 @@
 - **同一局域网直连**：同一 WiFi/内网下 IPv4 host 候选直连，无需任何服务器
 - **可达 IPv6 直连**：双方全球单播 IPv6（`2408:`/`2409:` 等）端到端可达，
   host 候选直连——**无 NAT、无需 STUN**，这是 IPv6 对 P2P 的红利
-- **微信互发邀请**：单文件 HTML（当前构建约 628KB，零运行时依赖）+ 连接码互发，交互式引导流程
+- **微信互发邀请**：单文件 HTML（资源全部内联，体积以本次构建输出为准）+ 连接码互发，交互式引导流程
 - **扫码配对**：双向二维码 + BarcodeDetector/jsQR 双模识别 + 相册兜底
 - **对局功能**：15×15 棋盘、回合制、悔棋（需对方同意）、重新开始、最后一手标记、
   胜利连线高亮、对局聊天、掉线提示、音效开关、移动端自适应
@@ -30,7 +30,7 @@
 
 `pnpm build` 分别生成在线版本 `packages/web/dist/index.html` 和剔除大厅的单文件 `dist/gomoku-standalone.html`。文档入口见 [服务大厅](docs/m6-lobby/README.md)。
 
-Rust 大厅使用定向即时通知与每秒合并发布：无状态变化不广播，浏览器仍每 5 秒单独查询。每节点最多 2000 个大厅会话，大厅准入在本节点总房间数达到 1000 时拒绝；实际承载量需按部署环境验证。运行边界与测试命令见[大厅说明](docs/m6-lobby/README.md)。
+Rust 大厅使用定向即时通知与每秒合并发布：无状态变化不广播，浏览器仍每 5 秒单独查询。每节点最多 2000 个大厅会话；本节点总房间数达到 1000 时，大厅新建与配对被拒绝，进入大厅仍按会话配额判断。实际承载量需按部署环境验证。运行边界与测试命令见[大厅说明](docs/m6-lobby/README.md)。
 
 使用、部署与设计说明见[文档导航](docs/README.md)，后续功能范围见[路线图](ROADMAP.md)。
 
@@ -68,7 +68,7 @@ pnpm install
 pnpm run build    # 构建所有包并生成 dist/gomoku-standalone.html
 ```
 
-对局步骤（双方都打开单文件后，切到「手动信令」标签）：
+对局步骤（双方打开单文件后，直接使用手动邀请面板）：
 
 1. **邀请方**点「创建房间」→ 邀请码自动生成（附带二维码）→ 微信发给对方或面对面扫码
 2. **对方**点「加入房间」→ 扫码/粘贴邀请码 →「生成应答码」→ 微信发回或展示二维码
@@ -132,7 +132,7 @@ GOMOKU_PORT=3000 GOMOKU_REDIS_ENABLED=false GOMOKU_PUBLIC_DIR=packages/web/dist 
 ## 架构
 
 ```
-当前版本（v1.1 · 零服务器）：
+单文件手动连接（无需信令服务）：
 
   玩家A 浏览器  <—— DataChannel(P2P 直连) ——>  玩家B 浏览器
       连接码（邀请/应答）经微信等任意聊天工具互发
@@ -183,14 +183,18 @@ docker compose up --build
 tokio + axum + Redis，单机 10 万+ 长连接设计；WS 协议与 Node 版逐字兼容，客户端零改动：
 
 ```bash
-cd apps/signaling-rust
-cp config.example.toml config.toml
-cargo run --release            # 前台运行；容器化部署见上文方式二
+# 在仓库根运行；首次先安装依赖并构建前端
+pnpm build:web
+# 可选配置：复制后按需编辑，并在启动时显式指定文件
+# cp apps/signaling-rust/config.example.toml apps/signaling-rust/config.toml
+# 启动时另设 GOMOKU_CONFIG_FILE=apps/signaling-rust/config.toml
+GOMOKU_REDIS_ENABLED=false GOMOKU_PUBLIC_DIR=packages/web/dist \
+  cargo run --locked --release --manifest-path apps/signaling-rust/Cargo.toml
 ```
 
 - `GOMOKU_REDIS_ENABLED=false` 可单节点运行（不装 Redis）；跨节点牵手才需要 Redis
-- 三层配置（默认值 < `config.toml` < 环境变量）+ SIGHUP/`/admin/config` 热重载
-- 免 Docker：可手动构建各平台二进制（含 Linux musl 静态版，单文件即部署），见 `apps/signaling-rust/README.md` §1.4
+- 三层配置（默认值 < `config.toml` < 环境变量）；自定义文件用 `GOMOKU_CONFIG_FILE` 指定，热重载范围见[部署指南](docs/m3-rust-signaling/deploy.md#4-信号与热重载)
+- 免 Docker：可手动构建各平台二进制（含 Linux musl 静态版；还需部署前端静态目录），见 [Rust 部署步骤](apps/signaling-rust/README.md#4-手动构建各平台二进制免-docker)
 - `/healthz`、`/metrics`、`/config`（STUN/TURN 动态下发）
 - 完整部署/运维文档：`apps/signaling-rust/README.md`、`docs/m3-rust-signaling/deploy.md`
 
@@ -234,13 +238,11 @@ ICE 会借助腾讯/阿里 STUN 尝试穿透，能否成功取决于双方的 NA
 **TURN 兜底（里程碑）**：对称型 NAT、企业防火墙后，或 IPv6 防火墙严格拦截 UDP 时，
 需要自建/租用 TURN 服务器（IPv6 场景需 TURN over IPv6）：
 
-```js
-// public/app.js 中的 ICE_SERVERS 增加 TURN 配置
-{ urls: ['stun:stun.qq.com:3478', 'turn:your-turn-server:3478'],
-  username: 'xxx', credential: 'xxx' }
-```
+当前在线版本通过信令服务的 `/config` 下发 TURN 配置，配置和真实中继验收见 [TURN 说明](docs/turn.md)。`public/app.js` 是旧版资源，修改它不会更新当前 React 构建；单文件的内置配置来源见 [iceConfig.ts](packages/web/src/iceConfig.ts)，修改后需重新构建。
 
 ## 对局协议（DataChannel，JSON）
+
+下表为基础兼容子集。当前还包括心跳、`sync` 棋谱同步、`swap-*` 换边和 `media-*` 富媒体消息；`hello` 也可携带能力协商字段。完整字段与联合类型见[共享协议](packages/shared/src/types.ts)。
 
 | 消息 | 方向 | 说明 |
 |------|------|------|
@@ -251,9 +253,7 @@ ICE 会借助腾讯/阿里 STUN 尝试穿透，能否成功取决于双方的 NA
 | `restart-req / restart-ok / restart-no` | 双向 | 重开请求/同意/拒绝 |
 | `bye` | 双向 | 离开 |
 
-信令协议（WebSocket `/signal`，仅「房间联机」使用）：`create / join / signal / leave`；
-类型唯一定义源在 `packages/shared/src/types.ts`，Rust 版实现见
-`apps/signaling-rust/src/protocol/`（消息集合与错误文案同 Node 版逐字一致）。
+信令协议（WebSocket `/signal`）除 `create / join / signal / leave` 外，还包括 `ping / pong`、`resume / resumed`、`peer-offline / peer-online` 及大厅的 `lobby-*` 消息。类型定义见[共享信令类型](packages/shared/src/types.ts)和[大厅协议](packages/shared/src/lobby/types.ts)，Rust 对应实现位于 `apps/signaling-rust/src/protocol/`。
 
 ## 目录结构
 

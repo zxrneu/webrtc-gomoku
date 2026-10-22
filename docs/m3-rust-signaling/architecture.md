@@ -4,13 +4,15 @@
 |---|---|
 | 里程碑 | M3 · v2.0（ROADMAP.md） |
 | 作者 | 高见远（Gao）· 架构师 |
-| 状态 | 待工程师/QA 会签 |
+| 状态 | 历史 M3 架构草案；当前实现与运行说明见服务 README |
 | 契约来源 | `docs/m3-rust-signaling/prd.md`（已冻结） |
 | 落点 | `apps/signaling-rust/`（与 `apps/server` 平级） |
 | 技术栈 | Rust · tokio + axum + tokio-tungstenite · Redis pub/sub |
 | 语言 | 中文 |
 
 > **产品第一原则不可破坏**：单文件 HTML「零服务器 + 微信互发连接码」永远是可用的保底路径。信令服务器**仅在启用「房间联机」时需要**，本次改造不得让前端在 `/config` 不可用时崩溃——必须降级到内置 STUN 继续可用。
+
+> **阅读边界（2026-10-22）**：以下代码块和接口为初版设计草案，未逐段追随重连、大厅、原生 HTTPS 的后续实现。完整协议以[共享类型](../../packages/shared/src/types.ts)和[大厅类型](../../packages/shared/src/lobby/types.ts)为准；可执行部署命令见 [README](../../apps/signaling-rust/README.md)。容量数值是设计目标。
 
 ---
 
@@ -601,7 +603,7 @@ pub enum RelayError { #[error("Redis 不可用: {0}")] Unavailable(String), #[er
 
 ### 9.3 `ArcSwap` 配置快照的无锁读
 
-`ConfigSnapshot(ArcSwap<Config>)`：热路径 `snapshot.load()` 为无锁原子读（`Arc` 引用计数）。热重载：读文件 + 环境变量 → 合并 → 校验 → 计算 diff → `store(new)`。连接级行为参数（如 `ws_ping_interval`）在**新连接**生效；全局参数（limits/日志/ICE/CORS）**立即**生效。
+`ConfigSnapshot(ArcSwap<Config>)`：热路径 `snapshot.load()` 为无锁原子读（`Arc` 引用计数）。热重载：读文件 + 环境变量 → 合并 → 校验 → 计算 diff → `store(new)`。字段生效范围取决于读取位置，不能按「连接级/全局」一概而论；CORS、日志格式、消息大小等需要重启，已有座位保留原到期时间。完整重启键与生效边界见[部署说明](deploy.md#4-信号与热重载)和 [reload.rs](../../apps/signaling-rust/src/config/reload.rs)。
 
 ### 9.4 房间号生成与冲突重试
 

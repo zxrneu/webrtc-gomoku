@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # ---------------------------------------------------------------------------
 # Multi-stage build. Build context = **仓库根目录**（含前端构建阶段）：
-#   docker buildx build --platform linux/amd64,linux/arm64 -t gomoku-signaling .
+#   docker buildx build --platform linux/amd64,linux/arm64 -f apps/signaling-rust/Dockerfile -t gomoku-signaling .
 #
 # 产物：单二进制 + 自包含前端静态资源（/app/public），镜像可独立运行：
 #   docker compose up --build   # 或任意 context，见 docker-compose.yml
