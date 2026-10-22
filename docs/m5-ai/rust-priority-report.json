@@ -1,0 +1,181 @@
+{
+  "date": "2026-10-22",
+  "rules": "freestyle-15",
+  "guaranteedFirstPlayerWin": false,
+  "acceptance": "No independently verified winning certificate from the empty board",
+  "implementedInPriorityOrder": [
+    "Import external board-to-action records as untrusted normalized move hints",
+    "Persist independently verified, full-position keyed subproofs and resumable conditional worklists",
+    "Bounded threat dependency graph, compatible combinations and conflict detection; plans require actual-defense verification",
+    "At most one extra quiet preparation move per guided path, with configurable full-grid candidate width",
+    "Experimental DFPN traversal over the existing complete AND/OR graph; shared verified cache and worklist engine selection"
+  ],
+  "reference": {
+    "project": "fucusy/gomoku-first-move-always-win",
+    "url": "https://github.com/fucusy/gomoku-first-move-always-win",
+    "commit": "74ea47e6c2e584cce1f6014cda4141a8a70ffbbf",
+    "data": [
+      {
+        "sourceName": "board2action_from_dir.txt",
+        "bytes": 4738,
+        "sha256": "4bc567234c46b1440f507a36f1625958242728b84f977fb15b6f159ec15ce408"
+      },
+      {
+        "sourceName": "manually_added_step_str2move.txt",
+        "bytes": 389,
+        "sha256": "fee8211be7c208b06864aa0b849714b0c4cea302c73791d1a161002fe0c45603"
+      },
+      {
+        "sourceName": "gomoku/divided/h8_a1_i9/h8_a1_i9_a10.txt.board2action.txt",
+        "bytes": 76013,
+        "sha256": "f3b7d90789731bb49d0c6d27a30bc763721438b6859904e48678be4e8a1efc87"
+      }
+    ],
+    "bundled": false,
+    "sourceCodeCopied": false,
+    "initialMoveHint": ":h8 was explicitly prepended to the imported sample",
+    "canonicalHintEntries": 676,
+    "combinedInputSha256": "11be81a7d1814ea8dbea4e20f89f322e6b5aa529e9ec64f18f6d7f781b755581",
+    "normalizedHints": "output/rust-solver-priorities-20261022/fucusy-hints.json",
+    "proofTrust": "No external winner, score, file-existence or move-table claim is accepted as a certificate"
+  },
+  "emptyBoardFirstRun": {
+    "input": "docs/m5-ai/examples/rust-guided-empty.input.json",
+    "maxAttacks": 18,
+    "maxNodes": 200000,
+    "timeBudgetMs": 15000,
+    "quietMoves": 4,
+    "artifact": "output/rust-solver-priorities-20261022/empty.result.json",
+    "worklist": "output/rust-solver-priorities-20261022/empty.worklist.json",
+    "result": {
+      "guaranteedFirstPlayerWin": false,
+      "reason": "nodes",
+      "stats": {
+        "bookHits": 5,
+        "budgetExhausted": true,
+        "cacheHits": 14015,
+        "cacheSaved": 14182,
+        "dependencyCombinations": 0,
+        "dependencyConflicts": 0,
+        "dependencyNodes": 256,
+        "interrupted": false,
+        "nodes": 200000,
+        "persistentHits": 43,
+        "proofReuses": 15879,
+        "quietNodes": 3282,
+        "scoutHits": 0,
+        "scoutNodes": 256,
+        "symmetryHits": 14015
+      },
+      "status": "unknown",
+      "verified": false
+    },
+    "verifiedCacheEntries": 14182,
+    "conditionalJobs": 1001,
+    "worklistTruncated": true
+  },
+  "guidedContinuation": {
+    "maxAttacks": 24,
+    "maxNodes": 100000,
+    "timeBudgetMs": 15000,
+    "maxJobs": 8,
+    "artifact": "output/rust-solver-priorities-20261022/empty.resumed.worklist.json",
+    "report": "output/rust-solver-priorities-20261022/empty.resumed.report.json",
+    "result": {
+      "cacheEntries": 14406,
+      "engine": "guided",
+      "guaranteedFirstPlayerWin": false,
+      "nodes": 34993,
+      "pendingJobs": 1001,
+      "status": "unknown",
+      "tasksTried": 8,
+      "verified": false
+    },
+    "newVerifiedCacheEntries": 224,
+    "worklistTruncated": true,
+    "nextJob": 8
+  },
+  "dfpnContinuation": {
+    "maxAttacks": 24,
+    "maxEdges": 2000,
+    "timeBudgetMs": 10000,
+    "maxJobs": 4,
+    "artifact": "output/rust-solver-priorities-20261022/empty.dfpn.worklist.json",
+    "report": "output/rust-solver-priorities-20261022/empty.dfpn.report.json",
+    "result": {
+      "cacheEntries": 14406,
+      "engine": "dfpn",
+      "guaranteedFirstPlayerWin": false,
+      "nodes": 716,
+      "pendingJobs": 1001,
+      "status": "unknown",
+      "tasksTried": 4,
+      "verified": false
+    },
+    "newVerifiedCacheEntries": 0,
+    "worklistTruncated": true,
+    "nextJob": 12
+  },
+  "verifiedCache": {
+    "artifact": "output/rust-solver-priorities-20261022/proofs.cache.json",
+    "entries": 14406,
+    "maxEntries": 20000,
+    "maxStoredProofNodes": 1000000,
+    "admission": "Every certificate is independently checked on insert and reload",
+    "scope": "Conditional subpositions under candidate attacking choices; not a percentage of empty-board coverage"
+  },
+  "localDfpnProof": {
+    "input": "docs/m5-ai/examples/rust-double-three.input.json",
+    "artifact": "output/rust-solver-priorities-20261022/double-three.dfpn.dag.json",
+    "tree": "output/rust-solver-priorities-20261022/double-three.dfpn.tree.json",
+    "proofNodes": 217,
+    "coveredLegalDefenses": 216,
+    "result": {
+      "guaranteedFirstPlayerWin": false,
+      "stats": {
+        "disproofNumber": 4611686018427387903,
+        "expansions": 649,
+        "finished": true,
+        "nodes": 650,
+        "persistent_hits": 0,
+        "proofNumber": 0,
+        "tacticalNodes": 0,
+        "tacticalProofs": 0,
+        "transpositions": 0,
+        "visits": 218
+      },
+      "status": "win",
+      "verified": true
+    },
+    "verifiedByRust": true,
+    "verifiedByTypeScript": true,
+    "typeScriptVerificationLog": "output/rust-solver-priorities-20261022/double-three.typescript.verify.log"
+  },
+  "verification": {
+    "rustTests": 83,
+    "vitestTests": 1296,
+    "vitestFiles": 87,
+    "buildPassed": true,
+    "clippyWarnings": 0,
+    "dfpnComparedToIndependentMinimax": true,
+    "regressionsCovered": [
+      "Missing, occupied, terminal and malformed external hint records are rejected",
+      "Forged persistent certificates are rejected and symmetry mappings are checked",
+      "Completed roots leave no pending conditional tasks",
+      "Zero remaining depth does not consume the task-attempt allowance",
+      "Repeated work rounds rotate the cursor and accept an increased root attack depth",
+      "Zero budgets, cancellation and complete small endgames do not manufacture wins"
+    ]
+  },
+  "limitations": [
+    "Empty board remains unknown; browser opponent is still the existing TypeScript engine",
+    "Only a small public data sample was imported, not the full external corpus",
+    "Guided search remains selective; dependency planning and quiet move width have finite budgets",
+    "Worklists are conditional and may be truncated; solved jobs alone do not prove their root",
+    "Work resumes tasks using verified subproofs, not a saved recursive stack; a new DFPN graph is built for each task attempt",
+    "DFPN currently retains the shared arena; no speed or memory improvement has been established",
+    "Guided work counts and DFPN edge expansion budgets are different units",
+    "Data loading, cache verification, final proof verification and IO may exceed the search stop budget",
+    "Cache updates are atomic for one writer; capacity is bounded and there is no eviction or concurrent-writer merge"
+  ]
+}

@@ -1,0 +1,55 @@
+[package]
+name = "gomoku-solver"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Freestyle 15x15 proof search, independent verification and strategy execution"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[[test]]
+name = "rules"
+path = "test/rules.rs"
+
+[[test]]
+name = "proof"
+path = "test/proof.rs"
+
+[[test]]
+name = "strategy"
+path = "test/strategy.rs"
+
+[[test]]
+name = "search"
+path = "test/search.rs"
+
+[[test]]
+name = "cli"
+path = "test/cli.rs"
+
+[[test]]
+name = "tactics"
+path = "test/tactics.rs"
+
+[[test]]
+name = "book"
+path = "test/book.rs"
+
+[[test]]
+name = "cache"
+path = "test/cache.rs"
+
+[[test]]
+name = "worklist"
+path = "test/worklist.rs"
+
+[[test]]
+name = "dfpn"
+path = "test/dfpn.rs"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1

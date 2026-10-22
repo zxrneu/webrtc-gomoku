@@ -1,0 +1,4 @@
+{
+  "moves": [[7, 7], [7, 9], [6, 6], [1, 9], [6, 7], [0, 0]],
+  "options": { "maxAttacks": 113, "maxNodes": 25000, "timeBudgetMs": 30000 }
+}

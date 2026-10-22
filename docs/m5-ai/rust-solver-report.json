@@ -1,0 +1,59 @@
+{
+  "date": "2026-10-22",
+  "rules": "freestyle-15",
+  "guaranteedFirstPlayerWin": false,
+  "acceptance": "empty-board winning certificate not yet obtained",
+  "initial": {
+    "input": "docs/m5-ai/examples/rust-empty.input.json",
+    "maxAttacks": 113,
+    "maxNodes": 200000,
+    "timeBudgetMs": 60000,
+    "status": "unknown",
+    "reason": "nodes",
+    "stats": {
+      "disproofNumber": 6453,
+      "expansions": 200000,
+      "finished": false,
+      "nodes": 192473,
+      "proofNumber": 3097,
+      "transpositions": 7528
+    }
+  },
+  "resume": {
+    "additionalMaxNodes": 1000,
+    "status": "unknown",
+    "reason": "nodes",
+    "stats": {
+      "disproofNumber": 6453,
+      "expansions": 201000,
+      "finished": false,
+      "nodes": 193470,
+      "proofNumber": 3097,
+      "transpositions": 7531
+    },
+    "preservesPriorWork": true,
+    "replayedAfterRefactoring": true
+  },
+  "artifacts": {
+    "checkpoint": "output/rust-solver-20261022/empty.checkpoint.json",
+    "initialResult": "output/rust-solver-20261022/empty.result.json",
+    "resumedResult": "output/rust-solver-20261022/empty.resumed.result.json"
+  },
+  "verification": {
+    "rustTests": 30,
+    "vitestTests": 1295,
+    "rustToTypeScript": true,
+    "typeScriptToRust": true,
+    "clippyWarnings": 0,
+    "buildPassed": true
+  },
+  "localProof": {
+    "input": "docs/m5-ai/examples/rust-double-three.input.json",
+    "certificate": "output/rust-solver-20261022/double-three.dag.json",
+    "typeScriptCompatibleTree": "output/rust-solver-20261022/double-three.tree.json",
+    "proofNodes": 217,
+    "coveredLegalDefenses": 216,
+    "verifiedByRust": true,
+    "verifiedByTypeScript": true
+  }
+}

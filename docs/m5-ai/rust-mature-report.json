@@ -1,0 +1,113 @@
+{
+  "date": "2026-10-22",
+  "rules": "freestyle-15",
+  "guaranteedFirstPlayerWin": false,
+  "acceptance": "empty-board winning certificate not yet obtained",
+  "references": [
+    {
+      "project": "rdragon/gomoku-ai",
+      "url": "https://github.com/rdragon/gomoku-ai",
+      "usedFor": "VCF, all-defenses threat planning and counter-threat design; independently written Rust"
+    },
+    {
+      "project": "maximrud/rv2",
+      "url": "https://github.com/maximrud/rv2",
+      "usedFor": "untrusted opening move hints; numeric annotations ignored",
+      "dataUrl": "https://raw.githubusercontent.com/maximrud/rv2/master/docs/data/gomoku.json",
+      "bytes": 392155,
+      "sha256": "aaae32144f8445d12ac643e2d42ee7448b0dc671bf3997ef286b1eb185b08afe",
+      "bundled": false
+    },
+    {
+      "project": "dhbloo/rapfi",
+      "url": "https://github.com/dhbloo/rapfi",
+      "usedFor": "architecture reference only; no evaluation result is trusted as proof"
+    }
+  ],
+  "tacticalProof": {
+    "input": "docs/m5-ai/examples/rust-tactics.input.json",
+    "artifact": "output/rust-solver-mature-20261022/tactical.dag.json",
+    "previousProofNodes": 217,
+    "proofNodes": 3,
+    "coveredLegalDefenses": 216,
+    "tacticalWork": 222,
+    "verifiedByRust": true,
+    "verifiedByTypeScript": true
+  },
+  "openingLeafProof": {
+    "input": "docs/m5-ai/examples/rust-book-leaf.input.json",
+    "artifact": "output/rust-solver-mature-20261022/book-leaf.dag.json",
+    "maxNodes": 25000,
+    "proofNodes": 189,
+    "verifiedByRust": true,
+    "isEmptyBoardProof": false,
+    "verifiedByTypeScript": true,
+    "typeScriptCompatibleTree": "output/rust-solver-mature-20261022/book-leaf.tree.json"
+  },
+  "guidedEmptyBoard": {
+    "input": "docs/m5-ai/examples/rust-guided-empty.input.json",
+    "maxNodes": 3000000,
+    "timeBudgetMs": 60000,
+    "artifact": "output/rust-solver-mature-20261022/rv2-root-defenses.result.json",
+    "result": {
+      "guaranteedFirstPlayerWin": false,
+      "reason": "time",
+      "stats": {
+        "bookHits": 10,
+        "budgetExhausted": false,
+        "cacheHits": 174216,
+        "interrupted": true,
+        "nodes": 2271839,
+        "proofReuses": 384762,
+        "scoutHits": 14,
+        "scoutNodes": 6777,
+        "symmetryHits": 174206
+      },
+      "status": "unknown",
+      "verified": false
+    }
+  },
+  "earlierFullDepthRun": {
+    "maxAttacks": 113,
+    "maxNodes": 3000000,
+    "artifact": "output/rust-solver-mature-20261022/rv2-root.result.json",
+    "result": {
+      "guaranteedFirstPlayerWin": false,
+      "reason": "nodes",
+      "stats": {
+        "bookHits": 10,
+        "budgetExhausted": true,
+        "cacheHits": 228391,
+        "interrupted": false,
+        "nodes": 3000000,
+        "proofReuses": 550949,
+        "scoutHits": 11,
+        "scoutNodes": 2907,
+        "symmetryHits": 228391
+      },
+      "status": "unknown",
+      "verified": false
+    }
+  },
+  "requiredOpeningBranch": {
+    "input": "output/rust-solver-mature-20261022/required-leaf.input.json",
+    "guidedResult": "output/rust-solver-mature-20261022/required-leaf.defenses.result.json",
+    "completeSearchResult": "output/rust-solver-mature-20261022/required-leaf.pns.result.json",
+    "completeSearchCheckpoint": "output/rust-solver-mature-20261022/required-leaf.pns.checkpoint.json",
+    "status": "unknown"
+  },
+  "verification": {
+    "rustTests": 53,
+    "vitestTests": 1296,
+    "rustToTypeScript": true,
+    "typeScriptToRust": true,
+    "clippyWarnings": 0,
+    "buildPassed": true
+  },
+  "remaining": [
+    "No verified strategy from the empty board",
+    "Guided compilation explores book hints and tactical candidates; exhaustion is not a disproof",
+    "Full dependency combinations and persistent guided proof caches are not implemented",
+    "Browser opponent still uses the existing TypeScript engine"
+  ]
+}

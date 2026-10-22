@@ -1,5 +1,15 @@
 # AI 引擎升级与能力边界
 
+## 原生 Rust 证明求解
+
+新增独立的 [gomoku-solver](../../crates/gomoku-solver/README.md)，提供全盘候选的增量证明数搜索、精确局面置换复用、攻击方对称归并、DAG 胜法证书、独立检查器、策略执行和离线断点恢复。支持导入现有 TypeScript 证书，并导出供 TypeScript 独立复验的树格式。使用 `pnpm ai:rust:prove` / `ai:rust:resume` / `ai:rust:verify`。
+
+Rust 链路尚未生成空盘必胜证书，也未接入浏览器对手；它提供可继续求解和复验的原生实现，不构成本项目已经先手必胜的声明。浏览器路径与下述有限预算配置保持一致。
+
+原生 Rust 后续新增连续冲四 / 连续威胁证明、对称证明复用和外部开局数据编译入口。参见 [Rust 求解器说明](../../crates/gomoku-solver/README.md) 与 [成熟实现参考实测](rust-mature-report.json)；当前仍未取得空盘必胜证书。
+
+最新一轮按优先级加入 fucusy 局面到落点提示导入、独立复验的持久证明缓存、可续算的条件任务清单、有限威胁依赖组合、一个安静准备手，以及共享完整候选图的实验性 DFPN。入口为 `ai:rust:import` / `ai:rust:compile` / `ai:rust:work` / `ai:rust:dfpn`。真实样本与续算结果见 [优先级落地报告](rust-priority-report.json)；局部缓存增长仍未形成空盘完整策略。
+
 ## 浏览器计算
 
 人机模式通过 `aiSearch.ts → workerClient.ts → search.worker.ts` 启动并复用一个 Web Worker。搜索和策略复验在 Worker 中执行；React、棋盘绘制和交互留在主线程。请求 ID 隔离不同棋局，切模式、重开和取消后不会接收旧结果。

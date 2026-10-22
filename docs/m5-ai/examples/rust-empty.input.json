@@ -1,0 +1,8 @@
+{
+  "moves": [],
+  "options": {
+    "maxAttacks": 113,
+    "maxNodes": 200000,
+    "timeBudgetMs": 60000
+  }
+}
