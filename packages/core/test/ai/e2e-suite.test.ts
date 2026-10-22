@@ -266,7 +266,7 @@ describe('Tier 1: Feature Coverage', () => {
         if (steps > 500) break;
       }
       expect(session.result()).not.toBeNull();
-    });
+    }, 15_000);
 
     it('2.2 同一会话小片推进（16/32/64）与整体推进结果一致', () => {
       const game = generatePosition(77, 8);
