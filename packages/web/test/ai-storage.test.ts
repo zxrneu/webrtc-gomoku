@@ -7,6 +7,8 @@ import {
   DEFAULT_PLAYER_COLOR,
   isDifficulty,
   loadAiSettings,
+  loadAiBackend,
+  saveAiBackend,
   saveDifficulty,
   savePlayerColor,
 } from '../src/ai/aiStorage';
@@ -36,6 +38,50 @@ function memoryStorage(seed: Record<string, string> = {}) {
 afterEach(() => {
   vi.unstubAllGlobals();
   Reflect.deleteProperty(globalThis, 'localStorage');
+});
+
+describe('AI 引擎选择持久化', () => {
+  it('未选择时默认 Rust/WASM', () => {
+    expect(loadAiBackend('')).toBe('rust-wasm');
+  });
+
+  it('选择 TS 后重新读取仍为 TS', () => {
+    const { storage } = memoryStorage();
+    vi.stubGlobal('localStorage', storage);
+    saveAiBackend('ts');
+    expect(loadAiBackend('')).toBe('ts');
+    saveAiBackend('rust-wasm');
+    expect(loadAiBackend('')).toBe('rust-wasm');
+  });
+
+  it('有效地址参数优先于已保存选择，无效参数保留保存值', () => {
+    const { storage } = memoryStorage({ 'gomoku.ai.backend': 'ts' });
+    vi.stubGlobal('localStorage', storage);
+    expect(loadAiBackend('?aiEngine=rust-wasm')).toBe('rust-wasm');
+    expect(loadAiBackend('?aiEngine=gpu')).toBe('ts');
+  });
+
+  it('非法存储值回退 Rust/WASM', () => {
+    const { storage } = memoryStorage({ 'gomoku.ai.backend': 'gpu' });
+    vi.stubGlobal('localStorage', storage);
+    expect(loadAiBackend('')).toBe('rust-wasm');
+  });
+
+  it('存储属性读取或写入抛异常均不妨碍选择引擎', () => {
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      get(): Storage { throw new Error('SecurityError'); },
+    });
+    expect(loadAiBackend('')).toBe('rust-wasm');
+    expect(loadAiBackend('?aiEngine=ts')).toBe('ts');
+    expect(() => saveAiBackend('ts')).not.toThrow();
+    vi.stubGlobal('localStorage', {
+      getItem: () => { throw new Error('denied'); },
+      setItem: () => { throw new Error('quota exceeded'); },
+    });
+    expect(loadAiBackend('')).toBe('rust-wasm');
+    expect(() => saveAiBackend('ts')).not.toThrow();
+  });
 });
 
 describe('aiStorage 默认值', () => {

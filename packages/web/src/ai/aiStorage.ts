@@ -10,6 +10,7 @@
 
 import type { Difficulty, PlayerColor } from '@webrtc-gomoku/core';
 import { BLACK, WHITE } from '@webrtc-gomoku/core';
+import { isAiBackend, type AiBackend } from './backendOptions';
 
 /** 默认难度：最强（PRD §4 P0 只交付「最强」一档） */
 export const DEFAULT_DIFFICULTY: Difficulty = 'hard';
@@ -22,6 +23,10 @@ const DIFFICULTY_KEY = 'gomoku.ai.difficulty';
 
 /** 执子存储键 */
 const COLOR_KEY = 'gomoku.ai.playerColor';
+
+const BACKEND_KEY = 'gomoku.ai.backend';
+// 大厅导航会改写地址，首次载入时保存引擎对照参数。
+const initialQuery = globalThis.location?.search ?? '';
 
 /** 一份完整的人机设置 */
 export interface AiSettings {
@@ -110,4 +115,17 @@ export function saveDifficulty(difficulty: Difficulty): void {
  */
 export function savePlayerColor(color: PlayerColor): void {
   writeKey(COLOR_KEY, String(color));
+}
+
+/** 首次地址配置优先于本地选择，缺省使用 Rust/WASM。 */
+export function loadAiBackend(query = initialQuery): AiBackend {
+  const selected = new URLSearchParams(query).get('aiEngine');
+  if (isAiBackend(selected)) return selected;
+  const saved = readKey(BACKEND_KEY);
+  return isAiBackend(saved) ? saved : 'rust-wasm';
+}
+
+/** 引擎偏好存储失败时仍可在当前页面使用。 */
+export function saveAiBackend(backend: AiBackend): void {
+  writeKey(BACKEND_KEY, backend);
 }

@@ -38,6 +38,7 @@ async function checkAiLayout(page) {
     await page.setViewportSize({ width, height: width < 640 ? 667 : 1000 });
     await page.evaluate(() => window.scrollTo(0, 0));
     const difficulty = await page.locator('header #ai-difficulty').boundingBox();
+    const backend = await page.locator('header #ai-backend').boundingBox();
     const board = await page.locator('#board').boundingBox();
     assert.equal(await page.locator('#player-trays').isVisible(), true);
     assert.match(await page.locator('#player-trays').innerText(), /AI（/);
@@ -45,6 +46,8 @@ async function checkAiLayout(page) {
     const hint = await page.locator('.board-actions #ai-hint-btn').boundingBox();
     assert.ok(difficulty && difficulty.width <= 90 && difficulty.y >= 0 && difficulty.y + difficulty.height < 200,
       `${width}px 难度选择在顶部且不占满整行`);
+    assert.ok(backend && backend.width >= 100 && backend.y >= 0 && backend.y + backend.height < 200,
+      `${width}px 引擎选择在顶部且完整展示`);
     assert.ok(hint && hint.y >= board.y + board.height && hint.y - board.y - board.height <= 40,
       `${width}px AI 提示紧邻棋盘`);
     if (width < 640) {
@@ -76,13 +79,18 @@ async function exercise(browser, url, supportsWorker) {
   await page.addInitScript((supported) => {
     localStorage.setItem('gomoku.ai.playerColor', '2');
     localStorage.setItem('gomoku.ai.difficulty', 'hard');
-    window.__aiWorkerTest = { created: 0, searches: 0, maxGap: 0, longTasks: [] };
+    window.__aiWorkerTest = { created: 0, searches: 0, maxGap: 0, longTasks: [], backends: [] };
     const state = window.__aiWorkerTest;
     if (!supported) window.Worker = undefined;
     else {
       const NativeWorker = window.Worker;
       window.Worker = class extends NativeWorker {
-        constructor(...args) { super(...args); state.created += 1; }
+        constructor(...args) {
+          super(...args); state.created += 1;
+          this.addEventListener('message', (event) => {
+            if (event.data.t === 'result') state.backends.push(event.data.stats.backend);
+          });
+        }
         postMessage(message, ...args) {
           if (message.t === 'search') state.searches += 1;
           return super.postMessage(message, ...args);
@@ -102,6 +110,8 @@ async function exercise(browser, url, supportsWorker) {
     const beforeRequests = requests.length;
     await enterAi(page);
     await settle(page, 1);
+    assert.equal(await page.locator('#ai-backend').inputValue(),
+      new URL(url).searchParams.get('aiEngine') === 'ts' ? 'ts' : 'rust-wasm', '选择器与实际初始引擎一致');
     await checkAiLayout(page);
     await page.evaluate(() => { window.__aiWorkerTest.maxGap = 0; window.__aiWorkerTest.longTasks = []; });
     await clickCell(page, 8, 8);
@@ -110,6 +120,9 @@ async function exercise(browser, url, supportsWorker) {
     assert.equal(diagnostic.created, supportsWorker ? 1 : 0, '真实 Worker 创建次数');
     if (supportsWorker) {
       assert.ok(diagnostic.searches >= 2, '搜索确实通过 Worker 消息执行');
+      const expectedBackend = new URL(url).searchParams.get('aiEngine') === 'ts' ? 'ts' : 'rust-wasm';
+      assert.ok(diagnostic.backends.length >= 2 && diagnostic.backends.every((backend) => backend === expectedBackend),
+        `Worker 实际评分后端为 ${expectedBackend}`);
       assert.ok(diagnostic.maxGap < 200, `主线程停顿 ${diagnostic.maxGap}ms`);
       assert.deepEqual(diagnostic.longTasks, [], 'AI 思考期间无超过 100ms 的主线程长任务');
     }
@@ -164,6 +177,47 @@ async function exercise(browser, url, supportsWorker) {
     assert.deepEqual(errors, [], '没有浏览器异常');
     process.stdout.write(`AI E2E 通过: ${url.startsWith('file:') ? '单文件离线' : supportsWorker ? 'HTTP + Worker' : 'Worker 降级'}; 最大主线程间隔 ${Math.round(diagnostic.maxGap)}ms\n`);
   } finally { await context.close(); }
+}
+
+/** 用延迟 Worker 验证引擎切换不会接收旧搜索结果，刷新保留选择。 */
+async function checkBackendSwitch(page) {
+  const pending = count => page.waitForFunction(n => window.__hintRace.requests.length === n, count);
+  const release = index => page.evaluate(i => window.__hintRace.release(i), index);
+  const previous = await page.evaluate(() => window.__hintRace.requests.length);
+  await page.locator('#ai-backend').selectOption('ts');
+  assert.equal(await page.locator('#ai-hint-marker').count(), 0, '切换引擎清除旧提示');
+  await page.click('#ai-hint-btn');
+  await pending(previous + 1);
+  assert.equal(await page.evaluate(() => window.__hintRace.requests.at(-1).options.backend), 'ts', '提示使用选择的 TS');
+  await page.locator('#ai-backend').selectOption('rust-wasm');
+  await release(previous);
+  assert.equal(await page.locator('#ai-hint-marker').count(), 0, '过期引擎提示响应被忽略');
+  await page.click('#ai-hint-btn');
+  await pending(previous + 2);
+  assert.equal(await page.evaluate(() => window.__hintRace.requests.at(-1).options.backend), 'rust-wasm', '新提示使用 WASM');
+  await release(previous + 1);
+  await page.waitForSelector('#ai-hint-explanation');
+
+  const before = await page.evaluate(() => window.__gomoku.ai.moves.length);
+  await clickCell(page, 7, 7);
+  await pending(previous + 3);
+  await page.locator('#ai-backend').selectOption('ts');
+  await pending(previous + 4);
+  assert.equal(await page.evaluate(() => window.__gomoku.ai.moves.length), before + 1, '切换引擎保留棋盘');
+  assert.equal(await page.evaluate(() => window.__hintRace.requests.at(-1).options.backend), 'ts', '当前对手回合改用 TS');
+  await release(previous + 2);
+  assert.equal(await page.evaluate(() => window.__gomoku.ai.moves.length), before + 1, '旧引擎不得重复落子');
+  assert.equal(await page.evaluate(() => window.__gomoku.ai.thinking), true, '旧响应不能结束新搜索');
+  await release(previous + 3);
+  await settle(page, before + 2);
+
+  await page.reload();
+  await enterAi(page);
+  assert.equal(await page.locator('#ai-backend').inputValue(), 'ts', '刷新后记住 TS 选择');
+  await page.click('#ai-hint-btn');
+  await pending(1);
+  assert.equal(await page.evaluate(() => window.__hintRace.requests[0].options.backend), 'ts', '刷新后提示继续使用 TS');
+  process.stdout.write('AI 引擎选择回归通过：保留棋盘、提示跟随、思考中取消、忽略旧响应及刷新记忆\n');
 }
 /** 故意延迟并重放旧 Worker 响应，验证取消不能仅依赖响应碰巧及时。 */
 async function exerciseHintRaces(browser) {
@@ -257,6 +311,7 @@ async function exerciseHintRaces(browser) {
     assert.equal(await page.locator('#ai-hint-btn').isDisabled(), true, '旧响应不能完成新一轮提示');
     await release(8);
     await page.waitForSelector('#ai-hint-explanation');
+    await checkBackendSwitch(page);
     process.stdout.write('AI 提示竞态回归通过：落子、悔棋、重开、切模式、换边、重复请求的过期响应均被忽略\n');
   } finally { await context.close(); }
 }
@@ -265,6 +320,7 @@ async function exerciseHintRaces(browser) {
   try {
     await exerciseHintRaces(browser);
     await exercise(browser, BASE, true);
+    await exercise(browser, new URL('?aiEngine=ts', BASE).href, true);
     await exercise(browser, pathToFileURL(path.resolve('dist/gomoku-standalone.html')).href, true);
     await exercise(browser, BASE, false);
   } finally { await browser.close(); }

@@ -1,0 +1,806 @@
+{
+  "generatedAt": "2026-10-22T10:09:37.077Z",
+  "platform": "v26.3.0 darwin/arm64",
+  "scope": "Same production TS search; only incremental and hypothetical scoring use Rust/WASM. No playing-strength claim.",
+  "summary": {
+    "fixedPairs": 18,
+    "fixedDiscrepancies": 0,
+    "fixedWallRatioTsOverWasm": 1.082334159856753,
+    "timedPositions": 4,
+    "timeBudgetMs": 1000,
+    "timedNodesRatioWasmOverTs": 1.045551781406125,
+    "timedSameMoves": 4
+  },
+  "fixed": [
+    {
+      "round": 0,
+      "name": "balanced-6",
+      "ts": {
+        "move": [
+          5,
+          9
+        ],
+        "depth": 6,
+        "nodes": 9729,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": 12366,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "ts",
+        "wallMs": 196.03583400000002,
+        "nps": 49628.68166235362
+      },
+      "wasm": {
+        "move": [
+          5,
+          9
+        ],
+        "depth": 6,
+        "nodes": 9729,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": 12366,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "rust-wasm",
+        "wallMs": 148.00770799999998,
+        "nps": 65733.06303750073
+      }
+    },
+    {
+      "round": 0,
+      "name": "balanced-8",
+      "ts": {
+        "move": [
+          8,
+          6
+        ],
+        "depth": 6,
+        "nodes": 16027,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": -14164,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "ts",
+        "wallMs": 562.338541,
+        "nps": 28500.62521323788
+      },
+      "wasm": {
+        "move": [
+          8,
+          6
+        ],
+        "depth": 6,
+        "nodes": 16027,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": -14164,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "rust-wasm",
+        "wallMs": 527.515208,
+        "nps": 30382.062463685405
+      }
+    },
+    {
+      "round": 0,
+      "name": "balanced-10",
+      "ts": {
+        "move": [
+          10,
+          9
+        ],
+        "depth": 10,
+        "nodes": 9139,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": -380816,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "ts",
+        "wallMs": 116.75299999999993,
+        "nps": 78276.36120699259
+      },
+      "wasm": {
+        "move": [
+          10,
+          9
+        ],
+        "depth": 10,
+        "nodes": 9139,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": -380816,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "rust-wasm",
+        "wallMs": 116.29479100000003,
+        "nps": 78584.77513408143
+      }
+    },
+    {
+      "round": 0,
+      "name": "scattered-12",
+      "ts": {
+        "move": [
+          8,
+          11
+        ],
+        "depth": 6,
+        "nodes": 15018,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": -64270,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "ts",
+        "wallMs": 570.0096660000002,
+        "nps": 26346.921632728936
+      },
+      "wasm": {
+        "move": [
+          8,
+          11
+        ],
+        "depth": 6,
+        "nodes": 15018,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": -64270,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "rust-wasm",
+        "wallMs": 535.1972500000002,
+        "nps": 28060.682299843647
+      }
+    },
+    {
+      "round": 0,
+      "name": "unique-block",
+      "ts": {
+        "move": [
+          9,
+          7
+        ],
+        "depth": 2,
+        "nodes": 3,
+        "elapsedMs": 0,
+        "cutoff": "depth",
+        "bestScore": -439960,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "ts",
+        "wallMs": 0.35516599999982645,
+        "nps": 8446.754475376207
+      },
+      "wasm": {
+        "move": [
+          9,
+          7
+        ],
+        "depth": 2,
+        "nodes": 3,
+        "elapsedMs": 0,
+        "cutoff": "depth",
+        "bestScore": -439960,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "rust-wasm",
+        "wallMs": 0.4195419999996375,
+        "nps": 7150.654761627185
+      }
+    },
+    {
+      "round": 0,
+      "name": "double-three",
+      "ts": {
+        "move": [
+          7,
+          7
+        ],
+        "depth": 0,
+        "nodes": 234,
+        "elapsedMs": 0,
+        "cutoff": "depth",
+        "bestScore": 9999999,
+        "fromOpening": false,
+        "proofStatus": "win",
+        "backend": "ts",
+        "wallMs": 22.525333000000046,
+        "nps": 10388.30369344593
+      },
+      "wasm": {
+        "move": [
+          7,
+          7
+        ],
+        "depth": 0,
+        "nodes": 234,
+        "elapsedMs": 0,
+        "cutoff": "depth",
+        "bestScore": 9999999,
+        "fromOpening": false,
+        "proofStatus": "win",
+        "backend": "rust-wasm",
+        "wallMs": 21.48241700000017,
+        "nps": 10892.629074279592
+      }
+    },
+    {
+      "round": 1,
+      "name": "balanced-6",
+      "ts": {
+        "move": [
+          5,
+          9
+        ],
+        "depth": 6,
+        "nodes": 9729,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": 12366,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "ts",
+        "wallMs": 159.00462500000003,
+        "nps": 61186.89943767357
+      },
+      "wasm": {
+        "move": [
+          5,
+          9
+        ],
+        "depth": 6,
+        "nodes": 9729,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": 12366,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "rust-wasm",
+        "wallMs": 145.95845800000006,
+        "nps": 66655.95220250954
+      }
+    },
+    {
+      "round": 1,
+      "name": "balanced-8",
+      "ts": {
+        "move": [
+          8,
+          6
+        ],
+        "depth": 6,
+        "nodes": 16027,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": -14164,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "ts",
+        "wallMs": 554.645708,
+        "nps": 28895.92359380522
+      },
+      "wasm": {
+        "move": [
+          8,
+          6
+        ],
+        "depth": 6,
+        "nodes": 16027,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": -14164,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "rust-wasm",
+        "wallMs": 529.5323330000001,
+        "nps": 30266.3293650097
+      }
+    },
+    {
+      "round": 1,
+      "name": "balanced-10",
+      "ts": {
+        "move": [
+          10,
+          9
+        ],
+        "depth": 10,
+        "nodes": 9139,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": -380816,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "ts",
+        "wallMs": 116.96604100000059,
+        "nps": 78133.78927649568
+      },
+      "wasm": {
+        "move": [
+          10,
+          9
+        ],
+        "depth": 10,
+        "nodes": 9139,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": -380816,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "rust-wasm",
+        "wallMs": 103.56091599999945,
+        "nps": 88247.57787967083
+      }
+    },
+    {
+      "round": 1,
+      "name": "scattered-12",
+      "ts": {
+        "move": [
+          8,
+          11
+        ],
+        "depth": 6,
+        "nodes": 15018,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": -64270,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "ts",
+        "wallMs": 560.1690830000007,
+        "nps": 26809.762365981882
+      },
+      "wasm": {
+        "move": [
+          8,
+          11
+        ],
+        "depth": 6,
+        "nodes": 15018,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": -64270,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "rust-wasm",
+        "wallMs": 521.2940840000001,
+        "nps": 28809.074303632413
+      }
+    },
+    {
+      "round": 1,
+      "name": "unique-block",
+      "ts": {
+        "move": [
+          9,
+          7
+        ],
+        "depth": 2,
+        "nodes": 3,
+        "elapsedMs": 0,
+        "cutoff": "depth",
+        "bestScore": -439960,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "ts",
+        "wallMs": 0.17712500000016007,
+        "nps": 16937.19124910255
+      },
+      "wasm": {
+        "move": [
+          9,
+          7
+        ],
+        "depth": 2,
+        "nodes": 3,
+        "elapsedMs": 0,
+        "cutoff": "depth",
+        "bestScore": -439960,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "rust-wasm",
+        "wallMs": 0.42941700000028504,
+        "nps": 6986.216195441747
+      }
+    },
+    {
+      "round": 1,
+      "name": "double-three",
+      "ts": {
+        "move": [
+          7,
+          7
+        ],
+        "depth": 0,
+        "nodes": 234,
+        "elapsedMs": 0,
+        "cutoff": "depth",
+        "bestScore": 9999999,
+        "fromOpening": false,
+        "proofStatus": "win",
+        "backend": "ts",
+        "wallMs": 20.695959000000585,
+        "nps": 11306.555062270532
+      },
+      "wasm": {
+        "move": [
+          7,
+          7
+        ],
+        "depth": 0,
+        "nodes": 234,
+        "elapsedMs": 0,
+        "cutoff": "depth",
+        "bestScore": 9999999,
+        "fromOpening": false,
+        "proofStatus": "win",
+        "backend": "rust-wasm",
+        "wallMs": 22.013874999999643,
+        "nps": 10629.659703255506
+      }
+    },
+    {
+      "round": 2,
+      "name": "balanced-6",
+      "ts": {
+        "move": [
+          5,
+          9
+        ],
+        "depth": 6,
+        "nodes": 9729,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": 12366,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "ts",
+        "wallMs": 162.36049999999977,
+        "nps": 59922.2101434771
+      },
+      "wasm": {
+        "move": [
+          5,
+          9
+        ],
+        "depth": 6,
+        "nodes": 9729,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": 12366,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "rust-wasm",
+        "wallMs": 162.8735000000006,
+        "nps": 59733.47413790435
+      }
+    },
+    {
+      "round": 2,
+      "name": "balanced-8",
+      "ts": {
+        "move": [
+          8,
+          6
+        ],
+        "depth": 6,
+        "nodes": 16027,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": -14164,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "ts",
+        "wallMs": 614.7709589999995,
+        "nps": 26069.871657681888
+      },
+      "wasm": {
+        "move": [
+          8,
+          6
+        ],
+        "depth": 6,
+        "nodes": 16027,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": -14164,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "rust-wasm",
+        "wallMs": 538.8447500000002,
+        "nps": 29743.260929980286
+      }
+    },
+    {
+      "round": 2,
+      "name": "balanced-10",
+      "ts": {
+        "move": [
+          10,
+          9
+        ],
+        "depth": 10,
+        "nodes": 9139,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": -380816,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "ts",
+        "wallMs": 117.75045799999953,
+        "nps": 77613.28622602926
+      },
+      "wasm": {
+        "move": [
+          10,
+          9
+        ],
+        "depth": 10,
+        "nodes": 9139,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": -380816,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "rust-wasm",
+        "wallMs": 108.82995800000026,
+        "nps": 83975.03929938095
+      }
+    },
+    {
+      "round": 2,
+      "name": "scattered-12",
+      "ts": {
+        "move": [
+          8,
+          11
+        ],
+        "depth": 6,
+        "nodes": 15018,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": -64270,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "ts",
+        "wallMs": 565.2284999999993,
+        "nps": 26569.785493831292
+      },
+      "wasm": {
+        "move": [
+          8,
+          11
+        ],
+        "depth": 6,
+        "nodes": 15018,
+        "elapsedMs": 0,
+        "cutoff": "nodes",
+        "bestScore": -64270,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "rust-wasm",
+        "wallMs": 526.7549580000004,
+        "nps": 28510.410337703903
+      }
+    },
+    {
+      "round": 2,
+      "name": "unique-block",
+      "ts": {
+        "move": [
+          9,
+          7
+        ],
+        "depth": 2,
+        "nodes": 3,
+        "elapsedMs": 0,
+        "cutoff": "depth",
+        "bestScore": -439960,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "ts",
+        "wallMs": 0.3071250000011787,
+        "nps": 9768.00976797228
+      },
+      "wasm": {
+        "move": [
+          9,
+          7
+        ],
+        "depth": 2,
+        "nodes": 3,
+        "elapsedMs": 0,
+        "cutoff": "depth",
+        "bestScore": -439960,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "rust-wasm",
+        "wallMs": 0.38029200000164565,
+        "nps": 7888.675018109815
+      }
+    },
+    {
+      "round": 2,
+      "name": "double-three",
+      "ts": {
+        "move": [
+          7,
+          7
+        ],
+        "depth": 0,
+        "nodes": 234,
+        "elapsedMs": 0,
+        "cutoff": "depth",
+        "bestScore": 9999999,
+        "fromOpening": false,
+        "proofStatus": "win",
+        "backend": "ts",
+        "wallMs": 21.693333000001076,
+        "nps": 10786.724197705738
+      },
+      "wasm": {
+        "move": [
+          7,
+          7
+        ],
+        "depth": 0,
+        "nodes": 234,
+        "elapsedMs": 0,
+        "cutoff": "depth",
+        "bestScore": 9999999,
+        "fromOpening": false,
+        "proofStatus": "win",
+        "backend": "rust-wasm",
+        "wallMs": 20.592334000000847,
+        "nps": 11363.452049679769
+      }
+    }
+  ],
+  "timed": [
+    {
+      "name": "balanced-6",
+      "ts": {
+        "move": [
+          5,
+          5
+        ],
+        "depth": 8,
+        "nodes": 40866,
+        "elapsedMs": 1000.105458,
+        "cutoff": "time",
+        "bestScore": 14090,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "ts",
+        "wallMs": 1000.3335420000003,
+        "nps": 40852.37401746545
+      },
+      "wasm": {
+        "move": [
+          5,
+          5
+        ],
+        "depth": 8,
+        "nodes": 45441,
+        "elapsedMs": 1000.0971250000002,
+        "cutoff": "time",
+        "bestScore": 14090,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "rust-wasm",
+        "wallMs": 1000.7233340000002,
+        "nps": 45408.15473780087
+      }
+    },
+    {
+      "name": "balanced-8",
+      "ts": {
+        "move": [
+          10,
+          9
+        ],
+        "depth": 0,
+        "nodes": 13451,
+        "elapsedMs": 1000.3922910000001,
+        "cutoff": "time",
+        "bestScore": 0,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "ts",
+        "wallMs": 1000.5463749999999,
+        "nps": 13443.654723150641
+      },
+      "wasm": {
+        "move": [
+          10,
+          9
+        ],
+        "depth": 0,
+        "nodes": 14995,
+        "elapsedMs": 1000.1826669999991,
+        "cutoff": "time",
+        "bestScore": 0,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "rust-wasm",
+        "wallMs": 1000.5697920000002,
+        "nps": 14986.46083450818
+      }
+    },
+    {
+      "name": "balanced-10",
+      "ts": {
+        "move": [
+          10,
+          9
+        ],
+        "depth": 16,
+        "nodes": 77691,
+        "elapsedMs": 714.3450410000005,
+        "cutoff": "depth",
+        "bestScore": -437168,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "ts",
+        "wallMs": 714.4666249999991,
+        "nps": 108739.85891223414
+      },
+      "wasm": {
+        "move": [
+          10,
+          9
+        ],
+        "depth": 16,
+        "nodes": 77691,
+        "elapsedMs": 648.6615419999998,
+        "cutoff": "depth",
+        "bestScore": -437168,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "rust-wasm",
+        "wallMs": 649.2564579999998,
+        "nps": 119661.49746022244
+      }
+    },
+    {
+      "name": "scattered-12",
+      "ts": {
+        "move": [
+          7,
+          12
+        ],
+        "depth": 0,
+        "nodes": 14309,
+        "elapsedMs": 1000.3130000000001,
+        "cutoff": "time",
+        "bestScore": 0,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "ts",
+        "wallMs": 1000.4244579999995,
+        "nps": 14302.929007359402
+      },
+      "wasm": {
+        "move": [
+          7,
+          12
+        ],
+        "depth": 0,
+        "nodes": 14855,
+        "elapsedMs": 1000.3460830000004,
+        "cutoff": "time",
+        "bestScore": 0,
+        "fromOpening": false,
+        "proofStatus": "unknown",
+        "backend": "rust-wasm",
+        "wallMs": 1000.7234169999992,
+        "nps": 14844.261408944338
+      }
+    }
+  ]
+}

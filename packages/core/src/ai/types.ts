@@ -46,6 +46,8 @@ export type Difficulty = 'easy' | 'normal' | 'hard';
 
 /** 搜索参数；未提供的字段回落到 DIFFICULTY_PRESETS */
 export interface AiOptions {
+  /** 浏览器评分后端偏好；不可用时允许回退 TS。 */
+  backend?: 'ts' | 'rust-wasm';
   /** 档位，默认 'hard'；仅决定下面三个字段的默认值 */
   difficulty?: Difficulty;
   /** 思考预算（毫秒）。仅在传入 now 时生效 */
@@ -81,6 +83,8 @@ export type CutoffReason = 'time' | 'nodes' | 'depth' | 'aborted' | 'none';
 
 /** 搜索统计快照 */
 export interface AiSearchStats {
+  /** 实际评分后端；不表示整个搜索或证明过程都在该语言中执行。 */
+  backend?: 'ts' | 'rust-wasm';
   /** 只有独立规则检查器认可证书后才为 win；高估分不是证明 */
   proofStatus?: 'win' | 'unknown';
   winningProof?: WinningProof;

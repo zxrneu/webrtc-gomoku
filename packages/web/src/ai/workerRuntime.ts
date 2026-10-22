@@ -1,5 +1,5 @@
 /** Worker 的消息编排；调度和时钟可注入，无浏览器依赖的单测。 */
-import { currentColor, loadWinningStrategy, MATE_SCORE, type WinningStrategy } from '@webrtc-gomoku/core';
+import { createWasmSearchSession, currentColor, loadWinningStrategy, MATE_SCORE, type WinningStrategy } from '@webrtc-gomoku/core';
 import type { DriverOptions } from './searchDriver';
 import { runSearchSharded } from './searchDriver';
 import { isWorkerRequest, type WorkerResponse } from './workerProtocol';
@@ -33,11 +33,13 @@ export function createSearchWorkerHandler(
         send({ t: 'result', id: data.id, move: [proof.at % 15, Math.floor(proof.at / 15)], stats: {
           depth: 0, nodes: 0, elapsedMs: 0, cutoff: 'depth', bestScore: MATE_SCORE - 1,
           fromOpening: false, proofStatus: 'win', winningProof: proof,
+          backend: 'ts',
         } });
       });
       return;
     }
     const effectiveDriver: DriverOptions = {
+      createSession: createWasmSearchSession,
       sliceMs: driver.sliceMs ?? DEFAULT_WORKER_SLICE_MS,
       ...driver,
     };

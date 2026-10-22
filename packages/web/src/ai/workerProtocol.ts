@@ -37,6 +37,7 @@ function isGame(value: unknown): value is GameState {
 }
 function isOptions(value: unknown): value is SearchOptions {
   if (!isRecord(value) || 'now' in value) return false;
+  if (value.backend !== undefined && value.backend !== 'ts' && value.backend !== 'rust-wasm') return false;
   if (value.difficulty !== undefined && !['easy', 'normal', 'hard'].includes(String(value.difficulty))) return false;
   return ['timeBudgetMs', 'maxDepth', 'maxNodes', 'vcfMaxNodes', 'pnsMaxNodes', 'pnsTimeBudgetMs'].every((key) => value[key] === undefined ||
     (typeof value[key] === 'number' && Number.isFinite(value[key]) && value[key] >= 0));
@@ -52,6 +53,7 @@ export function isWorkerResponse(value: unknown): value is WorkerResponse {
   if (value.move !== null && !isPoint(value.move)) return false;
   const stats = value.stats;
   if (!isRecord(stats) || typeof stats.fromOpening !== 'boolean') return false;
+  if (stats.backend !== undefined && stats.backend !== 'ts' && stats.backend !== 'rust-wasm') return false;
   if (!['time', 'nodes', 'depth', 'aborted', 'none'].includes(String(stats.cutoff))) return false;
   return ['depth', 'nodes', 'elapsedMs', 'bestScore'].every((key) =>
     typeof stats[key] === 'number' && Number.isFinite(stats[key]));

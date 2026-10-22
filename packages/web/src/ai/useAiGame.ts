@@ -29,7 +29,8 @@ import {
   undoPair,
 } from './aiGame';
 import type { AiSettings } from './aiStorage';
-import { loadAiSettings, saveDifficulty, savePlayerColor } from './aiStorage';
+import { loadAiBackend, loadAiSettings, saveAiBackend, saveDifficulty, savePlayerColor } from './aiStorage';
+import type { AiBackend } from './backendOptions';
 import { runAiSearch } from './aiSearch';
 import { useAiHint } from './useAiHint';
 
@@ -43,6 +44,10 @@ export interface AiGameApi extends ReturnType<typeof useAiHint> {
   readonly difficulty: Difficulty;
   /** 已选择但尚未生效的难度（下一局生效，PRD US-2） */
   readonly pendingDifficulty: Difficulty;
+  /** 当前选择的评分引擎；不可用时搜索层仍可回退 TS。 */
+  readonly backend: AiBackend;
+  /** 切换引擎保留棋局，取消当前分析并用于后续搜索。 */
+  readonly setBackend: (backend: AiBackend) => void;
   /** AI 是否正在思考（思考期禁落子） */
   readonly thinking: boolean;
   /** AI 最后一手（用于棋盘区分标记与面板信息） */
@@ -70,12 +75,13 @@ export interface AiGameApi extends ReturnType<typeof useAiHint> {
 export function useAiGame(mode: GameMode): AiGameApi {
   // 初始值来自 localStorage（异常自动降级为「最强 + 执黑」），只读一次
   const [settings, setSettings] = useState<AiSettings>(loadAiSettings);
+  const [backend, setCurrentBackend] = useState<AiBackend>(loadAiBackend);
   const [pendingDifficulty, setPendingDifficulty] = useState<Difficulty>(settings.difficulty);
   const [game, setGame] = useState<GameState>(createAiGame);
   const [thinking, setThinking] = useState(false);
   const [gameRevision, setGameRevision] = useState(0);
 
-  const hint = useAiHint(game, settings.playerColor, mode === 'ai');
+  const hint = useAiHint(game, settings.playerColor, { enabled: mode === 'ai', backend });
 
   /** 当前搜索的取消函数（卸载 / 切模式 / 悔棋 / 重开必须调用） */
   const cancelRef = useRef<(() => void) | null>(null);
@@ -108,7 +114,7 @@ export function useAiGame(mode: GameMode): AiGameApi {
     const cancel = runAiSearch(
       game,
       aiColor,
-      { difficulty: settings.difficulty },
+      { difficulty: settings.difficulty, backend },
       {},
       (move) => {
         cancelRef.current = null;
@@ -129,7 +135,7 @@ export function useAiGame(mode: GameMode): AiGameApi {
       cancel();
     };
     // 新局编号保证同手数、同设置的重开也会重新评估 AI 回合
-  }, [game.moves.length, mode, settings.playerColor, settings.difficulty, gameRevision]);
+  }, [game.moves.length, mode, settings.playerColor, settings.difficulty, backend, gameRevision]);
 
   /* ---------------- 玩家操作 ---------------- */
 
@@ -178,12 +184,19 @@ export function useAiGame(mode: GameMode): AiGameApi {
     setPendingDifficulty(difficulty);
   }, []);
 
+  const setBackend = useCallback((next: AiBackend) => {
+    saveAiBackend(next);
+    setCurrentBackend(next);
+  }, []);
+
   return {
     ...hint,
     aiGame: game,
     playerColor: settings.playerColor,
     difficulty: settings.difficulty,
     pendingDifficulty,
+    backend,
+    setBackend,
     thinking,
     aiLastMove: lastMoveOf(game, aiColorOf(settings.playerColor)),
     canUndo: canUndoPair(game, settings.playerColor, thinking),

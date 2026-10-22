@@ -23,6 +23,7 @@ import {
 } from './types';
 import { combineScores, pointScore, windowScoreAt } from './pattern';
 import { DEFENSE_WEIGHT } from './config';
+import type { PositionScoring } from './scoring';
 
 /** 终局分值：任何五连都远超普通棋型，保证搜索优先取胜 */
 export const MATE_SCORE = 10_000_000;
@@ -47,6 +48,8 @@ const NEIGHBOR_IDXS = buildNeighbors();
 
 /** 增量评估状态：棋盘 + 缓存 + 双方总分 + 候选位掩码 + 假设点分缓存 */
 export interface PositionState {
+  /** 可选的会话私有评分后端，与 cells 同步落子/撤子。 */
+  readonly scoring?: PositionScoring;
   /** 内部棋盘 */
   readonly cells: AiBoard;
   /** 每格按 owner 颜色缓存的 4 方向棋型分，长度 225 * 4 */
@@ -154,7 +157,7 @@ function pointScoreFromCache(st: PositionState, cell: number): number {
 function refreshAllDirections(st: PositionState, cell: number, color: PlayerColor): void {
   const base = cell * 4;
   for (let d = 0; d < 4; d += 1) {
-    st.dirScore[base + d] = windowScoreAt(st.cells, cell, d, color);
+    st.dirScore[base + d] = st.scoring ? st.scoring.windowScore(cell, d, color) : windowScoreAt(st.cells, cell, d, color);
   }
 }
 
@@ -192,7 +195,7 @@ function refreshAround(st: PositionState, cell: number): void {
     if (d < 0) {
       refreshAllDirections(st, p, asPlayer(owner));
     } else {
-      st.dirScore[p * 4 + d] = windowScoreAt(st.cells, p, d, asPlayer(owner));
+      st.dirScore[p * 4 + d] = st.scoring ? st.scoring.windowScore(p, d, owner) : windowScoreAt(st.cells, p, d, asPlayer(owner));
     }
     syncPointScore(st, p);
   }
@@ -219,12 +222,13 @@ function bumpNeighbor(st: PositionState, cell: number, delta: number): void {
 }
 
 /** 由内部棋盘构建完整评估状态（唯一一次全盘扫描） */
-export function createPositionState(board: AiBoard): PositionState {
+export function createPositionState(board: AiBoard, scoring?: PositionScoring): PositionState {
   const cells = new Int8Array(AI_CELLS);
   for (let cell = 0; cell < AI_CELLS; cell += 1) {
     setCellAtIdx(cells, cell, cellAtIdx(board, cell));
   }
   const st: PositionState = {
+    scoring,
     cells,
     dirScore: new Int32Array(AI_CELLS * 4),
     pointScore: new Int32Array(AI_CELLS),
@@ -253,6 +257,7 @@ export function createPositionState(board: AiBoard): PositionState {
     },
     stoneCount: 0,
   };
+  scoring?.setBoard(cells);
   for (let cell = 0; cell < AI_CELLS; cell += 1) {
     const owner = cellAtIdx(cells, cell);
     if (owner === 0) continue;
@@ -267,6 +272,7 @@ export function createPositionState(board: AiBoard): PositionState {
 /** 落子（原地修改；调用方必须成对调用 removeStone） */
 export function placeStone(st: PositionState, cell: number, color: PlayerColor): void {
   setCellAtIdx(st.cells, cell, color);
+  st.scoring?.setCell(cell, color);
   st.candidateMask[cell >>> 5]! &= ~(1 << (cell & 31));
   st.stoneCount += 1;
   bumpNeighbor(st, cell, 1);
@@ -276,6 +282,7 @@ export function placeStone(st: PositionState, cell: number, color: PlayerColor):
 /** 撤子（原地修改） */
 export function removeStone(st: PositionState, cell: number): void {
   setCellAtIdx(st.cells, cell, 0);
+  st.scoring?.setCell(cell, 0);
   if ((st.neighbor[cell] ?? 0) > 0) {
     st.candidateMask[cell >>> 5]! |= (1 << (cell & 31));
   }
@@ -298,7 +305,7 @@ export function getHypoPointScore(st: PositionState, cell: number, color: Player
   if (st.hypoValid[key] === 1) {
     return st.hypoScore[key] ?? 0;
   }
-  const score = pointScore(st.cells, cell, color);
+  const score = st.scoring ? st.scoring.pointScore(cell, color) : pointScore(st.cells, cell, color);
   st.hypoScore[key] = score;
   st.hypoValid[key] = 1;
   return score;

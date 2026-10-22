@@ -32,6 +32,10 @@
   outline-offset: 2px;
 }
 
+.backend {
+  width: 112px;
+}
+
 .note {
   flex-basis: 100%;
   margin: 0;

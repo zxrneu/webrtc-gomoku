@@ -101,6 +101,8 @@ export { SEED_HI, SEED_LO, ZOBRIST, buildZobristTables, hashBoard } from './zobr
 export { openingMove } from './opening';
 
 export { SearchSession, createSearchSession, findBestMove } from './search';
+export { createWasmSearchSession } from './wasm/session';
+export type { PositionScoring } from './scoring';
 
 export type { WinningProof } from './proof';
 export { verifyWinningProof } from './proof';

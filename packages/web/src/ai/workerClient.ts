@@ -37,7 +37,7 @@ class WorkerDriver {
     const request = this.createRequest(input, driver, done);
     this.active = request;
     try {
-      if (options.now || driver.now || driver.schedule) request.fallback();
+      if (options.now || driver.now || driver.schedule || driver.createSession) request.fallback();
       else this.send(input, request);
     } catch { this.fail(); }
     return request.cancel;

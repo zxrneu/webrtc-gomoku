@@ -1,6 +1,7 @@
 /** 内嵌 Worker 随单文件页面离线分发，不额外请求脚本。 */
 import AiWorker from './search.worker?worker&inline';
 import { createWorkerSearchDriver, type SearchWorker } from './workerClient';
+import { withBackendPreference } from './backendOptions';
 
 function createBrowserWorker(): SearchWorker | null {
   if (typeof Worker === 'undefined') return null;
@@ -23,4 +24,8 @@ function createBrowserWorker(): SearchWorker | null {
   };
 }
 
-export const runAiSearch = createWorkerSearchDriver(createBrowserWorker);
+const search = createWorkerSearchDriver(createBrowserWorker);
+// 大厅会改写地址；在应用启动时保留对照偏好，避免导航后悄悄切换后端。
+const initialQuery = globalThis.location?.search ?? '';
+export const runAiSearch: typeof search = (game, color, options, driver, done) =>
+  search(game, color, withBackendPreference(options, initialQuery), driver, done);

@@ -16,7 +16,11 @@ Rust 链路尚未生成空盘必胜证书，也未接入浏览器对手；它提
 
 Worker 以 Blob 内联到构建产物，HTTP 页面和直接打开的 `dist/gomoku-standalone.html` 都可离线下棋。Worker 不可用、初始化失败或消息异常时，自动使用可取消的主线程分片搜索。
 
-一个 Worker 使用一个计算线程，主要改善交互响应；当前没有实现多核搜索池。独立 [Rust/WASM 原型](../../crates/gomoku-kernel/src/lib.rs)及[差分台架](../../scripts/ai-differential-bench.mjs)已存在，尚未接入浏览器对局搜索，生产路径仍为 TypeScript。Worker 默认每片 250ms，主线程回退每片 32ms。分片通过生成器保留递归栈与棋盘，暂停后继续同一个候选。连续冲四搜索也遵守分片；总预算不足一层时返回合法兜底手，完成深度保持为 0。
+一个 Worker 使用一个计算线程，主要改善交互响应；当前没有实现多核搜索池。Worker 默认通过 [WASM 会话工厂](../../packages/core/src/ai/wasm/session.ts)将 Rust/WASM 接入增量方向评分和假设落点评分，现有 TypeScript 迭代加深、置换表、VCF/PNS、反杀与证书检查继续执行。每个会话拥有独立 WASM 实例和棋盘，落子/撤子同步两侧状态，WASM 初始化失败时使用 TS；Worker 不可用时继续使用主线程 TS 分片回退。这里接入的是 [gomoku-kernel](../../crates/gomoku-kernel/src/lib.rs)，离线 `gomoku-solver` 保持独立。
+
+默认启用 Rust/WASM 评分；人机界面顶部“引擎”可选 Rust/WASM 或 TS，并本地记忆。切换保留棋盘、取消旧搜索，当前 AI 回合改用新引擎，旧提示清除，后续提示跟随选择。首次打开页面的 `?aiEngine=ts` 或 `?aiEngine=rust-wasm` 优先于已保存选择，页面内选择器可继续修改。`AiOptions.backend` 显式配置优先，Worker 回复的 `stats.backend` 表示实际评分后端；策略证书直接执行与主线程回退使用 TS。页面首载捕获后端偏好，后续大厅路由切换不会丢失选择。WASM 字节码内嵌，无额外网络依赖。生产算法的同预算比较见 [实际搜索接入实测](wasm-production-report.md)，原有 [固定深度差分台架](../../scripts/ai-differential-bench.mjs)仍单独保留。
+
+Worker 默认每片 250ms，主线程回退每片 32ms。分片通过生成器保留递归栈与棋盘，暂停后继续同一个候选。连续冲四搜索也遵守分片；总预算不足一层时返回合法兜底手，完成深度保持为 0。
 
 ## 求胜与证明
 

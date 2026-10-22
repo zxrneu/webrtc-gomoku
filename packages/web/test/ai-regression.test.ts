@@ -30,6 +30,7 @@ import {
 } from '../src/ai/aiGame';
 import type { AiGameApi } from '../src/ai/useAiGame';
 import { useAiGame } from '../src/ai/useAiGame';
+import * as aiSearch from '../src/ai/aiSearch';
 import type { GameMode } from '../src/types';
 
 /* ------------------------------------------------------------------ *
@@ -334,6 +335,53 @@ afterEach(() => {
  * ------------------------------------------------------------------ */
 
 describe('useAiGame 编排（真实 hook 驱动）', () => {
+  it('切换引擎保留棋盘并取消旧对手搜索，以新引擎继续当前回合', () => {
+    const cancelled = vi.fn();
+    const search = vi.spyOn(aiSearch, 'runAiSearch').mockReturnValue(cancelled);
+    const runtime = mountAi({ color: BLACK });
+    expect(runtime.current.backend).toBe('rust-wasm');
+    runtime.current.play(7, 7);
+    const board = runtime.current.aiGame;
+    expect(search.mock.calls[0]?.[2].backend).toBe('rust-wasm');
+
+    runtime.current.setBackend('ts');
+
+    expect(cancelled).toHaveBeenCalledTimes(1);
+    expect(runtime.current.aiGame).toBe(board);
+    expect(runtime.current.thinking).toBe(true);
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(search.mock.calls[1]?.[2].backend).toBe('ts');
+    expect(globalThis.localStorage.getItem('gomoku.ai.backend')).toBe('ts');
+  });
+
+  it('切换引擎取消旧提示，下一次提示使用新引擎', () => {
+    const cancelled = vi.fn();
+    const search = vi.spyOn(aiSearch, 'runAiSearch').mockReturnValue(cancelled);
+    const runtime = mountAi({ color: BLACK });
+    runtime.current.requestHint();
+    expect(search.mock.calls[0]?.[2].backend).toBe('rust-wasm');
+    expect(runtime.current.hintThinking).toBe(true);
+
+    runtime.current.setBackend('ts');
+
+    expect(cancelled).toHaveBeenCalledTimes(1);
+    expect(runtime.current.hintThinking).toBe(false);
+    expect(runtime.current.hint).toBeNull();
+    runtime.current.requestHint();
+    expect(search.mock.calls[1]?.[2].backend).toBe('ts');
+  });
+
+  it('重复选择当前引擎不打断正在进行的搜索', () => {
+    const cancelled = vi.fn();
+    const search = vi.spyOn(aiSearch, 'runAiSearch').mockReturnValue(cancelled);
+    const runtime = mountAi({ color: BLACK });
+    runtime.current.play(7, 7);
+    runtime.current.setBackend('rust-wasm');
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(cancelled).not.toHaveBeenCalled();
+    expect(runtime.current.thinking).toBe(true);
+  });
+
   it('默认执黑：挂载后不思考，轮到玩家落子', () => {
     const runtime = mountAi({ color: BLACK });
     const api = runtime.current;

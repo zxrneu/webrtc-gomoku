@@ -13,10 +13,19 @@ const game = createAiGame();
 const api: AiGameApi = {
   aiGame: game, playerColor: BLACK, difficulty: 'hard', pendingDifficulty: 'easy', thinking: false,
   aiLastMove: null, canUndo: false, play: noop, undo: noop, restart: noop, setPlayerColor: noop,
-  setDifficulty: noop, hint: null, hintThinking: false, hintUnavailable: false, canHint: true, requestHint: noop,
+  setDifficulty: noop, backend: 'rust-wasm', setBackend: noop,
+  hint: null, hintThinking: false, hintUnavailable: false, canHint: true, requestHint: noop,
 };
 
 describe('人机布局集中操作', () => {
+  it('顶部引擎选择提供 Rust/WASM 和 TS 并标出当前选择', () => {
+    const html = renderToStaticMarkup(React.createElement(AiPanel, { api: { ...api, backend: 'ts' }, over: false }));
+    expect(html).toContain('id="ai-backend"');
+    expect(html).toContain('aria-label="选择 AI 引擎"');
+    expect(html).toContain('<option value="rust-wasm">Rust/WASM</option>');
+    expect(html).toContain('<option value="ts" selected="">TS</option>');
+  });
+
   it('顶部设置只保留难度和执子，避免重复对局操作', () => {
     const html = renderToStaticMarkup(React.createElement(AiPanel, { api, over: false }));
     expect(html).toContain('aria-label="选择难度"');

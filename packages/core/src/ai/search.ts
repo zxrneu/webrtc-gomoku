@@ -52,6 +52,7 @@ import {
 } from './tt';
 import { ZOBRIST, pieceHi, pieceLo } from './zobrist';
 import { openingMove } from './opening';
+import type { PositionScoring } from './scoring';
 
 /** 无穷大分值 */
 const INF = 1 << 30;
@@ -133,12 +134,12 @@ export class SearchSession implements AiSession {
   private static readonly PLY_STRIDE = 16;
   private readonly plyMoves = new Int16Array(SearchSession.MAX_PLY * SearchSession.PLY_STRIDE);
 
-  constructor(g: GameState, color: PlayerColor, resolved: ResolvedOptions) {
+  constructor(g: GameState, color: PlayerColor, resolved: ResolvedOptions & { scoring?: PositionScoring }) {
     this.resolved = resolved;
     this.gameSnapshot = { ...g, board: g.board.map((row) => row.slice()), moves: g.moves.map((move) => ({ ...move })) };
     this.difficulty = resolved.difficulty;
     this.me = color;
-    this.st = createPositionState(fromGameState(g));
+    this.st = createPositionState(fromGameState(g), resolved.scoring);
     this.tt = createTranspositionTable();
     this.vcfDepth = VCF_DEPTH[resolved.difficulty];
     const now = resolved.now;
@@ -625,11 +626,11 @@ export class SearchSession implements AiSession {
 export function createSearchSession(
   g: GameState,
   color: PlayerColor,
-  opts: AiOptions = {},
+  opts: AiOptions & { scoring?: PositionScoring } = {},
 ): AiSession {
   const resolved = resolveOptions(opts);
   if (!isValidInput(g, color)) return new NullSession(resolved.difficulty);
-  return new SearchSession(g, color, resolved);
+  return new SearchSession(g, color, { ...resolved, scoring: opts.scoring });
 }
 
 /** 一步求解：内部即 createSearchSession + 跑完所有分片 */

@@ -26,6 +26,8 @@ import { DEFAULT_SLICE_MS, createSearchSession } from '@webrtc-gomoku/core';
 
 /** 调度器可注入项（全部有默认值，生产代码不传） */
 export interface DriverOptions {
+  /** 会话工厂注入；Worker 可选择 Rust/WASM，主线程回退保留 TS。 */
+  createSession?: typeof createSearchSession;
   /** 单片搜索时长（毫秒），默认取 core 的 `DEFAULT_SLICE_MS`（32） */
   sliceMs?: number;
   /** 时间源，默认 `() => performance.now()`（web 层唯一允许直读 performance 的地方） */
@@ -59,7 +61,7 @@ export function runSearchSharded(
   const sliceMs = driver.sliceMs ?? DEFAULT_SLICE_MS;
   const now = aiOpts.now ?? driver.now ?? ((): number => performance.now());
   const schedule = driver.schedule ?? defaultSchedule;
-  const session = createSearchSession(g, color, { ...aiOpts, now });
+  const session = (driver.createSession ?? createSearchSession)(g, color, { ...aiOpts, now });
 
   let cancelled = false;
 

@@ -31,6 +31,7 @@
     "ai:rust:move": "cargo run --locked --release --manifest-path crates/gomoku-solver/Cargo.toml -- move",
     "ai:rust:export": "cargo run --locked --release --manifest-path crates/gomoku-solver/Cargo.toml -- export",
     "ai:bench": "pnpm build:core && node scripts/ai-bench.mjs",
+    "ai:bench:wasm": "pnpm build:core && node scripts/ai-wasm-bench.mjs",
     "bench:differential": "pnpm build:core && node --import tsx scripts/ai-differential-bench.mjs",
     "test:https": "node test/https.e2e.js",
     "https:setup": "node scripts/setup-https.mjs",
